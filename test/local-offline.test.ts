@@ -46,6 +46,43 @@ afterEach(async () => {
 });
 
 describe('local/offline embedding flow', () => {
+  test('deferred re-import marks rewritten chunks as missing embeddings', async () => {
+    const firstProvider = createFakeProvider();
+    setEmbeddingProviderForTests(firstProvider.provider);
+
+    const filePath = join(tempDir, 'rewritten.md');
+    writeFileSync(filePath, `---
+type: concept
+title: Rewritten
+---
+
+Original chunk content for the page.
+`);
+
+    await importFile(engine, filePath, 'concepts/rewritten.md');
+    await runEmbed(engine, ['concepts/rewritten']);
+
+    const embeddedBeforeRewrite = await engine.getChunks('concepts/rewritten');
+    expect(embeddedBeforeRewrite.every(chunk => chunk.embedded_at instanceof Date)).toBe(true);
+
+    writeFileSync(filePath, `---
+type: concept
+title: Rewritten
+---
+
+Updated chunk content for the same page.
+`);
+
+    const secondImport = await importFile(engine, filePath, 'concepts/rewritten.md');
+    expect(secondImport.status).toBe('imported');
+
+    const chunksAfterRewrite = await engine.getChunks('concepts/rewritten');
+    expect(chunksAfterRewrite).toHaveLength(1);
+    expect(chunksAfterRewrite[0].chunk_text).toContain('Updated chunk content');
+    expect(chunksAfterRewrite[0].embedded_at).toBeNull();
+    expect(chunksAfterRewrite[0].model).toBe('text-embedding-3-large');
+  });
+
   test('stale-only embedding updates only missing chunks', async () => {
     const fake = createFakeProvider();
     setEmbeddingProviderForTests(fake.provider);
@@ -124,5 +161,52 @@ This page should only be embedded during explicit backfill.
     expect(after.map(chunk => chunk.embedded_at?.toISOString())).toEqual(
       before.map(chunk => chunk.embedded_at?.toISOString()),
     );
+  });
+
+  test('page-level explicit embed rebuilds already-embedded chunks', async () => {
+    const firstProvider = createFakeProvider();
+    setEmbeddingProviderForTests(firstProvider.provider);
+
+    const filePath = join(tempDir, 'page-rebuild.md');
+    writeFileSync(filePath, `---
+type: concept
+title: Page Rebuild
+---
+
+First chunk sentence.
+
+---
+
+Timeline sentence.
+`);
+
+    await importFile(engine, filePath, 'concepts/page-rebuild.md');
+    await runEmbed(engine, ['concepts/page-rebuild']);
+
+    const initialChunks = await engine.getChunks('concepts/page-rebuild');
+    expect(initialChunks.every(chunk => chunk.model === 'test-local-v1')).toBe(true);
+
+    const rebuildBatches: string[][] = [];
+    setEmbeddingProviderForTests({
+      capability: {
+        available: true,
+        mode: 'local',
+        implementation: 'test-local',
+        model: 'test-local-v2',
+        dimensions: 3,
+      },
+      embedBatch: async (texts: string[]) => {
+        rebuildBatches.push([...texts]);
+        return texts.map((text, index) => new Float32Array([text.length, index + 10, 2]));
+      },
+    });
+
+    await runEmbed(engine, ['concepts/page-rebuild']);
+
+    expect(rebuildBatches).toEqual([initialChunks.map(chunk => chunk.chunk_text)]);
+
+    const rebuiltChunks = await engine.getChunks('concepts/page-rebuild');
+    expect(rebuiltChunks.every(chunk => chunk.model === 'test-local-v2')).toBe(true);
+    expect(rebuiltChunks.every(chunk => chunk.embedded_at instanceof Date)).toBe(true);
   });
 });

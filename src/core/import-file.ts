@@ -71,9 +71,8 @@ export async function importFromContent(
       await tx.addTag(slug, tag);
     }
 
-    if (chunks.length > 0) {
-      await tx.upsertChunks(slug, chunks);
-    }
+    await tx.deleteChunks(slug);
+    await tx.upsertChunks(slug, chunks);
   });
 
   return { slug, status: 'imported', chunks: chunks.length };

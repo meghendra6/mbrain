@@ -15,7 +15,7 @@ export async function runEmbed(engine: BrainEngine, args: string[]) {
   }
 
   if (slug) {
-    await embedPage(engine, slug, provider, true);
+    await embedPage(engine, slug, provider, staleOnly);
     return;
   }
 
