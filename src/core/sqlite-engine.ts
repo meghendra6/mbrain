@@ -5,6 +5,7 @@ import { homedir } from 'os';
 import { dirname, join } from 'path';
 import type { BrainEngine } from './engine.ts';
 import { LATEST_VERSION } from './migrate.ts';
+import { slugifyPath } from './sync.ts';
 import type {
   Page, PageInput, PageFilters, PageType,
   Chunk, ChunkInput,
@@ -141,6 +142,28 @@ CREATE TABLE IF NOT EXISTS ingest_log (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
+CREATE TABLE IF NOT EXISTS access_tokens (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  scopes TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  last_used_at TEXT,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_access_tokens_hash
+  ON access_tokens (token_hash)
+  WHERE revoked_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS mcp_request_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_name TEXT,
+  operation TEXT NOT NULL,
+  latency_ms INTEGER,
+  status TEXT NOT NULL DEFAULT 'success',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
 CREATE TABLE IF NOT EXISTS config (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -197,8 +220,13 @@ export class SQLiteEngine implements BrainEngine {
         ('chunk_strategy', 'semantic')`,
       [String(LATEST_VERSION), DEFAULT_EMBEDDING_MODEL],
     );
-    db.run(`UPDATE config SET value = ? WHERE key = 'version'`, [String(LATEST_VERSION)]);
     db.run(`UPDATE config SET value = 'sqlite' WHERE key = 'engine'`);
+
+    const current = parseVersion(await this.getConfig('version'));
+    if (current < LATEST_VERSION) {
+      await this.runSqliteMigrations(current);
+    }
+
     db.exec(`INSERT INTO pages_fts(pages_fts) VALUES ('rebuild')`);
   }
 
@@ -751,10 +779,11 @@ export class SQLiteEngine implements BrainEngine {
   }
 
   async updateSlug(oldSlug: string, newSlug: string): Promise<void> {
-    this.database.run(`UPDATE pages SET slug = ?, updated_at = ? WHERE slug = ?`, [
+    this.database.run(`UPDATE pages SET slug = ?, updated_at = ? WHERE slug = ? OR lower(slug) = ?`, [
       validateSlug(newSlug),
       nowIso(),
-      validateSlug(oldSlug),
+      oldSlug,
+      oldSlug.toLowerCase(),
     ]);
   }
 
@@ -772,6 +801,68 @@ export class SQLiteEngine implements BrainEngine {
       INSERT INTO config (key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `, [key, value]);
+  }
+
+  private async runSqliteMigrations(current: number): Promise<void> {
+    for (let version = current + 1; version <= LATEST_VERSION; version += 1) {
+      switch (version) {
+        case 2:
+          await this.migrateLegacySlugs();
+          break;
+        case 3:
+          this.database.exec(`
+            DELETE FROM content_chunks
+            WHERE id NOT IN (
+              SELECT MIN(id) FROM content_chunks GROUP BY page_id, chunk_index
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_page_index
+              ON content_chunks(page_id, chunk_index);
+          `);
+          break;
+        case 4:
+          this.database.exec(`
+            CREATE TABLE IF NOT EXISTS access_tokens (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              token_hash TEXT NOT NULL UNIQUE,
+              scopes TEXT NOT NULL DEFAULT '[]',
+              created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+              last_used_at TEXT,
+              revoked_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_access_tokens_hash
+              ON access_tokens (token_hash)
+              WHERE revoked_at IS NULL;
+            CREATE TABLE IF NOT EXISTS mcp_request_log (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              token_name TEXT,
+              operation TEXT NOT NULL,
+              latency_ms INTEGER,
+              status TEXT NOT NULL DEFAULT 'success',
+              created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+          `);
+          break;
+      }
+
+      await this.setConfig('version', String(version));
+    }
+  }
+
+  private async migrateLegacySlugs(): Promise<void> {
+    const pages = await this.listPages();
+    for (const page of pages) {
+      const newSlug = slugifyPath(page.slug);
+      if (newSlug !== page.slug) {
+        try {
+          await this.updateSlug(page.slug, newSlug);
+          await this.rewriteLinks(page.slug, newSlug);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error(`  Warning: could not rename "${page.slug}" → "${newSlug}": ${message}`);
+        }
+      }
+    }
   }
 
   private async requirePage(slug: string): Promise<Page> {
@@ -812,6 +903,11 @@ function contentHash(compiledTruth: string, timeline: string): string {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function parseVersion(value: string | null): number {
+  const parsed = parseInt(value || String(LATEST_VERSION), 10);
+  return Number.isFinite(parsed) ? parsed : LATEST_VERSION;
 }
 
 function escapeLike(value: string): string {

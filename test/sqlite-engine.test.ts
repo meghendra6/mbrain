@@ -1,3 +1,4 @@
+import { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
@@ -297,5 +298,34 @@ describe('SQLiteEngine', () => {
 
     expect(await engine.searchKeyword('keyword', { type: 'project' })).toEqual([]);
     expect(await engine.searchKeyword('keyword', { type: 'person', exclude_slugs: ['people/alice.md'] })).toEqual([]);
+  });
+
+  test('rerunning initSchema migrates downgraded legacy SQLite slugs before reporting latest version', async () => {
+    await putPage('people/alice.md', {
+      title: 'Alice Legacy',
+      compiled_truth: 'Legacy slug page.',
+    });
+
+    await engine.disconnect();
+
+    const raw = new Database(dbPath);
+    raw.exec('PRAGMA foreign_keys = ON;');
+    raw.run(`UPDATE config SET value = '1' WHERE key = 'version'`);
+    raw.run(`UPDATE pages SET slug = 'People/Alice.md' WHERE slug = 'people/alice.md'`);
+    raw.close();
+
+    engine = new SQLiteEngine();
+    await engine.connect({ engine: 'sqlite', database_path: dbPath });
+    await engine.initSchema();
+
+    expect(await engine.getConfig('version')).toBe('4');
+    expect((await engine.listPages()).map(page => page.slug)).toContain('people/alice');
+    expect((await engine.getPage('people/alice'))?.title).toBe('Alice Legacy');
+
+    const verify = new Database(dbPath, { readonly: true });
+    const row = verify.query(`SELECT slug FROM pages LIMIT 1`).get() as { slug: string };
+    verify.close();
+
+    expect(row.slug).toBe('people/alice');
   });
 });
