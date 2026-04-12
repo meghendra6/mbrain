@@ -32,6 +32,8 @@ available in local mode versus what must fail with honest guidance.
 - `supabase/functions/gbrain-mcp/index.ts` — Remote MCP server (Supabase Edge Function)
 - `src/edge-entry.ts` — Curated bundle entry point for Edge Function (excludes fs-dependent modules)
 - `src/commands/auth.ts` — Standalone token management (create/list/revoke/test)
+- `src/commands/setup-agent.ts` — Auto-detect Claude Code/Codex, register MCP, inject agent rules
+- `docs/GBRAIN_AGENT_RULES.md` — Compact behavioral rules for AI agents (injected by setup-agent)
 - `src/core/schema-embedded.ts` — AUTO-GENERATED from schema.sql (run `bun run build:schema`)
 - `src/schema.sql` — Full Postgres + pgvector DDL (source of truth, generates schema-embedded.ts)
 - `scripts/deploy-remote.sh` — One-script remote MCP deployment
@@ -42,7 +44,7 @@ available in local mode versus what must fail with honest guidance.
 
 ## Commands
 
-Run `gbrain --help` or `gbrain --tools-json` for full command reference. For local/offline contributors: `gbrain init --local` writes the SQLite/offline profile, and `gbrain serve` is the stdio MCP entrypoint both Codex and Claude Code consume. User-facing local setup docs now live in both `docs/local-offline.md` and `docs/local-offline.ko.md`.
+Run `gbrain --help` or `gbrain --tools-json` for full command reference. For local/offline contributors: `gbrain init --local` writes the SQLite/offline profile, `gbrain serve` is the stdio MCP entrypoint both Codex and Claude Code consume, and `gbrain setup-agent` auto-detects installed AI clients, registers the MCP server, and injects behavioral rules. User-facing local setup docs now live in both `docs/local-offline.md` and `docs/local-offline.ko.md`.
 
 ## Testing
 

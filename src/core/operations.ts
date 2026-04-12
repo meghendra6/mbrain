@@ -3,6 +3,8 @@
  * Each operation defines its schema, handler, and optional CLI hints.
  */
 
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 import type { BrainEngine } from './engine.ts';
 import type { GBrainConfig } from './config.ts';
 import { importFromContent } from './import-file.ts';
@@ -637,6 +639,114 @@ const file_url: Operation = {
   },
 };
 
+// --- Skillpack ---
+
+const get_skillpack: Operation = {
+  name: 'get_skillpack',
+  description: 'Read the GBrain SKILLPACK reference architecture. Returns the full document or a specific section by number/name. Use this to learn detailed patterns for enrichment, meeting ingestion, cron schedules, and more.',
+  params: {
+    section: { type: 'string', description: 'Section number or keyword (e.g. "5", "enrichment", "meeting", "cron"). Omit to get the compact agent rules.' },
+  },
+  handler: async (_ctx, p) => {
+    const section = p.section as string | undefined;
+
+    // If no section requested, return the compact agent rules
+    if (!section) {
+      const rulesPath = resolveDocPath('GBRAIN_AGENT_RULES.md');
+      if (!rulesPath) {
+        return { error: 'not_found', message: 'GBRAIN_AGENT_RULES.md not found in the gbrain package.' };
+      }
+      return { document: 'GBRAIN_AGENT_RULES.md', content: readFileSync(rulesPath, 'utf-8') };
+    }
+
+    // Load full SKILLPACK and extract section
+    const skillpackPath = resolveDocPath('GBRAIN_SKILLPACK.md');
+    if (!skillpackPath) {
+      return { error: 'not_found', message: 'GBRAIN_SKILLPACK.md not found in the gbrain package.' };
+    }
+
+    const fullContent = readFileSync(skillpackPath, 'utf-8');
+
+    // Try to find section by number (e.g. "## 5." or "## 5 ")
+    const sectionNum = parseInt(section, 10);
+    if (!isNaN(sectionNum)) {
+      const extracted = extractSection(fullContent, sectionNum);
+      if (extracted) {
+        return { document: 'GBRAIN_SKILLPACK.md', section: sectionNum, content: extracted };
+      }
+      return { error: 'section_not_found', message: `Section ${sectionNum} not found.`, available: listSections(fullContent) };
+    }
+
+    // Try keyword search in section headers
+    const keyword = section.toLowerCase();
+    const lines = fullContent.split('\n');
+    const matchingSections: Array<{ num: number; title: string }> = [];
+    for (const line of lines) {
+      const match = line.match(/^## (\d+[a-z]?)[\.\s]+(.+)/);
+      if (match && (match[2].toLowerCase().includes(keyword) || match[0].toLowerCase().includes(keyword))) {
+        matchingSections.push({ num: parseInt(match[1], 10), title: match[2].trim() });
+      }
+    }
+
+    if (matchingSections.length === 1) {
+      const extracted = extractSection(fullContent, matchingSections[0].num);
+      return { document: 'GBRAIN_SKILLPACK.md', section: matchingSections[0].num, title: matchingSections[0].title, content: extracted };
+    }
+
+    if (matchingSections.length > 1) {
+      return { matches: matchingSections, hint: 'Multiple sections match. Specify a section number.' };
+    }
+
+    return { error: 'section_not_found', message: `No section matching "${section}".`, available: listSections(fullContent) };
+  },
+  cliHints: { hidden: true },
+};
+
+function resolveDocPath(filename: string): string | null {
+  const candidates = [
+    join(process.cwd(), 'docs', filename),
+    join(__dirname, '..', '..', 'docs', filename),
+    join(__dirname, '..', 'docs', filename),
+  ];
+  for (const c of candidates) {
+    if (existsSync(c)) return c;
+  }
+  return null;
+}
+
+function extractSection(content: string, sectionNum: number): string | null {
+  const lines = content.split('\n');
+  let start = -1;
+  let end = lines.length;
+
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i].match(/^## (\d+)[a-z]?[\.\s]/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num === sectionNum && start === -1) {
+        start = i;
+      } else if (start !== -1 && num > sectionNum) {
+        end = i;
+        break;
+      }
+    }
+  }
+
+  if (start === -1) return null;
+  return lines.slice(start, end).join('\n').trim();
+}
+
+function listSections(content: string): Array<{ num: number; title: string }> {
+  const sections: Array<{ num: number; title: string }> = [];
+  for (const line of content.split('\n')) {
+    const match = line.match(/^## (\d+[a-z]?)[\.\s]+(.+)/);
+    if (match) {
+      sections.push({ num: parseInt(match[1], 10), title: match[2].replace(/\s*--\s*/, ' - ').trim() });
+    }
+  }
+  return sections;
+}
+
 // --- Exports ---
 
 export const operations: Operation[] = [
@@ -662,6 +772,8 @@ export const operations: Operation[] = [
   log_ingest, get_ingest_log,
   // Files
   file_list, file_upload, file_url,
+  // Skillpack
+  get_skillpack,
 ];
 
 function assertCapabilitySupported(
