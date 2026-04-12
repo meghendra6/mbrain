@@ -47,6 +47,7 @@ export async function runInit(args: string[]) {
       console.log(`\nLocal brain ready. ${stats.page_count} pages.`);
       console.log(`SQLite DB: ${engineConfig.database_path}`);
       console.log('Next: gbrain import <dir> to index your markdown locally.');
+      console.log('Then: gbrain setup-agent to configure Claude Code / Codex.');
     }
     return;
   }
@@ -139,7 +140,8 @@ export async function runInit(args: string[]) {
   } else {
     console.log(`\nBrain ready. ${stats.page_count} pages.`);
     console.log('Next: gbrain import <dir> to migrate your markdown.');
-    console.log('Production agent guide: docs/GBRAIN_SKILLPACK.md');
+    console.log('Then: gbrain setup-agent to configure Claude Code / Codex.');
+    console.log('Full reference: docs/GBRAIN_SKILLPACK.md');
   }
 }
 

@@ -18,7 +18,7 @@ import { operations, OperationError, PostgresEngine, VERSION } from './gbrain-co
 import type { OperationContext } from './gbrain-core.js';
 
 // Operations excluded from remote (may exceed 60s Edge Function timeout)
-const REMOTE_EXCLUDED = new Set(['sync_brain', 'file_upload']);
+const REMOTE_EXCLUDED = new Set(['sync_brain', 'file_upload', 'get_skillpack']);
 const remoteOps = operations.filter((op: any) => !REMOTE_EXCLUDED.has(op.name));
 
 // Database connection (lazy, one per isolate)

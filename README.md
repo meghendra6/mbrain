@@ -330,7 +330,15 @@ Per-client setup guides: [`docs/mcp/`](docs/mcp/DEPLOY.md)
 
 ChatGPT support requires OAuth 2.1 and is coming in v0.7. Self-hosted alternatives (Tailscale Funnel, ngrok) documented in [`docs/mcp/ALTERNATIVES.md`](docs/mcp/ALTERNATIVES.md).
 
-**The tools are not enough.** Your agent also needs the playbook: read [GBRAIN_SKILLPACK.md](docs/GBRAIN_SKILLPACK.md) and paste the relevant sections into your agent's system prompt or project instructions. The skillpack tells the agent WHEN and HOW to use each tool: read before responding, write after learning, detect entities on every message, back-link everything.
+**The tools are not enough.** Your agent also needs behavioral rules -- the brain-agent loop that makes knowledge compound. The fastest way:
+
+```bash
+gbrain setup-agent
+```
+
+This auto-detects Claude Code and/or Codex, registers the MCP server, and injects the core agent rules into each client's global config. See [docs/local-offline.md](docs/local-offline.md) Section 9 for details and options.
+
+For manual setup or deeper customization, read [GBRAIN_SKILLPACK.md](docs/GBRAIN_SKILLPACK.md) -- the full reference architecture covering enrichment pipelines, meeting ingestion, cron schedules, and more.
 
 The skill markdown files in `skills/` are standalone instruction sets. Copy them into your agent's context:
 

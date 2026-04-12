@@ -19,7 +19,7 @@ for (const op of operations) {
 }
 
 // CLI-only commands that bypass the operation layer
-const CLI_ONLY = new Set(['init', 'upgrade', 'check-update', 'import', 'export', 'files', 'embed', 'serve', 'call', 'config', 'doctor']);
+const CLI_ONLY = new Set(['init', 'upgrade', 'check-update', 'import', 'export', 'files', 'embed', 'serve', 'call', 'config', 'doctor', 'setup-agent']);
 
 async function main() {
   const args = process.argv.slice(2);
@@ -228,6 +228,11 @@ async function handleCliOnly(command: string, args: string[]) {
     await runInit(args);
     return;
   }
+  if (command === 'setup-agent') {
+    const { runSetupAgent } = await import('./commands/setup-agent.ts');
+    await runSetupAgent(args);
+    return;
+  }
   if (command === 'upgrade') {
     const { runUpgrade } = await import('./commands/upgrade.ts');
     await runUpgrade(args);
@@ -327,6 +332,7 @@ USAGE
 
 SETUP
   init [--supabase|--url <conn>]     Create brain (guided Postgres setup)
+  setup-agent [--claude|--codex]     Register MCP + inject agent rules
   upgrade                            Self-update
   check-update [--json]              Check for new versions
   doctor [--json]                    Health check (pgvector, RLS, schema, embeddings)

@@ -340,21 +340,68 @@ If you need a non-default config directory, use the same wrapper-script pattern 
 
 ---
 
-## 9. Using Codex and Claude Code simultaneously
+## 9. One-command agent setup: `gbrain setup-agent`
+
+Instead of manually registering MCP and copying behavioral rules, run:
+
+```bash
+gbrain setup-agent
+```
+
+This single command:
+
+1. **Detects** which AI clients are installed (`~/.claude/` and/or `~/.codex/`)
+2. **Registers** the MCP server with each detected client (if not already registered)
+3. **Injects** the GBrain agent rules into each client's global config
+
+The agent rules teach your AI client the brain-agent loop: read brain before responding, write new information back, detect entities on every message, and back-link everything. Without these rules the MCP tools are available but the knowledge compounding does not happen.
+
+### Options
+
+```bash
+gbrain setup-agent              # auto-detect and set up all installed clients
+gbrain setup-agent --claude     # Claude Code only
+gbrain setup-agent --codex      # Codex only
+gbrain setup-agent --skip-mcp   # inject rules only, skip MCP registration
+gbrain setup-agent --print      # print the rules to stdout instead of writing files
+gbrain setup-agent --json       # machine-readable output
+```
+
+### What gets written
+
+| Client | MCP registration | Rules injected into |
+|--------|-----------------|---------------------|
+| Claude Code | `claude mcp add gbrain -- gbrain serve` | `~/.claude/CLAUDE.md` |
+| Codex | `codex mcp add gbrain -- gbrain serve` | `~/.codex/AGENTS.md` |
+
+Rules are wrapped in `<!-- GBRAIN:RULES:START -->` / `<!-- GBRAIN:RULES:END -->` markers so existing content is never touched. Running `setup-agent` again updates the gbrain section in place.
+
+### After setup
+
+Start a new session in your AI client and verify:
+
+- ask it to list GBrain tools (should see `search`, `query`, `get_page`, etc.)
+- ask it about someone or something in your brain
+- confirm it checks the brain before answering
+
+---
+
+## 10. Using Codex and Claude Code simultaneously
 
 Both clients can connect to the same local brain at the same time. Each spawns its own `gbrain serve` process, and both read from the same SQLite database at `~/.gbrain/brain.db`. SQLite WAL mode makes concurrent reads safe.
 
-To set up both in one go:
+The quickest way to set up both:
 
 ```bash
-# initialize once
 gbrain init --local
 gbrain import ~/git/brain
+gbrain setup-agent               # registers MCP + injects rules for both clients
+```
 
-# register with Codex
+Or manually:
+
+```bash
 codex mcp add gbrain -- gbrain serve
-
-# register with Claude Code
 claude mcp add gbrain -- gbrain serve
 ```
 
@@ -365,7 +412,7 @@ After this:
 - reads are safe to share concurrently
 - writes from one session are visible to the other immediately
 
-No further configuration is needed. Both clients auto-spawn the server when they need it.
+Both clients auto-spawn the server when they need it.
 
 ---
 
