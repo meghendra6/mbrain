@@ -5,7 +5,7 @@ Set up GBrain from scratch. Target: working brain in under 5 minutes.
 ## Install (if not already installed)
 
 ```bash
-bun add github:garrytan/gbrain
+bun add github:meghendra6/gbrain
 ```
 
 ## How GBrain connects

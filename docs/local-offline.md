@@ -62,13 +62,13 @@ If you want the shortest path, copy these commands as-is:
 
 ```bash
 # 1) Install Bun if you do not already have it
-curl -fsSL https://bun.sh/install | bash
+curl -fsSL https://bun.com/install | bash
 
 # 2) Reload your shell so `bun` is on PATH
 exec /bin/zsh
 
 # 3) Install gbrain globally
-bun add -g github:garrytan/gbrain
+bun add -g github:meghendra6/gbrain
 
 # 4) Create a local/offline SQLite brain
 gbrain init --local
@@ -100,7 +100,7 @@ You do **not** need embeddings to start using the brain.
 If `bun --version` already works, skip this step.
 
 ```bash
-curl -fsSL https://bun.sh/install | bash
+curl -fsSL https://bun.com/install | bash
 exec /bin/zsh
 bun --version
 ```
@@ -110,7 +110,7 @@ Expected result: Bun prints a version string.
 ### Step 2: Install GBrain
 
 ```bash
-bun add -g github:garrytan/gbrain
+bun add -g github:meghendra6/gbrain
 gbrain --version
 ```
 

@@ -1,5 +1,5 @@
 <!-- skillpack-version: 0.5.0 -->
-<!-- source: https://raw.githubusercontent.com/garrytan/gbrain/master/docs/GBRAIN_SKILLPACK.md -->
+<!-- source: https://raw.githubusercontent.com/meghendra6/gbrain/master/docs/GBRAIN_SKILLPACK.md -->
 # GBrain Skillpack: Reference Architecture for AI Agents
 
 ## 1. What This Document Is
@@ -1126,14 +1126,14 @@ GBRAIN_RECOMMENDED_SCHEMA.md have version markers in their first lines:
 
 ```
 <!-- skillpack-version: 0.5.0 -->
-<!-- source: https://raw.githubusercontent.com/garrytan/gbrain/master/docs/GBRAIN_SKILLPACK.md -->
+<!-- source: https://raw.githubusercontent.com/meghendra6/gbrain/master/docs/GBRAIN_SKILLPACK.md -->
 ```
 
 **Self-update check:** Periodically fetch the first 3 lines of the source URL and
 compare the version marker against your local copy:
 
 ```bash
-curl -s https://raw.githubusercontent.com/garrytan/gbrain/master/docs/GBRAIN_SKILLPACK.md | head -1
+curl -s https://raw.githubusercontent.com/meghendra6/gbrain/master/docs/GBRAIN_SKILLPACK.md | head -1
 # Returns: <!-- skillpack-version: X.Y.Z -->
 ```
 
@@ -1143,7 +1143,7 @@ the full file and replace your local copy. Do the same for GBRAIN_RECOMMENDED_SC
 **Cron for standalone users:**
 Name: `gbrain-skillpack-update`
 Schedule: `0 9 * * 1` (weekly Monday 9 AM)
-Prompt: "Fetch the first line of https://raw.githubusercontent.com/garrytan/gbrain/master/docs/GBRAIN_SKILLPACK.md
+Prompt: "Fetch the first line of https://raw.githubusercontent.com/meghendra6/gbrain/master/docs/GBRAIN_SKILLPACK.md
 and compare the skillpack-version against my local copy. If newer, fetch the full
 file, re-read it, and tell the user what changed. Do the same for GBRAIN_RECOMMENDED_SCHEMA.md.
 If both are current, stay silent."

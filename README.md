@@ -197,12 +197,12 @@ Without an OpenAI key, search still works (keyword only, no vector search). With
 To install, paste this into [OpenClaw](https://openclaw.com) or [Hermes Agent](https://hermesagent.com) and we'll work with you to do the rest:
 
 ```
-Set up gbrain (https://github.com/garrytan/gbrain) as my
+Set up gbrain (https://github.com/meghendra6/gbrain) as my
 knowledge brain.
 
 1. Make sure bun is installed:
-   curl -fsSL https://bun.sh/install | bash
-   Then run: bun add github:garrytan/gbrain
+   curl -fsSL https://bun.com/install | bash
+   Then run: bun add github:meghendra6/gbrain
 
 2. Run: gbrain init --supabase
    (follow the wizard to connect my Supabase database)
@@ -264,7 +264,7 @@ GBrain works with any AI agent, any MCP client, or no agent at all. Three paths:
 Install globally and use gbrain from the terminal:
 
 ```bash
-bun add -g github:garrytan/gbrain
+bun add -g github:meghendra6/gbrain
 gbrain init --local             # boot a local/offline SQLite brain
 gbrain import ~/git/brain/      # index your markdown into SQLite
 gbrain query "what do we know about competitive dynamics?"
@@ -346,7 +346,7 @@ The skill markdown files in `skills/` are standalone instruction sets. Copy them
 #### As a TypeScript library
 
 ```bash
-bun add github:garrytan/gbrain
+bun add github:meghendra6/gbrain
 ```
 
 ```typescript
@@ -391,7 +391,7 @@ bun update gbrain
 clawhub update gbrain
 
 # Compiled binary
-# Download the latest from https://github.com/garrytan/gbrain/releases
+# Download the latest from https://github.com/meghendra6/gbrain/releases
 ```
 
 After upgrading, re-run the initializer that matches your profile to apply any schema migrations (idempotent, safe to re-run): `gbrain init --local` for SQLite or `gbrain init --supabase` / `gbrain init --url ...` for Postgres.

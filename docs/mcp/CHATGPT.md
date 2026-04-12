@@ -22,4 +22,4 @@ Until OAuth support ships, you can use GBrain with ChatGPT via a bridge:
 
 ## Timeline
 
-Follow [Issue #22](https://github.com/garrytan/gbrain/issues/22) for updates on ChatGPT OAuth support.
+Follow the [repository issue tracker](https://github.com/meghendra6/gbrain/issues) for updates on ChatGPT OAuth support.
