@@ -39,6 +39,7 @@ describe('config loading', () => {
       database_path: '~/.gbrain/brain.db',
       offline: true,
       embedding_provider: 'local',
+      embedding_model: 'bge-m3',
       query_rewrite_provider: 'heuristic',
     });
 
@@ -50,6 +51,7 @@ describe('config loading', () => {
       database_path: '~/.gbrain/brain.db',
       offline: true,
       embedding_provider: 'local',
+      embedding_model: 'bge-m3',
       query_rewrite_provider: 'heuristic',
     });
   });

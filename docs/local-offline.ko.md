@@ -49,6 +49,7 @@
   "database_path": "/Users/alice/.gbrain/brain.db",
   "offline": true,
   "embedding_provider": "local",
+  "embedding_model": "bge-m3",
   "query_rewrite_provider": "heuristic"
 }
 ```
@@ -209,7 +210,7 @@ gbrain embed --stale
 
 ```bash
 export OLLAMA_HOST=http://127.0.0.1:11434
-export GBRAIN_LOCAL_EMBEDDING_MODEL=nomic-embed-text
+export GBRAIN_LOCAL_EMBEDDING_MODEL=bge-m3
 gbrain embed --stale
 ```
 

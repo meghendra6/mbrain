@@ -161,6 +161,7 @@ describe('local/offline profile semantics', () => {
       database_path: join(tempDir, '.gbrain', 'brain.db'),
       offline: true,
       embedding_provider: 'local',
+      embedding_model: 'bge-m3',
       query_rewrite_provider: 'heuristic',
     });
     expect(readFileSync(join(tempDir, '.gbrain', 'config.json'), 'utf-8')).toContain('"engine": "sqlite"');
@@ -431,7 +432,7 @@ describe('local/offline embedding flow', () => {
       expect(init?.method).toBe('POST');
       expect(init?.headers).toEqual({ 'content-type': 'application/json' });
       expect(JSON.parse(String(init?.body ?? '{}'))).toEqual({
-        model: 'nomic-embed-text',
+        model: 'bge-m3',
         input: ['hello from default ollama'],
       });
 
@@ -457,7 +458,7 @@ describe('local/offline embedding flow', () => {
       expect(provider.capability.available).toBe(true);
       expect(provider.capability.mode).toBe('local');
       expect(provider.capability.implementation).toBe('local-http');
-      expect(provider.capability.model).toBe('nomic-embed-text');
+      expect(provider.capability.model).toBe('bge-m3');
       expect(provider.capability.dimensions).toBeNull();
 
       const embeddings = await provider.embedBatch(['hello from default ollama']);
@@ -494,6 +495,69 @@ describe('local/offline embedding flow', () => {
         delete process.env.GBRAIN_LOCAL_EMBEDDING_DIMENSIONS;
       } else {
         process.env.GBRAIN_LOCAL_EMBEDDING_DIMENSIONS = previousDimensions;
+      }
+    }
+  });
+
+  test('local provider prefers config embedding_model when env vars are unset', async () => {
+    const previousLocalUrl = process.env.GBRAIN_LOCAL_EMBEDDING_URL;
+    const previousOllama = process.env.OLLAMA_HOST;
+    const previousModel = process.env.GBRAIN_LOCAL_EMBEDDING_MODEL;
+
+    delete process.env.GBRAIN_LOCAL_EMBEDDING_URL;
+    delete process.env.OLLAMA_HOST;
+    delete process.env.GBRAIN_LOCAL_EMBEDDING_MODEL;
+
+    const originalFetch = globalThis.fetch;
+    const fetchSpy = mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body ?? '{}'))).toEqual({
+        model: 'custom-bge-profile',
+        input: ['config-driven model'],
+      });
+
+      return new Response(JSON.stringify({
+        embeddings: [[4, 5, 6]],
+      }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    globalThis.fetch = fetchSpy as typeof fetch;
+
+    try {
+      const provider = getEmbeddingProvider({
+        config: {
+          engine: 'sqlite',
+          database_path: join(tempDir, 'brain.db'),
+          offline: true,
+          embedding_provider: 'local',
+          embedding_model: 'custom-bge-profile',
+          query_rewrite_provider: 'heuristic',
+        },
+      });
+
+      expect(provider.capability.model).toBe('custom-bge-profile');
+      const embeddings = await provider.embedBatch(['config-driven model']);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(Array.from(embeddings[0] ?? [])).toEqual([4, 5, 6]);
+    } finally {
+      globalThis.fetch = originalFetch;
+
+      if (previousLocalUrl === undefined) {
+        delete process.env.GBRAIN_LOCAL_EMBEDDING_URL;
+      } else {
+        process.env.GBRAIN_LOCAL_EMBEDDING_URL = previousLocalUrl;
+      }
+
+      if (previousOllama === undefined) {
+        delete process.env.OLLAMA_HOST;
+      } else {
+        process.env.OLLAMA_HOST = previousOllama;
+      }
+
+      if (previousModel === undefined) {
+        delete process.env.GBRAIN_LOCAL_EMBEDDING_MODEL;
+      } else {
+        process.env.GBRAIN_LOCAL_EMBEDDING_MODEL = previousModel;
       }
     }
   });

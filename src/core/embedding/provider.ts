@@ -1,6 +1,6 @@
 import type { EmbeddingProvider as EmbeddingProviderMode, GBrainConfig } from '../config.ts';
 
-const DEFAULT_LOCAL_MODEL = 'nomic-embed-text';
+const DEFAULT_LOCAL_MODEL = 'bge-m3';
 const DEFAULT_OLLAMA_HOST = 'http://127.0.0.1:11434';
 
 export interface EmbeddingProviderCapability {
@@ -26,7 +26,7 @@ export function resolveEmbeddingProvider(
 ): ResolvedEmbeddingProvider {
   const config = opts.config ?? null;
   const mode: EmbeddingProviderMode = config?.embedding_provider ?? 'none';
-  const localProvider = resolveLocalProvider(mode);
+  const localProvider = resolveLocalProvider(mode, config);
   if (localProvider) {
     return localProvider;
   }
@@ -43,11 +43,16 @@ export function resolveEmbeddingProvider(
   });
 }
 
-function resolveLocalProvider(mode: EmbeddingProviderMode): ResolvedEmbeddingProvider | null {
+function resolveLocalProvider(
+  mode: EmbeddingProviderMode,
+  config: GBrainConfig | null,
+): ResolvedEmbeddingProvider | null {
   if (mode !== 'local') return null;
 
   const configuredUrl = resolveLocalEmbeddingUrl();
-  const configuredModel = process.env.GBRAIN_LOCAL_EMBEDDING_MODEL || DEFAULT_LOCAL_MODEL;
+  const configuredModel = process.env.GBRAIN_LOCAL_EMBEDDING_MODEL
+    || config?.embedding_model
+    || DEFAULT_LOCAL_MODEL;
   const configuredDimensions = parsePositiveInt(process.env.GBRAIN_LOCAL_EMBEDDING_DIMENSIONS);
 
   return {

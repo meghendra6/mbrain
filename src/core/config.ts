@@ -14,6 +14,7 @@ export interface GBrainConfig {
   database_path?: string;
   offline: boolean;
   embedding_provider: EmbeddingProvider;
+  embedding_model?: string;
   query_rewrite_provider: QueryRewriteProvider;
   openai_api_key?: string;
   anthropic_api_key?: string;
@@ -26,6 +27,7 @@ export interface GBrainConfigInput {
   database_path?: string;
   offline?: boolean;
   embedding_provider?: EmbeddingProvider;
+  embedding_model?: string;
   query_rewrite_provider?: QueryRewriteProvider;
   openai_api_key?: string;
   anthropic_api_key?: string;
@@ -95,6 +97,7 @@ export function createLocalConfigDefaults(
     database_path: overrides.database_path ?? process.env.GBRAIN_DATABASE_PATH ?? defaultLocalDatabasePath(),
     offline: overrides.offline ?? true,
     embedding_provider: overrides.embedding_provider ?? 'local',
+    embedding_model: overrides.embedding_model ?? 'bge-m3',
     query_rewrite_provider: overrides.query_rewrite_provider ?? 'heuristic',
     openai_api_key: overrides.openai_api_key,
     anthropic_api_key: overrides.anthropic_api_key,
