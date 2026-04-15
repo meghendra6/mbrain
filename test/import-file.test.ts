@@ -130,6 +130,24 @@ Legit content.
     expect(result.slug).toBe('people/alice-smith');
   });
 
+  test('accepts frontmatter slug that canonicalizes to the same path-derived slug', async () => {
+    const filePath = join(TMP, 'alice-canonical.md');
+    writeFileSync(filePath, `---
+type: person
+title: Alice Canonical
+slug: People/Alice Smith
+---
+
+Legit canonical content.
+`);
+
+    const engine = mockEngine();
+    const result = await importFile(engine, filePath, 'people/alice-smith.md');
+
+    expect(result.status).toBe('imported');
+    expect(result.slug).toBe('people/alice-smith');
+  });
+
   test('skips symlinks in importFromFile', async () => {
     const realFile = join(TMP, 'real-target.md');
     writeFileSync(realFile, `---

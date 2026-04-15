@@ -52,4 +52,21 @@ describe('collectMarkdownFiles', () => {
     expect(files).not.toContain(join(root, 'linked-notes', 'external.md'));
     expect(files).not.toContain(join(externalDir, 'external.md'));
   });
+
+  test('rejects a symlinked import root', () => {
+    writeFileSync(join(outside, 'external.md'), '# external\n');
+    const linkedRoot = join(tmpdir(), `gbrain-import-root-link-${Date.now()}`);
+    symlinkSync(outside, linkedRoot);
+
+    try {
+      const files = collectMarkdownFiles(linkedRoot);
+      expect(files).toEqual([]);
+    } finally {
+      rmSync(linkedRoot, { force: true });
+    }
+  });
+
+  test('throws for a missing import root instead of silently succeeding', () => {
+    expect(() => collectMarkdownFiles(join(root, 'does-not-exist'))).toThrow();
+  });
 });

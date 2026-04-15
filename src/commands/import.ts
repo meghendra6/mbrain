@@ -212,6 +212,12 @@ export async function runImport(engine: BrainEngine, args: string[]) {
 export function collectMarkdownFiles(dir: string): string[] {
   const files: string[] = [];
 
+  const rootStat = lstatSync(dir);
+  if (rootStat.isSymbolicLink()) {
+    console.warn(`[gbrain import] Skipping symlinked import root: ${dir}`);
+    return files;
+  }
+
   function walk(d: string) {
     for (const entry of readdirSync(d)) {
       if (entry.startsWith('.')) continue;

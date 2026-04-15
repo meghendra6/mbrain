@@ -179,16 +179,26 @@ export class PostgresEngine implements BrainEngine {
     const sql = this.sql as ReturnType<typeof postgres> & {
       reserve?: () => Promise<ReturnType<typeof postgres> & { release?: () => Promise<void> }>;
       release?: () => Promise<void>;
+      savepoint?: unknown;
     };
+
+    if (typeof sql.savepoint === 'function') {
+      await sql`SELECT set_config('statement_timeout', '8s', true)`;
+      return fn(sql);
+    }
+
     const reserved = typeof sql.reserve === 'function' ? await sql.reserve() : null;
     const scopedSql = (reserved || sql) as ReturnType<typeof postgres> & { release?: () => Promise<void> };
+    const previous = await scopedSql<{ statement_timeout: string }[]>`
+      SELECT current_setting('statement_timeout') AS statement_timeout
+    `;
 
     try {
-      await scopedSql`SET statement_timeout = '8s'`;
+      await scopedSql`SELECT set_config('statement_timeout', '8s', false)`;
       return await fn(scopedSql);
     } finally {
       try {
-        await scopedSql`SET statement_timeout = '0'`;
+        await scopedSql`SELECT set_config('statement_timeout', ${previous[0]?.statement_timeout || '0'}, false)`;
       } finally {
         if (reserved && typeof reserved.release === 'function') {
           await reserved.release();

@@ -6,6 +6,7 @@ import { chunkText } from './chunkers/recursive.ts';
 import { estimateTokenCount } from './embedding.ts';
 import { slugifyPath } from './sync.ts';
 import type { ChunkInput } from './types.ts';
+import { validateSlug } from './utils.ts';
 
 export interface ImportResult {
   slug: string;
@@ -110,7 +111,14 @@ export async function importFromFile(
   const content = readFileSync(filePath, 'utf-8');
   const parsed = parseMarkdown(content, relativePath);
   const expectedSlug = slugifyPath(relativePath);
-  if (parsed.slug !== expectedSlug) {
+  let canonicalParsedSlug: string;
+  try {
+    canonicalParsedSlug = slugifyPath(validateSlug(parsed.slug));
+  } catch {
+    canonicalParsedSlug = parsed.slug;
+  }
+
+  if (canonicalParsedSlug !== expectedSlug) {
     return {
       slug: expectedSlug,
       status: 'skipped',
