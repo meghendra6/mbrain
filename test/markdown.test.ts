@@ -235,6 +235,40 @@ Compiled truth.
     ]);
   });
 
+  test('only normalizes codemap verified_at dates and leaves unrelated timestamps untouched', () => {
+    const md = `---
+type: concept
+title: LLVM Pipelines
+reviewed_at: 2026-04-15T12:30:00-07:00
+codemap:
+  - system: systems/llvm
+    pointers:
+      - path: llvm/lib/Passes/PassBuilder.cpp
+        symbol: PassBuilder::buildPerModuleDefaultPipeline()
+        role: Builds the default optimization pipeline
+        verified_at: 2026-04-15
+---
+
+Compiled truth.
+`;
+
+    const parsed = parseMarkdown(md);
+    expect(parsed.frontmatter.reviewed_at).toBeInstanceOf(Date);
+    expect(parsed.frontmatter.codemap).toEqual([
+      {
+        system: 'systems/llvm',
+        pointers: [
+          {
+            path: 'llvm/lib/Passes/PassBuilder.cpp',
+            symbol: 'PassBuilder::buildPerModuleDefaultPipeline()',
+            role: 'Builds the default optimization pipeline',
+            verified_at: '2026-04-15',
+          },
+        ],
+      },
+    ]);
+  });
+
   test('round-trips system page frontmatter with codemap metadata intact', () => {
     const original = `---
 type: system

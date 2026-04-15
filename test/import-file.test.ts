@@ -120,6 +120,21 @@ Compiler infrastructure summary.
         ],
       },
     ]);
+
+    const chunkCall = calls.find((c: any) => c.method === 'upsertChunks');
+    expect(chunkCall).toBeTruthy();
+    expect(chunkCall.args[1]).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        chunk_source: 'frontmatter',
+      }),
+    ]));
+    expect(
+      chunkCall.args[1].some((chunk: any) =>
+        chunk.chunk_source === 'frontmatter'
+        && chunk.chunk_text.includes('PassBuilder::buildPerModuleDefaultPipeline()')
+        && chunk.chunk_text.includes('llvm/lib/Passes/PassBuilder.cpp'),
+      ),
+    ).toBe(true);
   });
 
   test('skips files larger than MAX_FILE_SIZE (5MB)', async () => {

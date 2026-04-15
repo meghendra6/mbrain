@@ -44,7 +44,7 @@ export function parseMarkdown(content: string, filePath?: string): ParsedMarkdow
   const slug = (frontmatter.slug as string) || inferSlug(filePath);
 
   // Remove processed fields from frontmatter (they're stored as columns)
-  const cleanFrontmatter = normalizeFrontmatter({ ...frontmatter });
+  const cleanFrontmatter = normalizeCodemapDates({ ...frontmatter });
   delete cleanFrontmatter.type;
   delete cleanFrontmatter.title;
   delete cleanFrontmatter.tags;
@@ -161,19 +161,120 @@ function extractTags(frontmatter: Record<string, unknown>): string[] {
   return [];
 }
 
-function normalizeFrontmatter(value: unknown): any {
-  if (value instanceof Date) {
-    return isDateOnly(value) ? value.toISOString().slice(0, 10) : value.toISOString();
+export function buildFrontmatterSearchText(frontmatter: Record<string, unknown>): string {
+  const lines: string[] = [];
+
+  appendField(lines, 'repo', frontmatter.repo);
+  appendField(lines, 'language', frontmatter.language);
+  appendField(lines, 'build command', frontmatter.build_command);
+  appendField(lines, 'test command', frontmatter.test_command);
+
+  const keyEntryPoints = asArrayOfRecords(frontmatter.key_entry_points);
+  for (const entryPoint of keyEntryPoints) {
+    lines.push(joinSearchParts([
+      'entry point',
+      entryPoint.name,
+      expandSearchableText(entryPoint.path),
+      entryPoint.purpose,
+    ]));
   }
-  if (Array.isArray(value)) {
-    return value.map(item => normalizeFrontmatter(item));
+
+  const codemap = asArrayOfRecords(frontmatter.codemap);
+  for (const entry of codemap) {
+    lines.push(joinSearchParts([
+      'codemap system',
+      entry.system,
+      entry.vocabulary,
+    ]));
+
+    for (const pointer of asArrayOfRecords(entry.pointers)) {
+      lines.push(joinSearchParts([
+        'pointer',
+        expandSearchableText(pointer.path),
+        expandSearchableText(pointer.symbol),
+        pointer.role,
+        pointer.verified_at,
+        pointer.stale === true ? 'stale' : '',
+      ]));
+    }
   }
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, normalizeFrontmatter(entry)]),
-    );
+
+  return lines.filter(Boolean).join('\n').trim();
+}
+
+export function expandTechnicalAliases(value: string): string[] {
+  switch (value.trim().toLowerCase()) {
+    case 'c++':
+      return ['cpp', 'cplusplus'];
+    case 'c#':
+      return ['csharp'];
+    case 'f#':
+      return ['fsharp'];
+    case 'objective-c':
+      return ['objectivec'];
+    default:
+      return [];
   }
-  return value;
+}
+
+function normalizeCodemapDates(frontmatter: Record<string, unknown>): Record<string, unknown> {
+  const codemap = asArrayOfRecords(frontmatter.codemap);
+  if (codemap.length === 0) return frontmatter;
+
+  return {
+    ...frontmatter,
+    codemap: codemap.map((entry) => ({
+      ...entry,
+      pointers: asArrayOfRecords(entry.pointers).map((pointer) => ({
+        ...pointer,
+        verified_at: pointer.verified_at instanceof Date
+          ? formatVerifiedAt(pointer.verified_at)
+          : pointer.verified_at,
+      })),
+    })),
+  };
+}
+
+function appendField(lines: string[], label: string, value: unknown) {
+  if (typeof value === 'string' && value.trim()) {
+    lines.push(joinSearchParts([label, expandSearchableText(value)]));
+    return;
+  }
+  if (Array.isArray(value) && value.length > 0) {
+    lines.push(joinSearchParts([label, ...value.map((item) => expandSearchableText(String(item)))]));
+  }
+}
+
+function asArrayOfRecords(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object');
+}
+
+function expandSearchableText(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  const trimmed = value.trim();
+  const normalized = trimmed.replace(/[^A-Za-z0-9]+/g, ' ').trim();
+  const aliases = expandTechnicalAliases(trimmed);
+  const parts = [trimmed];
+
+  if (normalized && normalized !== trimmed && !(normalized.length === 1 && aliases.length > 0)) {
+    parts.push(normalized);
+  }
+  parts.push(...aliases);
+
+  return Array.from(new Set(parts.filter(Boolean))).join(' ');
+}
+
+function joinSearchParts(parts: unknown[]): string {
+  return parts
+    .flatMap((part) => typeof part === 'string' ? [part] : [])
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(' ');
+}
+
+function formatVerifiedAt(value: Date): string {
+  return isDateOnly(value) ? value.toISOString().slice(0, 10) : value.toISOString();
 }
 
 function isDateOnly(value: Date): boolean {

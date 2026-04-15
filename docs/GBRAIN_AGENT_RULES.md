@@ -1,5 +1,5 @@
 <!-- gbrain-agent-rules-version: 0.5.2 -->
-<!-- source: https://raw.githubusercontent.com/meghendra6/gbrain/master/docs/GBRAIN_AGENT_RULES.md -->
+<!-- source: https://raw.githubusercontent.com/garrytan/gbrain/master/docs/GBRAIN_AGENT_RULES.md -->
 # GBrain Agent Rules
 
 These are the behavioral rules your AI agent must follow to operate gbrain as a
