@@ -1,10 +1,12 @@
-import { readFileSync, statSync } from 'fs';
+import { readFileSync, statSync, lstatSync } from 'fs';
 import { createHash } from 'crypto';
 import type { BrainEngine } from './engine.ts';
 import { parseMarkdown } from './markdown.ts';
 import { chunkText } from './chunkers/recursive.ts';
 import { estimateTokenCount } from './embedding.ts';
+import { slugifyPath } from './sync.ts';
 import type { ChunkInput } from './types.ts';
+import { validateSlug } from './utils.ts';
 
 export interface ImportResult {
   slug: string;
@@ -26,6 +28,16 @@ export async function importFromContent(
   slug: string,
   content: string,
 ): Promise<ImportResult> {
+  const byteLength = Buffer.byteLength(content, 'utf-8');
+  if (byteLength > MAX_FILE_SIZE) {
+    return {
+      slug,
+      status: 'skipped',
+      chunks: 0,
+      error: `Content too large (${byteLength} bytes, max ${MAX_FILE_SIZE}).`,
+    };
+  }
+
   const parsed = parseMarkdown(content, slug + '.md');
 
   // Hash includes ALL fields for idempotency (not just compiled_truth + timeline)
@@ -84,7 +96,13 @@ export async function importFromFile(
   engine: BrainEngine,
   filePath: string,
   relativePath: string,
+  _options?: { noEmbed?: boolean },
 ): Promise<ImportResult> {
+  const lstat = lstatSync(filePath);
+  if (lstat.isSymbolicLink()) {
+    return { slug: relativePath, status: 'skipped', chunks: 0, error: `Skipping symlink: ${filePath}` };
+  }
+
   const stat = statSync(filePath);
   if (stat.size > MAX_FILE_SIZE) {
     return { slug: relativePath, status: 'skipped', chunks: 0, error: `File too large (${stat.size} bytes)` };
@@ -92,7 +110,26 @@ export async function importFromFile(
 
   const content = readFileSync(filePath, 'utf-8');
   const parsed = parseMarkdown(content, relativePath);
-  return importFromContent(engine, parsed.slug, content);
+  const expectedSlug = slugifyPath(relativePath);
+  let canonicalParsedSlug: string;
+  try {
+    canonicalParsedSlug = slugifyPath(validateSlug(parsed.slug));
+  } catch {
+    canonicalParsedSlug = parsed.slug;
+  }
+
+  if (canonicalParsedSlug !== expectedSlug) {
+    return {
+      slug: expectedSlug,
+      status: 'skipped',
+      chunks: 0,
+      error:
+        `Frontmatter slug "${parsed.slug}" does not match path-derived slug "${expectedSlug}" ` +
+        `(from ${relativePath}). Remove the frontmatter "slug:" line or move the file.`,
+    };
+  }
+
+  return importFromContent(engine, expectedSlug, content);
 }
 
 // Backward compat

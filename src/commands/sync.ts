@@ -25,6 +25,10 @@ export interface SyncOpts {
   noPull?: boolean;
 }
 
+const runtimeImport = new Function('specifier', 'return import(specifier)') as (
+  specifier: string,
+) => Promise<any>;
+
 function git(repoPath: string, ...args: string[]): string {
   return execFileSync('git', ['-C', repoPath, ...args], {
     encoding: 'utf-8',
@@ -264,7 +268,7 @@ async function performFullSync(
   opts: SyncOpts,
 ): Promise<SyncResult> {
   console.log(`Running full import of ${repoPath}...`);
-  const { runImport } = await import('./import.ts');
+  const { runImport } = await runtimeImport('./import.ts');
   const importArgs = [repoPath];
   await runImport(engine, importArgs);
 

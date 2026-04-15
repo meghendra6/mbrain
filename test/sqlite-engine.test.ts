@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { LATEST_VERSION } from '../src/core/migrate.ts';
 import { SQLiteEngine } from '../src/core/sqlite-engine.ts';
 import type { ChunkInput, PageInput } from '../src/core/types.ts';
 
@@ -318,7 +319,7 @@ describe('SQLiteEngine', () => {
     await engine.connect({ engine: 'sqlite', database_path: dbPath });
     await engine.initSchema();
 
-    expect(await engine.getConfig('version')).toBe('4');
+    expect(await engine.getConfig('version')).toBe(String(LATEST_VERSION));
     expect((await engine.listPages()).map(page => page.slug)).toContain('people/alice');
     expect((await engine.getPage('people/alice'))?.title).toBe('Alice Legacy');
 
@@ -347,7 +348,7 @@ describe('SQLiteEngine', () => {
     await engine.connect({ engine: 'sqlite', database_path: dbPath });
     await engine.initSchema();
 
-    expect(await engine.getConfig('version')).toBe('4');
+    expect(await engine.getConfig('version')).toBe(String(LATEST_VERSION));
     expect((await engine.listPages()).map(page => page.slug)).toContain('people/alice');
     expect((await engine.getPage('people/alice'))?.title).toBe('Alice Missing Version');
 

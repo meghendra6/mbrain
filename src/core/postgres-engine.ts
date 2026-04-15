@@ -1,10 +1,9 @@
 import postgres from 'postgres';
-import { createHash } from 'crypto';
 import type { BrainEngine } from './engine.ts';
 import { runMigrations } from './migrate.ts';
 import { SCHEMA_SQL } from './schema-embedded.ts';
 import type {
-  Page, PageInput, PageFilters, PageType,
+  Page, PageInput, PageFilters,
   Chunk, ChunkInput,
   SearchResult, SearchOpts,
   Link, GraphNode,
@@ -17,6 +16,7 @@ import type {
 } from './types.ts';
 import { GBrainError } from './types.ts';
 import * as db from './db.ts';
+import { validateSlug, contentHash, rowToPage, rowToChunk, rowToSearchResult } from './utils.ts';
 
 export class PostgresEngine implements BrainEngine {
   private _sql: ReturnType<typeof postgres> | null = null;
@@ -175,52 +175,114 @@ export class PostgresEngine implements BrainEngine {
     return fuzzy.map((r: { slug: string }) => r.slug);
   }
 
+  private async withSearchTimeout<T>(fn: (sql: ReturnType<typeof postgres>) => Promise<T>): Promise<T> {
+    const sql = this.sql as ReturnType<typeof postgres> & {
+      reserve?: () => Promise<ReturnType<typeof postgres> & { release?: () => Promise<void> }>;
+      release?: () => Promise<void>;
+      savepoint?: unknown;
+    };
+
+    if (typeof sql.savepoint === 'function') {
+      await sql`SELECT set_config('statement_timeout', '8s', true)`;
+      return fn(sql);
+    }
+
+    const reserved = typeof sql.reserve === 'function' ? await sql.reserve() : null;
+    const scopedSql = (reserved || sql) as ReturnType<typeof postgres> & { release?: () => Promise<void> };
+    const previous = await scopedSql<{ statement_timeout: string }[]>`
+      SELECT current_setting('statement_timeout') AS statement_timeout
+    `;
+
+    try {
+      await scopedSql`SELECT set_config('statement_timeout', '8s', false)`;
+      return await fn(scopedSql);
+    } finally {
+      try {
+        await scopedSql`SELECT set_config('statement_timeout', ${previous[0]?.statement_timeout || '0'}, false)`;
+      } finally {
+        if (reserved && typeof reserved.release === 'function') {
+          await reserved.release();
+        }
+      }
+    }
+  }
+
   // Search
   async searchKeyword(query: string, opts?: SearchOpts): Promise<SearchResult[]> {
-    const sql = this.sql;
     const limit = opts?.limit || 20;
+    const params: unknown[] = [query];
+    let filterSql = '';
 
-    const rows = await sql`
-      SELECT DISTINCT ON (p.slug)
-        p.slug, p.id as page_id, p.title, p.type,
-        cc.chunk_text, cc.chunk_source,
-        ts_rank(p.search_vector, websearch_to_tsquery('english', ${query})) AS score,
-        CASE WHEN p.updated_at < (
-          SELECT MAX(te.created_at) FROM timeline_entries te WHERE te.page_id = p.id
-        ) THEN true ELSE false END AS stale
-      FROM pages p
-      JOIN content_chunks cc ON cc.page_id = p.id
-      WHERE p.search_vector @@ websearch_to_tsquery('english', ${query})
-      ORDER BY p.slug, score DESC
-    `;
-    // Re-sort by score (DISTINCT ON requires ORDER BY slug first) and apply limit
-    rows.sort((a: any, b: any) => b.score - a.score);
-    rows.splice(limit);
+    if (opts?.type) {
+      params.push(opts.type);
+      filterSql += ` AND p.type = $${params.length}`;
+    }
 
-    return rows.map(rowToSearchResult);
+    if (opts?.exclude_slugs?.length) {
+      params.push(opts.exclude_slugs.map((slug) => validateSlug(slug)));
+      filterSql += ` AND p.slug != ALL($${params.length}::text[])`;
+    }
+
+    return this.withSearchTimeout(async (sql) => {
+      const rows = await sql.unsafe(
+        `SELECT DISTINCT ON (p.slug)
+          p.slug, p.id as page_id, p.title, p.type,
+          cc.chunk_text, cc.chunk_source,
+          ts_rank(p.search_vector, websearch_to_tsquery('english', $1)) AS score,
+          CASE WHEN p.updated_at < (
+            SELECT MAX(te.created_at) FROM timeline_entries te WHERE te.page_id = p.id
+          ) THEN true ELSE false END AS stale
+        FROM pages p
+        JOIN content_chunks cc ON cc.page_id = p.id
+        WHERE p.search_vector @@ websearch_to_tsquery('english', $1)${filterSql}
+        ORDER BY p.slug, score DESC`,
+        params,
+      );
+
+      rows.sort((a: any, b: any) => b.score - a.score);
+      rows.splice(limit);
+
+      return rows.map(rowToSearchResult);
+    });
   }
 
   async searchVector(embedding: Float32Array, opts?: SearchOpts): Promise<SearchResult[]> {
-    const sql = this.sql;
     const limit = opts?.limit || 20;
     const vecStr = '[' + Array.from(embedding).join(',') + ']';
+    const params: unknown[] = [vecStr];
+    let filterSql = '';
 
-    const rows = await sql`
-      SELECT
-        p.slug, p.id as page_id, p.title, p.type,
-        cc.chunk_text, cc.chunk_source,
-        1 - (cc.embedding <=> ${vecStr}::vector) AS score,
-        CASE WHEN p.updated_at < (
-          SELECT MAX(te.created_at) FROM timeline_entries te WHERE te.page_id = p.id
-        ) THEN true ELSE false END AS stale
-      FROM content_chunks cc
-      JOIN pages p ON p.id = cc.page_id
-      WHERE cc.embedding IS NOT NULL
-      ORDER BY cc.embedding <=> ${vecStr}::vector
-      LIMIT ${limit}
-    `;
+    if (opts?.type) {
+      params.push(opts.type);
+      filterSql += ` AND p.type = $${params.length}`;
+    }
 
-    return rows.map(rowToSearchResult);
+    if (opts?.exclude_slugs?.length) {
+      params.push(opts.exclude_slugs.map((slug) => validateSlug(slug)));
+      filterSql += ` AND p.slug != ALL($${params.length}::text[])`;
+    }
+
+    params.push(limit);
+
+    return this.withSearchTimeout(async (sql) => {
+      const rows = await sql.unsafe(
+        `SELECT
+          p.slug, p.id as page_id, p.title, p.type,
+          cc.chunk_text, cc.chunk_source,
+          1 - (cc.embedding <=> $1::vector) AS score,
+          CASE WHEN p.updated_at < (
+            SELECT MAX(te.created_at) FROM timeline_entries te WHERE te.page_id = p.id
+          ) THEN true ELSE false END AS stale
+        FROM content_chunks cc
+        JOIN pages p ON p.id = cc.page_id
+        WHERE cc.embedding IS NOT NULL${filterSql}
+        ORDER BY cc.embedding <=> $1::vector
+        LIMIT $${params.length}`,
+        params,
+      );
+
+      return rows.map(rowToSearchResult);
+    });
   }
 
   // Chunks
@@ -622,60 +684,21 @@ export class PostgresEngine implements BrainEngine {
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
     `;
   }
-}
 
-// Helpers
-function validateSlug(slug: string): string {
-  // Git is the system of record — slugs are lowercased repo-relative paths.
-  if (!slug || /\.\./.test(slug) || /^\//.test(slug)) {
-    throw new Error(`Invalid slug: "${slug}". Slugs cannot be empty, start with /, or contain path traversal.`);
+  // Migration support
+  async runMigration(_version: number, sqlStr: string): Promise<void> {
+    const conn = this.sql;
+    await conn.unsafe(sqlStr);
   }
-  // Normalize to lowercase — all entry points (pathToSlug, inferSlug, frontmatter, direct writes) go through here
-  return slug.toLowerCase();
-}
 
-function contentHash(compiledTruth: string, timeline: string): string {
-  return createHash('sha256').update(compiledTruth + '\n---\n' + timeline).digest('hex');
-}
-
-function rowToPage(row: Record<string, unknown>): Page {
-  return {
-    id: row.id as number,
-    slug: row.slug as string,
-    type: row.type as PageType,
-    title: row.title as string,
-    compiled_truth: row.compiled_truth as string,
-    timeline: row.timeline as string,
-    frontmatter: (typeof row.frontmatter === 'string' ? JSON.parse(row.frontmatter) : row.frontmatter) as Record<string, unknown>,
-    content_hash: row.content_hash as string | undefined,
-    created_at: new Date(row.created_at as string),
-    updated_at: new Date(row.updated_at as string),
-  };
-}
-
-function rowToChunk(row: Record<string, unknown>): Chunk {
-  return {
-    id: row.id as number,
-    page_id: row.page_id as number,
-    chunk_index: row.chunk_index as number,
-    chunk_text: row.chunk_text as string,
-    chunk_source: row.chunk_source as 'compiled_truth' | 'timeline',
-    embedding: null, // Don't load embeddings into memory by default
-    model: row.model as string,
-    token_count: row.token_count as number | null,
-    embedded_at: row.embedded_at ? new Date(row.embedded_at as string) : null,
-  };
-}
-
-function rowToSearchResult(row: Record<string, unknown>): SearchResult {
-  return {
-    slug: row.slug as string,
-    page_id: row.page_id as number,
-    title: row.title as string,
-    type: row.type as PageType,
-    chunk_text: row.chunk_text as string,
-    chunk_source: row.chunk_source as 'compiled_truth' | 'timeline',
-    score: Number(row.score),
-    stale: Boolean(row.stale),
-  };
+  async getChunksWithEmbeddings(slug: string): Promise<Chunk[]> {
+    const conn = this.sql;
+    const rows = await conn`
+      SELECT cc.* FROM content_chunks cc
+      JOIN pages p ON p.id = cc.page_id
+      WHERE p.slug = ${slug}
+      ORDER BY cc.chunk_index
+    `;
+    return rows.map((r: Record<string, unknown>) => rowToChunk(r, true));
+  }
 }

@@ -2,6 +2,81 @@
 
 All notable changes to GBrain will be documented in this file.
 
+## [0.8.0] - 2026-04-11
+
+### Added
+
+- **Your AI can answer the phone now.** Voice-to-brain v0.8.0 ships 25 production patterns from a real deployment. WebRTC works in a browser tab with just an OpenAI key, phone number via Twilio is optional. Your agent picks its own name and personality. Pre-computed engagement bids mean it greets you with something specific ("dude, your social radar caught something wild today"), not "how can I help you?" Context-first prompts, proactive advisor mode, caller routing, dynamic noise suppression, stuck watchdog, thinking sounds during tool calls. This is the "Her" experience, out of the box.
+- **Upgrade = feature discovery.** When you upgrade to v0.8.0, the CLI tells you what's new and your agent offers to set up voice immediately. WebRTC-first (zero setup), then asks about a phone number. Migration files now have YAML frontmatter with `feature_pitch` so every future version can pitch its headline feature through the upgrade flow.
+- **Remote MCP simplified.** The Supabase Edge Function deployment is gone. Remote MCP now uses a self-hosted server + ngrok tunnel. Simpler, more reliable, works with any AI client. All `docs/mcp/` guides updated to reflect the actual production architecture.
+
+### Changed
+
+- **Voice recipe is now 25 production patterns deep.** Identity separation, pre-computed bid system, context-first prompts, proactive advisor mode, conversation timing (the #1 fix), no-repetition rule, radical prompt compression (13K to 4.7K tokens), OpenAI Realtime Prompting Guide structure, auth-before-speech, brain escalation, stuck watchdog, never-hang-up rule, thinking sounds, fallback TwiML, tool set architecture, trusted user auth, caller routing, dynamic VAD, on-screen debug UI, live moment capture, belt-and-suspenders post-call, mandatory 3-step post-call, WebRTC parity, dual API event handling, report-aware query routing.
+- **WebRTC session pseudocode updated.** Native FormData, `tools` in session config, `type: 'realtime'` on all session.update calls. WebRTC transcription NOT supported over data channel (use Whisper post-call).
+- **MCP docs rewritten.** All per-client guides (Claude Code, Claude Desktop, Cowork, Perplexity) updated from Edge Function URLs to self-hosted + ngrok pattern.
+
+### Removed
+
+- **Supabase Edge Function MCP deployment.** `scripts/deploy-remote.sh`, `supabase/functions/gbrain-mcp/`, `src/edge-entry.ts`, `.env.production.example`, `docs/mcp/CHATGPT.md` all removed. The Edge Function never worked reliably. Self-hosted + ngrok is the path.
+
+## [0.7.0] - 2026-04-11
+
+### Added
+
+- **Your brain now runs locally with zero infrastructure.** PGLite (Postgres 17.5 compiled to WASM) gives you the exact same search quality as Supabase, same pgvector HNSW, same pg_trgm fuzzy matching, same tsvector full-text search. No server, no subscription, no API keys needed for keyword search. `gbrain init` and you're running in 2 seconds.
+- **Smart init defaults to local.** `gbrain init` now creates a PGLite brain by default. If your repo has 1000+ markdown files, it suggests Supabase for scale. `--supabase` and `--pglite` flags let you choose explicitly.
+- **Migrate between engines anytime.** `gbrain migrate --to supabase` transfers your entire brain (pages, chunks, embeddings, tags, links, timeline) to remote Postgres with manifest-based resume. `gbrain migrate --to pglite` goes the other way. Embeddings copy directly, no re-embedding needed.
+- **Pluggable engine factory.** `createEngine()` dynamically loads the right engine from config. PGLite WASM is never loaded for Postgres users.
+- **Search works without OpenAI.** `hybridSearch` now checks for `OPENAI_API_KEY` before attempting embeddings. No key = keyword-only search. No more crashes when you just want to search your local brain.
+- **Your brain gets new senses automatically.** Integration recipes teach your agent how to wire up voice calls, email, Twitter, and calendar into your brain. Run `gbrain integrations` to see what's available. Your agent reads the recipe, asks for API keys, validates each one, and sets everything up. Markdown is code -- the recipe IS the installer.
+- **Voice-to-brain: phone calls create brain pages.** The first recipe: Twilio + OpenAI Realtime voice agent. Call a number, talk, and a structured brain page appears with entity detection, cross-references, and a summary posted to your messaging app. Opinionated defaults: caller screening, brain-first lookup, quiet hours, thinking sounds. The smoke test calls YOU (outbound) so you experience the magic immediately.
+- **`gbrain integrations` command.** Six subcommands for managing integration recipes: `list` (dashboard of senses + reflexes), `show` (recipe details), `status` (credential checks with direct links to get missing keys), `doctor` (health checks), `stats` (signal analytics), `test` (recipe validation). `--json` on every subcommand for agent-parseable output. No database connection needed.
+- **Health heartbeat.** Integrations log events to `~/.gbrain/integrations/<id>/heartbeat.jsonl`. Status checks detect stale integrations and include diagnostic steps.
+- **17 individually linkable SKILLPACK guides.** The 1,281-line monolith is now broken into standalone guides at `docs/guides/`, organized by category. Each guide is individually searchable and linkable. The SKILLPACK index stays at the same URL (backward compatible).
+- **"Getting Data In" documentation.** New `docs/integrations/` with a landing page, recipe format documentation, credential gateway guide, and meeting webhook guide. Explains the deterministic collector pattern: code for data, LLMs for judgment.
+- **Architecture and philosophy docs.** `docs/architecture/infra-layer.md` documents the shared foundation (import, chunk, embed, search). `docs/ethos/THIN_HARNESS_FAT_SKILLS.md` is Garry's essay on the architecture philosophy with an agent decision guide. `docs/designs/HOMEBREW_FOR_PERSONAL_AI.md` maps the 10-star vision.
+
+### Changed
+
+- **Engine interface expanded.** Added `runMigration()` (replaces internal driver access for schema migrations) and `getChunksWithEmbeddings()` (loads embedding data for cross-engine migration).
+- **Shared utilities extracted.** `validateSlug`, `contentHash`, and row mappers moved from `postgres-engine.ts` to `src/core/utils.ts`. Both engines share them.
+- **Config infers engine type.** If `database_path` is set but `engine` is missing, config now infers `pglite` instead of defaulting to `postgres`.
+- **Import serializes on PGLite.** Parallel workers are Postgres-only. PGLite uses sequential import (single-connection architecture).
+
+## [0.6.1] - 2026-04-10
+
+### Fixed
+
+- **Import no longer silently drops files with "..." in the name.** The path traversal check rejected any filename containing two consecutive dots, killing 1.2% of files in real-world corpora (YouTube transcripts, TED talks, podcast titles). Now only rejects actual traversal patterns like `../`. Community fix wave, 8 contributors.
+- **Import no longer crashes on JavaScript/TypeScript projects.** The file walker crashed on `node_modules` directories and broken symlinks. Now skips `node_modules` and handles broken symlinks gracefully with a warning.
+- **`gbrain init` exits cleanly after setup.** Previously hung forever because stdin stayed open. Now pauses stdin after reading input.
+- **pgvector extension auto-created during init.** No more copy-pasting SQL into the Supabase editor. `gbrain init` now runs `CREATE EXTENSION IF NOT EXISTS vector` automatically, with a clear fallback message if it can't.
+- **Supabase connection string hint matches current dashboard UI.** Updated navigation path to match the 2026 Supabase dashboard layout.
+- **Hermes Agent link fixed in README.** Pointed to the correct NousResearch GitHub repo.
+
+### Changed
+
+- **Search is faster.** Keyword search now runs in parallel with the embedding pipeline instead of waiting for it. Saves ~200-500ms per hybrid search call.
+- **.mdx files are now importable.** The import walker, sync filter, and slug generator all recognize `.mdx` alongside `.md`.
+
+### Added
+
+- **Community PR wave process** documented in CLAUDE.md for future contributor batches.
+
+### Contributors
+
+Thank you to everyone who reported bugs, submitted fixes, and helped make GBrain better:
+
+- **@orendi84** — slug validator ellipsis fix (PR #31)
+- **@mattbratos** — import walker resilience + MDX support (PRs #26, #27)
+- **@changergosum** — init exit fix + auto pgvector (PRs #17, #18)
+- **@eric-hth** — Supabase UI hint update (PR #30)
+- **@irresi** — parallel hybrid search (PR #8)
+- **@howardpen9** — Hermes Agent link fix (PR #34)
+- **@cktang88** — the thorough 12-bug report that drove v0.6.0 (Issue #22)
+- **@mvanhorn** — MCP schema handler fix (PR #25)
+
 ## [0.6.0] - 2026-04-10
 
 ### Added

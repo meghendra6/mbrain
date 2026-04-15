@@ -36,6 +36,13 @@ export async function resolveFile(
   brainRoot: string,
   storage?: StorageBackend,
 ): Promise<ResolvedFile> {
+  const { resolve: resolvePath } = await import('path');
+  const resolvedRoot = resolvePath(brainRoot);
+  const resolvedFull = resolvePath(brainRoot, filePath);
+  if (!resolvedFull.startsWith(resolvedRoot + '/') && resolvedFull !== resolvedRoot) {
+    throw new Error(`Path traversal blocked: ${filePath} resolves outside brain root`);
+  }
+
   const fullPath = join(brainRoot, filePath);
 
   // 1. Local file exists
@@ -57,7 +64,16 @@ export async function resolveFile(
   if (existsSync(markerPath)) {
     if (!storage) throw new Error(`Directory mirrored to storage but no storage backend configured: ${filePath}`);
     const marker = parseMarker(markerPath);
-    const storagePath = marker.prefix + filePath.split('/').pop();
+    if (marker.prefix) {
+      if (/\.\.[\\/]/.test(marker.prefix) || marker.prefix === '..' || marker.prefix.startsWith('/')) {
+        throw new Error(`Blocked: .supabase marker prefix contains path traversal: ${marker.prefix}`);
+      }
+    }
+    const filename = filePath.split('/').pop() || '';
+    if (/\.\.[\\/]/.test(filename) || filename === '..' || filename.startsWith('/')) {
+      throw new Error(`Blocked: filename contains path traversal: ${filename}`);
+    }
+    const storagePath = (marker.prefix || '') + filename;
     try {
       const data = await storage.download(storagePath);
       return { data, source: 'storage' };

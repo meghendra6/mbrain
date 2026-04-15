@@ -25,6 +25,7 @@ export function dedupResults(
   const threshold = opts?.cosineThreshold ?? COSINE_DEDUP_THRESHOLD;
   const maxRatio = opts?.maxTypeRatio ?? MAX_TYPE_RATIO;
   const maxPerPage = opts?.maxPerPage ?? MAX_PER_PAGE;
+  const preDedup = results;
 
   let deduped = results;
 
@@ -41,7 +42,8 @@ export function dedupResults(
   // Layer 4: By page cap
   deduped = capPerPage(deduped, maxPerPage);
 
-  return deduped;
+  return guaranteeCompiledTruth(deduped, preDedup)
+    .sort((a, b) => b.score - a.score);
 }
 
 /**
@@ -132,4 +134,38 @@ function capPerPage(results: SearchResult[], maxPerPage: number): SearchResult[]
   }
 
   return kept;
+}
+
+function guaranteeCompiledTruth(results: SearchResult[], preDedup: SearchResult[]): SearchResult[] {
+  const byPage = new Map<string, SearchResult[]>();
+  for (const result of results) {
+    const existing = byPage.get(result.slug) || [];
+    existing.push(result);
+    byPage.set(result.slug, existing);
+  }
+
+  const output = [...results];
+
+  for (const [slug, pageChunks] of byPage) {
+    const hasCompiledTruth = pageChunks.some((chunk) => chunk.chunk_source === 'compiled_truth');
+    if (hasCompiledTruth) continue;
+
+    const candidate = preDedup
+      .filter((result) => result.slug === slug && result.chunk_source === 'compiled_truth')
+      .sort((a, b) => b.score - a.score)[0];
+
+    if (!candidate) continue;
+
+    const lowestIdx = output.reduce((minIdx, result, idx) => {
+      if (result.slug !== slug) return minIdx;
+      if (minIdx === -1) return idx;
+      return result.score < output[minIdx].score ? idx : minIdx;
+    }, -1);
+
+    if (lowestIdx !== -1) {
+      output[lowestIdx] = candidate;
+    }
+  }
+
+  return output;
 }

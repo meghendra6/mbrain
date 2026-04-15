@@ -19,7 +19,23 @@ for (const op of operations) {
 }
 
 // CLI-only commands that bypass the operation layer
-const CLI_ONLY = new Set(['init', 'upgrade', 'check-update', 'import', 'export', 'files', 'embed', 'serve', 'call', 'config', 'doctor', 'setup-agent']);
+const CLI_ONLY = new Set([
+  'init',
+  'upgrade',
+  'post-upgrade',
+  'check-update',
+  'integrations',
+  'import',
+  'export',
+  'files',
+  'embed',
+  'serve',
+  'call',
+  'config',
+  'doctor',
+  'setup-agent',
+  'migrate',
+]);
 
 async function main() {
   const args = process.argv.slice(2);
@@ -43,7 +59,6 @@ async function main() {
 
   const subArgs = args.slice(1);
 
-  // Per-command --help
   if (subArgs.includes('--help') || subArgs.includes('-h')) {
     const op = cliOps.get(command);
     if (op) {
@@ -52,13 +67,11 @@ async function main() {
     }
   }
 
-  // CLI-only commands
   if (CLI_ONLY.has(command)) {
     await handleCliOnly(command, subArgs);
     return;
   }
 
-  // Shared operations
   const op = cliOps.get(command);
   if (!op) {
     console.error(`Unknown command: ${command}`);
@@ -70,7 +83,6 @@ async function main() {
   try {
     const params = parseOpArgs(op, subArgs);
 
-    // Validate required params before calling handler
     for (const [key, def] of Object.entries(op.params)) {
       if (def.required && params[key] === undefined) {
         const cliName = op.cliHints?.name || op.name;
@@ -121,7 +133,6 @@ function parseOpArgs(op: Operation, args: string[]): Record<string, unknown> {
     }
   }
 
-  // Read stdin for content params
   if (op.cliHints?.stdin && !params[op.cliHints.stdin] && !process.stdin.isTTY) {
     params[op.cliHints.stdin] = readFileSync('/dev/stdin', 'utf-8');
   }
@@ -222,7 +233,6 @@ function formatResult(opName: string, result: unknown): string {
 }
 
 async function handleCliOnly(command: string, args: string[]) {
-  // Commands that don't need a database connection
   if (command === 'init') {
     const { runInit } = await import('./commands/init.ts');
     await runInit(args);
@@ -238,9 +248,19 @@ async function handleCliOnly(command: string, args: string[]) {
     await runUpgrade(args);
     return;
   }
+  if (command === 'post-upgrade') {
+    const { runPostUpgrade } = await import('./commands/upgrade.ts');
+    runPostUpgrade();
+    return;
+  }
   if (command === 'check-update') {
     const { runCheckUpdate } = await import('./commands/check-update.ts');
     await runCheckUpdate(args);
+    return;
+  }
+  if (command === 'integrations') {
+    const { runIntegrations } = await import('./commands/integrations.ts');
+    await runIntegrations(args);
     return;
   }
 
@@ -271,7 +291,7 @@ async function handleCliOnly(command: string, args: string[]) {
       case 'serve': {
         const { runServe } = await import('./commands/serve.ts');
         await runServe(engine);
-        return; // serve doesn't disconnect
+        return;
       }
       case 'call': {
         const { runCall } = await import('./commands/call.ts');
@@ -286,6 +306,11 @@ async function handleCliOnly(command: string, args: string[]) {
       case 'doctor': {
         const { runDoctor } = await import('./commands/doctor.ts');
         await runDoctor(engine, args);
+        break;
+      }
+      case 'migrate': {
+        const { runMigrateEngine } = await import('./commands/migrate-engine.ts');
+        await runMigrateEngine(engine, args);
         break;
       }
     }
@@ -321,21 +346,20 @@ function printOpHelp(op: Operation) {
 }
 
 function printHelp() {
-  // Gather shared operations grouped by category
-  const cliNames = Array.from(cliOps.entries())
-    .map(([name, op]) => ({ name, desc: op.description }));
-
   console.log(`gbrain ${VERSION} -- personal knowledge brain
 
 USAGE
   gbrain <command> [options]
 
 SETUP
-  init [--supabase|--url <conn>]     Create brain (guided Postgres setup)
+  init [--local|--pglite|--supabase|--url <conn>]
+                                    Create brain (SQLite fork mode, PGLite, or Postgres)
   setup-agent [--claude|--codex]     Register MCP + inject agent rules
+  migrate --to <supabase|pglite>     Transfer brain between engines
   upgrade                            Self-update
   check-update [--json]              Check for new versions
   doctor [--json]                    Health check (pgvector, RLS, schema, embeddings)
+  integrations [subcommand]          Manage integration recipes
 
 PAGES
   get <slug>                         Read a page
@@ -348,7 +372,7 @@ SEARCH
   query <question> [--no-expand]     Hybrid search (RRF + expansion)
 
 IMPORT/EXPORT
-  import <dir>                       Import markdown directory
+  import <dir> [--no-embed]          Import markdown directory
   sync [--repo <path>] [flags]       Git-to-brain incremental sync
   export [--dir ./out/]              Export to markdown
 

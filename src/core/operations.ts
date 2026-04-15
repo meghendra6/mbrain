@@ -81,6 +81,10 @@ export interface Operation {
   };
 }
 
+const runtimeImport = new Function('specifier', 'return import(specifier)') as (
+  specifier: string,
+) => Promise<any>;
+
 // --- Page CRUD ---
 
 const get_page: Operation = {
@@ -429,7 +433,8 @@ const sync_brain: Operation = {
   },
   mutating: true,
   handler: async (ctx, p) => {
-    const { performSync } = await import('../commands/sync.ts');
+    // Keep sync local-only so the remote Edge bundle doesn't pull in CLI/import engine code.
+    const { performSync } = await runtimeImport('../commands/sync.ts');
     return performSync(ctx.engine, {
       repoPath: p.repo as string | undefined,
       dryRun: ctx.dryRun || (p.dry_run as boolean) || false,
@@ -531,6 +536,8 @@ const get_ingest_log: Operation = {
 
 // --- File Operations ---
 
+const FILE_LIST_LIMIT = 100;
+
 const file_list: Operation = {
   name: 'file_list',
   description: 'List stored files',
@@ -542,9 +549,9 @@ const file_list: Operation = {
     const sql = db.getConnection();
     const slug = p.slug as string | undefined;
     if (slug) {
-      return sql`SELECT id, page_slug, filename, storage_path, mime_type, size_bytes, content_hash, created_at FROM files WHERE page_slug = ${slug} ORDER BY filename`;
+      return sql`SELECT id, page_slug, filename, storage_path, mime_type, size_bytes, content_hash, created_at FROM files WHERE page_slug = ${slug} ORDER BY filename LIMIT ${FILE_LIST_LIMIT}`;
     }
-    return sql`SELECT id, page_slug, filename, storage_path, mime_type, size_bytes, content_hash, created_at FROM files ORDER BY page_slug, filename LIMIT 100`;
+    return sql`SELECT id, page_slug, filename, storage_path, mime_type, size_bytes, content_hash, created_at FROM files ORDER BY page_slug, filename LIMIT ${FILE_LIST_LIMIT}`;
   },
 };
 
