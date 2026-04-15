@@ -10,8 +10,6 @@ import { createConnectedEngine, supportsParallelWorkers } from '../core/engine-f
 function defaultWorkers(): number {
   const cpuCount = cpus().length;
   const memGB = totalmem() / (1024 ** 3);
-  // Network-bound, so we can go higher than CPU count.
-  // Cap by: DB pool (leave 2 for other queries), CPU, memory.
   const byPool = 8;
   const byCpu = Math.max(2, cpuCount);
   const byMem = Math.floor(memGB * 2);
@@ -19,26 +17,24 @@ function defaultWorkers(): number {
 }
 
 export async function runImport(engine: BrainEngine, args: string[]) {
+  const noEmbed = args.includes('--no-embed');
   const fresh = args.includes('--fresh');
   const jsonOutput = args.includes('--json');
   const workersIdx = args.indexOf('--workers');
   const workersArg = workersIdx !== -1 ? args[workersIdx + 1] : null;
-  const workerCount = workersArg ? parseInt(workersArg, 10) : 1;
-  // Find dir: first non-flag arg that isn't a value for --workers
+  const workerCount = workersArg ? parseInt(workersArg, 10) : defaultWorkers();
   const flagValues = new Set<number>();
   if (workersIdx !== -1) flagValues.add(workersIdx + 1);
   const dir = args.find((a, i) => !a.startsWith('--') && !flagValues.has(i));
 
   if (!dir) {
-    console.error('Usage: gbrain import <dir> [--workers N] [--fresh] [--json]');
+    console.error('Usage: gbrain import <dir> [--no-embed] [--workers N] [--fresh] [--json]');
     process.exit(1);
   }
 
-  // Collect all .md files
   const allFiles = collectMarkdownFiles(dir);
   console.log(`Found ${allFiles.length} markdown files`);
 
-  // Resume from checkpoint if available
   const checkpointPath = join(homedir(), '.gbrain', 'import-checkpoint.json');
   let files = allFiles;
   let resumeIndex = 0;
@@ -52,12 +48,11 @@ export async function runImport(engine: BrainEngine, args: string[]) {
         console.log(`Resuming from checkpoint: skipping ${resumeIndex} already-processed files`);
       }
     } catch {
-      // Invalid checkpoint, start fresh
+      // Invalid checkpoint, start fresh.
     }
   }
 
-  // Determine actual worker count
-  const actualWorkers = workerCount > 1 ? workerCount : 1;
+  const actualWorkers = Math.max(1, workerCount);
   if (actualWorkers > 1) {
     console.log(`Using ${actualWorkers} parallel workers`);
   }
@@ -82,7 +77,7 @@ export async function runImport(engine: BrainEngine, args: string[]) {
   async function processFile(eng: BrainEngine, filePath: string) {
     const relativePath = relative(dir, filePath);
     try {
-      const result = await importFile(eng, filePath, relativePath);
+      const result = await importFile(eng, filePath, relativePath, { noEmbed });
       if (result.status === 'imported') {
         imported++;
         chunksCreated += result.chunks;
@@ -108,18 +103,23 @@ export async function runImport(engine: BrainEngine, args: string[]) {
     processed++;
     if (processed % 100 === 0 || processed === files.length) {
       logProgress();
-      // Save checkpoint every 100 files — track completed file set, not just a counter
       if (processed % 100 === 0) {
         try {
           const cpDir = join(homedir(), '.gbrain');
-          if (!existsSync(cpDir)) { const { mkdirSync } = await import('fs'); mkdirSync(cpDir, { recursive: true }); }
+          if (!existsSync(cpDir)) {
+            const { mkdirSync } = await import('fs');
+            mkdirSync(cpDir, { recursive: true });
+          }
           writeFileSync(checkpointPath, JSON.stringify({
-            dir, totalFiles: allFiles.length,
+            dir,
+            totalFiles: allFiles.length,
             processedIndex: resumeIndex + processed,
             completedFiles: importedSlugs.length + skipped,
             timestamp: new Date().toISOString(),
           }));
-        } catch { /* non-fatal */ }
+        } catch {
+          // Non-fatal.
+        }
       }
     }
   }
@@ -129,43 +129,45 @@ export async function runImport(engine: BrainEngine, args: string[]) {
     if (!config) {
       throw new Error('No brain configured. Run: gbrain init or set GBRAIN_DATABASE_URL / DATABASE_URL.');
     }
+
     if (!supportsParallelWorkers(config)) {
-      throw new Error(`Parallel import workers are not supported for ${config.engine} bootstrap yet.`);
-    }
-
-    // Parallel: create per-worker engine instances with backend-aware bootstrap
-    const workerEngines = await Promise.all(
-      Array.from({ length: actualWorkers }, async () => createConnectedEngine(config, { poolSize: 2 }))
-    );
-
-    // Thread-safe queue: use an atomic index counter instead of array.shift()
-    let queueIndex = 0;
-    await Promise.all(workerEngines.map(async (eng) => {
-      while (true) {
-        const idx = queueIndex++;
-        if (idx >= files.length) break;
-        await processFile(eng, files[idx]);
+      for (const filePath of files) {
+        await processFile(engine, filePath);
       }
-    }));
+    } else {
+      const workerEngines = await Promise.all(
+        Array.from({ length: actualWorkers }, async () => createConnectedEngine(config, { poolSize: 2 })),
+      );
 
-    await Promise.all(workerEngines.map(e => e.disconnect()));
+      let queueIndex = 0;
+      await Promise.all(workerEngines.map(async (eng) => {
+        while (true) {
+          const idx = queueIndex++;
+          if (idx >= files.length) break;
+          await processFile(eng, files[idx]);
+        }
+      }));
+
+      await Promise.all(workerEngines.map(e => e.disconnect()));
+    }
   } else {
-    // Sequential: use the provided engine
     for (const filePath of files) {
       await processFile(engine, filePath);
     }
   }
 
-  // Error summary
   for (const [err, count] of Object.entries(errorCounts)) {
     if (count > 5) {
       console.error(`  ${count} files failed: ${err.slice(0, 100)}`);
     }
   }
 
-  // Clear checkpoint only on successful completion (no errors)
   if (errors === 0 && existsSync(checkpointPath)) {
-    try { unlinkSync(checkpointPath); } catch { /* non-fatal */ }
+    try {
+      unlinkSync(checkpointPath);
+    } catch {
+      // Non-fatal.
+    }
   } else if (errors > 0 && existsSync(checkpointPath)) {
     console.log(`  Checkpoint preserved (${errors} errors). Run again to retry failed files.`);
   }
@@ -173,8 +175,12 @@ export async function runImport(engine: BrainEngine, args: string[]) {
   const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
   if (jsonOutput) {
     console.log(JSON.stringify({
-      status: 'success', duration_s: parseFloat(totalTime),
-      imported, skipped, errors, chunks: chunksCreated,
+      status: 'success',
+      duration_s: parseFloat(totalTime),
+      imported,
+      skipped,
+      errors,
+      chunks: chunksCreated,
       total_files: allFiles.length,
     }));
   } else {
@@ -184,7 +190,6 @@ export async function runImport(engine: BrainEngine, args: string[]) {
     console.log(`  ${chunksCreated} chunks created`);
   }
 
-  // Log the ingest
   await engine.logIngest({
     source_type: 'directory',
     source_ref: dir,
@@ -192,7 +197,6 @@ export async function runImport(engine: BrainEngine, args: string[]) {
     summary: `Imported ${imported} pages, ${skipped} skipped, ${chunksCreated} chunks`,
   });
 
-  // Import → sync continuity: write sync checkpoint if this is a git repo
   try {
     if (existsSync(join(dir, '.git'))) {
       const head = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf-8' }).trim();
@@ -201,7 +205,7 @@ export async function runImport(engine: BrainEngine, args: string[]) {
       await engine.setConfig('sync.repo_path', dir);
     }
   } catch {
-    // Not a git repo or git not available, skip checkpoint
+    // Not a git repo or git not available, skip checkpoint.
   }
 }
 
@@ -210,9 +214,7 @@ function collectMarkdownFiles(dir: string): string[] {
 
   function walk(d: string) {
     for (const entry of readdirSync(d)) {
-      // Skip hidden dirs and .raw dirs
       if (entry.startsWith('.')) continue;
-      // Skip node_modules
       if (entry === 'node_modules') continue;
 
       const full = join(d, entry);
@@ -220,7 +222,6 @@ function collectMarkdownFiles(dir: string): string[] {
       try {
         stat = statSync(full);
       } catch {
-        // Broken symlink or permission error — skip
         console.warn(`[gbrain import] Skipping unreadable path: ${full}`);
         continue;
       }

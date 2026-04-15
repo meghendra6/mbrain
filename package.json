@@ -1,6 +1,6 @@
 {
   "name": "gbrain",
-  "version": "0.5.0",
+  "version": "0.7.0",
   "description": "Postgres-native personal knowledge brain with hybrid RAG search",
   "type": "module",
   "main": "src/core/index.ts",
@@ -32,6 +32,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.0",
     "@aws-sdk/client-s3": "^3.1028.0",
+    "@electric-sql/pglite": "^0.4.4",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "gray-matter": "^4.0.3",
     "openai": "^4.0.0",

@@ -84,6 +84,7 @@ export async function importFromFile(
   engine: BrainEngine,
   filePath: string,
   relativePath: string,
+  _options?: { noEmbed?: boolean },
 ): Promise<ImportResult> {
   const stat = statSync(filePath);
   if (stat.size > MAX_FILE_SIZE) {

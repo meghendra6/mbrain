@@ -4,7 +4,7 @@ import { homedir } from 'os';
 import { resolveConfig } from './engine-factory.ts';
 import type { StorageConfig } from './storage.ts';
 
-export type EngineType = 'postgres' | 'sqlite';
+export type EngineType = 'postgres' | 'sqlite' | 'pglite';
 export type EmbeddingProvider = 'none' | 'local';
 export type QueryRewriteProvider = 'none' | 'heuristic' | 'local_llm';
 
@@ -39,7 +39,7 @@ function getConfigDir() { return process.env.GBRAIN_CONFIG_DIR || join(process.e
 function getConfigPath() { return join(getConfigDir(), 'config.json'); }
 
 /**
- * Load config with credential precedence: env vars > config file, unless sqlite/local mode is explicitly configured.
+ * Load config with credential precedence: env vars > config file, unless a local engine is explicitly configured.
  * Plugin config is handled by the plugin runtime injecting env vars.
  */
 export function loadConfig(): GBrainConfig | null {
@@ -52,12 +52,14 @@ export function loadConfig(): GBrainConfig | null {
   }
 
   const dbUrl = process.env.GBRAIN_DATABASE_URL || process.env.DATABASE_URL;
-  const preferLocalConfig = fileConfig?.engine === 'sqlite' || fileConfig?.offline === true;
-
   if (!fileConfig && !dbUrl) return null;
+
+  const preferLocalConfig = fileConfig?.engine === 'sqlite' || fileConfig?.engine === 'pglite';
+  const inferredEngine = fileConfig?.engine ?? (fileConfig?.database_path ? 'pglite' : undefined);
 
   const merged: GBrainConfigInput = {
     ...fileConfig,
+    ...(inferredEngine ? { engine: inferredEngine } : {}),
     ...(!preferLocalConfig && dbUrl ? { database_url: dbUrl } : {}),
     ...(process.env.OPENAI_API_KEY ? { openai_api_key: process.env.OPENAI_API_KEY } : {}),
   };
@@ -87,6 +89,10 @@ export function configPath(): string {
 
 export function defaultLocalDatabasePath(): string {
   return join(configDir(), 'brain.db');
+}
+
+export function defaultPGLiteDatabasePath(): string {
+  return join(configDir(), 'brain.pglite');
 }
 
 export function createLocalConfigDefaults(

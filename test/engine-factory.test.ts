@@ -80,4 +80,29 @@ describe('engine factory', () => {
       database_url: 'postgresql://user:pass@localhost:5432/gbrain',
     })).toThrow(/unsupported engine: mysql/i);
   });
+
+  test('createEngine returns PGLiteEngine for pglite', async () => {
+    const { createEngine } = await import('../src/core/engine-factory.ts');
+    const engine = await createEngine({ engine: 'pglite' });
+    expect(engine.constructor.name).toBe('PGLiteEngine');
+  });
+
+  test('createEngine returns SQLiteEngine for sqlite', async () => {
+    const { createEngine } = await import('../src/core/engine-factory.ts');
+    const engine = await createEngine({ engine: 'sqlite', database_path: join(tempHome, 'brain.db') });
+    expect(engine).toBeInstanceOf(SQLiteEngine);
+  });
+
+  test('createEngine returns PostgresEngine for postgres and by default', async () => {
+    const { createEngine } = await import('../src/core/engine-factory.ts');
+    const postgresEngine = await createEngine({ engine: 'postgres' });
+    const defaultEngine = await createEngine({});
+    expect(postgresEngine.constructor.name).toBe('PostgresEngine');
+    expect(defaultEngine.constructor.name).toBe('PostgresEngine');
+  });
+
+  test('createEngine throws for unknown engines', async () => {
+    const { createEngine } = await import('../src/core/engine-factory.ts');
+    await expect(createEngine({ engine: 'mysql' as any })).rejects.toThrow('Unknown engine');
+  });
 });

@@ -17,7 +17,7 @@ export const DEFAULT_RUNTIME_CONFIG: GBrainConfig = {
   query_rewrite_provider: 'none',
 };
 
-const VALID_ENGINES = new Set<EngineType>(['postgres', 'sqlite']);
+const VALID_ENGINES = new Set<EngineType>(['postgres', 'sqlite', 'pglite']);
 const VALID_EMBEDDING_PROVIDERS = new Set<EmbeddingProvider>(['none', 'local']);
 const VALID_QUERY_REWRITE_PROVIDERS = new Set<QueryRewriteProvider>(['none', 'heuristic', 'local_llm']);
 
@@ -26,19 +26,20 @@ export function resolveConfig(input: GBrainConfigInput): GBrainConfig {
     throw new GBrainError(
       'Invalid engine selection',
       `Unsupported engine: ${String(input.engine)}`,
-      'Use engine="postgres" or engine="sqlite" in ~/.gbrain/config.json',
+      'Use engine="postgres", engine="sqlite", or engine="pglite" in ~/.gbrain/config.json',
     );
   }
 
-  const engine: EngineType = input.engine === 'sqlite' ? 'sqlite' : 'postgres';
+  const engine: EngineType = input.engine ?? (input.database_path ? 'pglite' : 'postgres');
+  const isSQLite = engine === 'sqlite';
   const resolved: GBrainConfig = {
     engine,
     database_url: input.database_url,
     database_path: input.database_path,
-    offline: input.offline ?? (engine === 'sqlite'),
-    embedding_provider: input.embedding_provider ?? (engine === 'sqlite' ? 'local' : 'none'),
+    offline: input.offline ?? isSQLite,
+    embedding_provider: input.embedding_provider ?? (isSQLite ? 'local' : 'none'),
     embedding_model: input.embedding_model,
-    query_rewrite_provider: input.query_rewrite_provider ?? (engine === 'sqlite' ? 'heuristic' : 'none'),
+    query_rewrite_provider: input.query_rewrite_provider ?? (isSQLite ? 'heuristic' : 'none'),
     storage: input.storage,
     openai_api_key: input.openai_api_key,
     anthropic_api_key: input.anthropic_api_key,
@@ -76,14 +77,14 @@ export function validateResolvedConfig(config: GBrainConfig): void {
     if (config.database_path) {
       throw new GBrainError(
         'Invalid Postgres config',
-        'database_path is only supported when engine="sqlite"',
-        'Remove database_path or switch engine to sqlite',
+        'database_path is only supported when engine="sqlite" or engine="pglite"',
+        'Remove database_path or switch engine to sqlite/pglite',
       );
     }
     if (config.offline) {
       throw new GBrainError(
         'Invalid Postgres config',
-        'offline=true requires engine="sqlite"',
+        'offline=true is only supported for local engines',
         'Disable offline mode or switch engine to sqlite',
       );
     }
@@ -96,17 +97,17 @@ export function validateResolvedConfig(config: GBrainConfig): void {
     }
   }
 
-  if (config.engine === 'sqlite') {
+  if (config.engine === 'sqlite' || config.engine === 'pglite') {
     if (!config.database_path) {
       throw new GBrainError(
         'No database path',
-        'database_path is missing from config',
-        'Set database_path in ~/.gbrain/config.json before using engine="sqlite"',
+        `database_path is missing from config for engine="${config.engine}"`,
+        'Set database_path in ~/.gbrain/config.json before using a local engine',
       );
     }
     if (config.database_url) {
       throw new GBrainError(
-        'Invalid SQLite config',
+        `Invalid ${config.engine} config`,
         'database_url is only supported when engine="postgres"',
         'Remove database_url or switch engine to postgres',
       );
@@ -117,7 +118,7 @@ export function validateResolvedConfig(config: GBrainConfig): void {
 export function toEngineConfig(
   config: GBrainConfig,
   options?: { poolSize?: number },
-): EngineConfig & { poolSize?: number } {
+): EngineConfig {
   return {
     engine: config.engine,
     database_url: config.database_url,
@@ -134,6 +135,35 @@ export function createEngineFromConfig(config: GBrainConfig): BrainEngine {
       return new PostgresEngine();
     case 'sqlite':
       return new SQLiteEngine();
+    case 'pglite':
+      throw new GBrainError(
+        'Async engine required',
+        'pglite engine must be created asynchronously',
+        'Use createEngine() or createConnectedEngine() for pglite configurations',
+      );
+  }
+}
+
+/**
+ * Create an engine instance based on config.
+ * Uses a dynamic import so PGLite WASM is never loaded for Postgres/SQLite users.
+ */
+export async function createEngine(config: EngineConfig): Promise<BrainEngine> {
+  const engineType = config.engine || 'postgres';
+
+  switch (engineType) {
+    case 'postgres':
+      return new PostgresEngine();
+    case 'sqlite':
+      return new SQLiteEngine();
+    case 'pglite': {
+      const { PGLiteEngine } = await import('./pglite-engine.ts');
+      return new PGLiteEngine();
+    }
+    default:
+      throw new Error(
+        `Unknown engine type: "${engineType}". Supported engines: postgres, sqlite, pglite.`,
+      );
   }
 }
 
@@ -141,7 +171,10 @@ export async function createConnectedEngine(
   config: GBrainConfig,
   options?: { poolSize?: number },
 ): Promise<BrainEngine> {
-  const engine = createEngineFromConfig(config);
+  validateResolvedConfig(config);
+  const engine = config.engine === 'pglite'
+    ? await createEngine(toEngineConfig(config, options))
+    : createEngineFromConfig(config);
   await engine.connect(toEngineConfig(config, options));
   return engine;
 }

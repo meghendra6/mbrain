@@ -40,7 +40,7 @@ export async function hybridSearch(
   const keywordResults = await keywordPromise;
   const provider = getEmbeddingProvider();
   if (!provider.capability.available) {
-    return keywordResults.slice(0, limit);
+    return dedupResults(keywordResults).slice(0, limit);
   }
 
   const embeddingSettled = await Promise.allSettled(
@@ -51,7 +51,7 @@ export async function hybridSearch(
   ));
 
   if (embeddings.length === 0) {
-    return keywordResults.slice(0, limit);
+    return dedupResults(keywordResults).slice(0, limit);
   }
 
   const vectorSettled = await Promise.allSettled(
@@ -62,8 +62,9 @@ export async function hybridSearch(
   ));
 
   if (vectorLists.length === 0 || vectorLists.every(list => list.length === 0)) {
-    return keywordResults.slice(0, limit);
+    return dedupResults(keywordResults).slice(0, limit);
   }
+
   // Merge all result lists via RRF
   const allLists = [...vectorLists, keywordResults];
   const fused = rrfFusion(allLists);
