@@ -42,6 +42,7 @@ available in local mode versus what must fail with honest guidance.
 - `docs/mcp/` — Remote/hosted per-client setup guides (Claude Desktop, Code, Cowork, Perplexity, ChatGPT)
 - `docs/local-offline.md` — Local/offline SQLite + Codex/Claude Code setup guide (English)
 - `docs/local-offline.ko.md` — Local/offline SQLite + Codex/Claude Code setup guide (Korean)
+- `skills/_brain-filing-rules.md` — Cross-cutting brain filing rules (referenced by all brain-writing skills)
 - `openclaw.plugin.json` — ClawHub bundle plugin manifest
 
 ## Commands
