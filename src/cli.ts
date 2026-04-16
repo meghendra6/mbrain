@@ -424,6 +424,12 @@ TIMELINE
   timeline [<slug>]                  View timeline
   timeline-add <slug> <date> <text>  Add timeline entry
 
+TOOLS (deterministic, no DB / no LLM)
+  publish <page.md> [--password]     Share a page as self-contained HTML
+  check-backlinks <check|fix>        Enforce the Iron Law of Back-Linking
+  lint <dir|file> [--fix]            Flag LLM slop, broken frontmatter, stale dates
+  report --type <name> [--title]     Save timestamped report under brain/reports/
+
 ADMIN
   stats                              Brain statistics
   health                             Brain health dashboard
