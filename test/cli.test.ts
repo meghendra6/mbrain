@@ -29,6 +29,10 @@ afterEach(() => {
 });
 
 describe('CLI source shape', () => {
+  test('setup-agent help mentions Claude stop hook installation', () => {
+    expect(cliSource).toContain('Register MCP, inject rules, install Claude stop hook');
+  });
+
   test('imports operations from operations.ts', () => {
     expect(cliSource).toContain("from './core/operations.ts'");
   });
@@ -115,6 +119,42 @@ describe('CLI dispatch integration', () => {
     const exitCode = await proc.exited;
     expect(stdout).toContain('Usage: gbrain upgrade');
     expect(exitCode).toBe(0);
+  });
+
+  test('init --help prints usage without creating a brain', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'init', '--help'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(stdout).toContain('Usage: gbrain init');
+    expect(stdout).toContain('--local');
+    expect(stdout).toContain('--pglite');
+    expect(stdout).toContain('--supabase');
+    expect(exitCode).toBe(0);
+    // Must not have created any brain artifacts under $HOME/.gbrain
+    const { existsSync } = await import('fs');
+    expect(existsSync(join(tempHome, '.gbrain', 'config.json'))).toBe(false);
+    expect(existsSync(join(tempHome, '.gbrain', 'brain.db'))).toBe(false);
+    expect(existsSync(join(tempHome, '.gbrain', 'brain.pglite'))).toBe(false);
+  });
+
+  test('init -h prints usage without creating a brain', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'init', '-h'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(stdout).toContain('Usage: gbrain init');
+    expect(exitCode).toBe(0);
+    const { existsSync } = await import('fs');
+    expect(existsSync(join(tempHome, '.gbrain', 'config.json'))).toBe(false);
   });
 
   test('--help prints global help', async () => {

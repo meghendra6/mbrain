@@ -366,6 +366,7 @@ gbrain setup-agent
 1. 설치된 AI 클라이언트를 **자동 감지**합니다 (`~/.claude/` 및/또는 `~/.codex/`)
 2. 감지된 클라이언트에 MCP 서버를 **등록**합니다 (이미 등록된 경우 건너뜀)
 3. 각 클라이언트의 글로벌 설정에 GBrain 에이전트 규칙을 **주입**합니다
+4. Claude Code의 세션 종료 시 gbrain writeback을 요구하는 Stop hook을 **설치**합니다
 
 에이전트 규칙은 brain-agent loop을 가르칩니다: 응답 전에 brain을 먼저 읽고, 새 정보를 다시 기록하고, 매 메시지마다 엔티티를 감지하고, 모든 것을 백링크합니다. 이 규칙 없이는 MCP 도구만 있고 지식 복리 효과가 발생하지 않습니다.
 
@@ -388,6 +389,15 @@ gbrain setup-agent --json       # 기계 판독 가능 출력
 | Codex | `codex mcp add gbrain -- gbrain serve` | `~/.codex/AGENTS.md` |
 
 규칙은 `<!-- GBRAIN:RULES:START -->` / `<!-- GBRAIN:RULES:END -->` 마커로 감싸져 기존 내용을 건드리지 않습니다. `setup-agent`를 다시 실행하면 gbrain 섹션만 제자리에서 업데이트됩니다.
+
+Claude Code의 경우 `setup-agent`는 추가로 아래 항목도 설치합니다:
+
+- `~/.claude/scripts/hooks/stop-gbrain-check.sh`
+- `~/.claude/scripts/hooks/lib/gbrain-relevance.sh`
+- `~/.claude/gbrain-skip-dirs`
+- `~/.claude/hooks/hooks.json`의 `stop:gbrain-check` 엔트리
+
+이 Stop hook은 세션 종료 시 한 번 실행되어, relevant session이면 Claude Code가 새 세션 지식을 gbrain에 기록하거나 `GBRAIN-PASS: <reason>`로 명시적으로 건너뛰도록 요구합니다.
 
 ### 설정 후 확인
 

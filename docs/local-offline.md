@@ -366,6 +366,7 @@ This single command:
 1. **Detects** which AI clients are installed (`~/.claude/` and/or `~/.codex/`)
 2. **Registers** the MCP server with each detected client (if not already registered)
 3. **Injects** the GBrain agent rules into each client's global config
+4. **Installs** the Claude Code Stop hook that prompts for end-of-session gbrain writeback
 
 The agent rules teach your AI client the brain-agent loop: read brain before responding, write new information back, detect entities on every message, and back-link everything. Without these rules the MCP tools are available but the knowledge compounding does not happen.
 
@@ -388,6 +389,15 @@ gbrain setup-agent --json       # machine-readable output
 | Codex | `codex mcp add gbrain -- gbrain serve` | `~/.codex/AGENTS.md` |
 
 Rules are wrapped in `<!-- GBRAIN:RULES:START -->` / `<!-- GBRAIN:RULES:END -->` markers so existing content is never touched. Running `setup-agent` again updates the gbrain section in place.
+
+For Claude Code, `setup-agent` also installs:
+
+- `~/.claude/scripts/hooks/stop-gbrain-check.sh`
+- `~/.claude/scripts/hooks/lib/gbrain-relevance.sh`
+- `~/.claude/gbrain-skip-dirs`
+- `~/.claude/hooks/hooks.json` entry `stop:gbrain-check`
+
+The Stop hook runs once at session end, blocks once for relevant sessions, and asks Claude Code to either write new session knowledge back to gbrain or respond with `GBRAIN-PASS: <reason>`.
 
 ### After setup
 

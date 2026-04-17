@@ -4,6 +4,14 @@ All notable changes to GBrain will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`gbrain setup-agent --claude` now installs the session-end stop hook automatically.** A new bash hook (`~/.claude/scripts/hooks/stop-gbrain-check.sh` + `lib/gbrain-relevance.sh`) gets written, registered in `~/.claude/hooks/hooks.json` as `stop:gbrain-check`, and shipped with a skip-dirs template. When a Claude Code session ends, the hook emits a `block` decision that forces the agent to do one more turn and write session-derived knowledge back to the brain — or explicitly say `GBRAIN-PASS: <reason>`. Re-entry is guarded by Claude Code's native `stop_hook_active` field, and the gate respects `GBRAIN_STOP_HOOK=0`, `~/.claude/gbrain-skip-dirs`, and missing-CLI fail-closed. Re-runs of `setup-agent` upsert a single registration (idempotent).
+
+### Fixed
+
+- **`gbrain init --help` no longer creates a brain as a side effect.** The init command used to fall through its flag checks when `--help`/`-h` was passed, silently bootstrapping a PGLite brain and overwriting `~/.gbrain/config.json`. It now prints usage and exits 0 without touching config or data.
+
 ## [0.10.1] - 2026-04-17
 
 Version number aligned with upstream `garrytan/gbrain` v0.10.1 per the

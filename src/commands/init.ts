@@ -11,6 +11,11 @@ import { createEngine, createEngineFromConfig, toEngineConfig } from '../core/en
 import * as db from '../core/db.ts';
 
 export async function runInit(args: string[]) {
+  if (args.includes('--help') || args.includes('-h')) {
+    printInitHelp();
+    return;
+  }
+
   const isLocal = args.includes('--local');
   const isSupabase = args.includes('--supabase');
   const isPGLite = args.includes('--pglite');
@@ -60,6 +65,29 @@ export async function runInit(args: string[]) {
   }
 
   return initPostgres({ databaseUrl, jsonOutput, apiKey });
+}
+
+function printInitHelp() {
+  console.log(`Usage: gbrain init [options]
+
+Create a brain. Defaults to local PGLite; pass a flag to pick a different engine.
+
+OPTIONS
+  --local                   Local SQLite (fully offline; no server needed)
+  --pglite                  Local PGLite (embedded Postgres; default)
+  --supabase                Managed Supabase Postgres (interactive wizard)
+  --url <conn>              Existing Postgres connection string (postgres:// or postgresql://)
+  --non-interactive         Fail instead of prompting; use with --url or GBRAIN_DATABASE_URL
+  --path <path>             Override the SQLite/PGLite database path
+  --key <openai_api_key>    Save an OpenAI API key in the config
+  --json                    Emit machine-readable status output
+  -h, --help                Show this help and exit
+
+Examples
+  gbrain init --local
+  gbrain init --pglite --path ~/brains/work.pglite
+  gbrain init --url postgresql://user:pass@host:5432/db --non-interactive
+`);
 }
 
 async function initSQLite(opts: { jsonOutput: boolean; apiKey: string | null; customPath: string | null }) {

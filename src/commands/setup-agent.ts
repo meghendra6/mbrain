@@ -1,7 +1,12 @@
-import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs';
-import { join } from 'path';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'fs';
+import { dirname, join } from 'path';
 import { execSync } from 'child_process';
 import { VERSION } from '../version.ts';
+import {
+  CLAUDE_GBRAIN_RELEVANCE_LIB,
+  CLAUDE_GBRAIN_SKIP_DIRS,
+  CLAUDE_GBRAIN_STOP_HOOK,
+} from './setup-agent-hook-assets.ts';
 
 const MARKER_START = '<!-- GBRAIN:RULES:START -->';
 const MARKER_END = '<!-- GBRAIN:RULES:END -->';
@@ -77,6 +82,10 @@ export async function runSetupAgent(args: string[]) {
 
     // Step 2: Inject agent rules
     const rulesStatus = injectRules(client, rulesContent);
+
+    if (client.name === 'claude') {
+      installClaudeStopHook(client.configDir);
+    }
 
     results.push({ client: client.name, mcp: mcpStatus, rules: rulesStatus });
   }
@@ -205,6 +214,78 @@ function injectRules(client: DetectedClient, rulesContent: string): string {
   return 'injected';
 }
 
+function installClaudeStopHook(claudeDir: string): void {
+  const hookPath = join(claudeDir, 'scripts', 'hooks', 'stop-gbrain-check.sh');
+  const libPath = join(claudeDir, 'scripts', 'hooks', 'lib', 'gbrain-relevance.sh');
+  const skipDirsPath = join(claudeDir, 'gbrain-skip-dirs');
+  const settingsPath = join(claudeDir, 'settings.json');
+  const legacyHooksJsonPath = join(claudeDir, 'hooks', 'hooks.json');
+
+  atomicWrite(hookPath, CLAUDE_GBRAIN_STOP_HOOK);
+  chmodSync(hookPath, 0o755);
+
+  atomicWrite(libPath, CLAUDE_GBRAIN_RELEVANCE_LIB);
+  atomicWrite(skipDirsPath, CLAUDE_GBRAIN_SKIP_DIRS);
+
+  upsertClaudeStopHook(settingsPath);
+  cleanupLegacyHooksJson(legacyHooksJsonPath);
+}
+
+function upsertClaudeStopHook(settingsPath: string): void {
+  const stopHookEntry = {
+    matcher: '*',
+    hooks: [{
+      type: 'command',
+      command: 'bash "$HOME/.claude/scripts/hooks/stop-gbrain-check.sh"',
+      timeout: 5,
+    }],
+    description: 'Ask agent to write session knowledge back to gbrain.',
+    id: 'stop:gbrain-check',
+  };
+
+  const base: Record<string, unknown> = existsSync(settingsPath)
+    ? parseJsonOrEmpty(settingsPath)
+    : {};
+
+  const hooks = typeof base.hooks === 'object' && base.hooks ? base.hooks as Record<string, unknown> : {};
+  const stop = Array.isArray(hooks.Stop) ? hooks.Stop as any[] : [];
+  const withoutExisting = stop.filter(entry => entry?.id !== 'stop:gbrain-check');
+
+  hooks.Stop = [...withoutExisting, stopHookEntry];
+  base.hooks = hooks;
+
+  atomicWrite(settingsPath, JSON.stringify(base, null, 2) + '\n');
+}
+
+function cleanupLegacyHooksJson(legacyPath: string): void {
+  // Older versions of setup-agent wrote stop:gbrain-check into ~/.claude/hooks/hooks.json,
+  // but Claude Code does not load user-level hooks from that path (it is plugin-scoped).
+  // Remove only our own stale entry; leave any other hooks intact.
+  if (!existsSync(legacyPath)) return;
+
+  const parsed = parseJsonOrEmpty(legacyPath) as { hooks?: Record<string, unknown> };
+  const hooks = parsed.hooks;
+  if (!hooks || typeof hooks !== 'object') return;
+
+  const stop = Array.isArray(hooks.Stop) ? hooks.Stop as any[] : null;
+  if (!stop) return;
+
+  const filtered = stop.filter(entry => entry?.id !== 'stop:gbrain-check');
+  if (filtered.length === stop.length) return;
+
+  hooks.Stop = filtered;
+  atomicWrite(legacyPath, JSON.stringify(parsed, null, 2) + '\n');
+}
+
+function parseJsonOrEmpty(path: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf-8'));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function formatRulesBlock(rulesContent: string): string {
   return `${MARKER_START}\n${rulesContent}\n${MARKER_END}`;
 }
@@ -219,6 +300,7 @@ function extractVersion(content: string): string | null {
 }
 
 function atomicWrite(targetPath: string, content: string): void {
+  mkdirSync(dirname(targetPath), { recursive: true });
   const tmp = targetPath + '.gbrain.tmp';
   writeFileSync(tmp, content, 'utf-8');
   renameSync(tmp, targetPath);
