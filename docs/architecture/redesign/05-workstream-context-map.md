@@ -37,7 +37,7 @@ Canonical inputs for deterministic extraction are:
 | Source Records | Supply provenance handles, source identities, and raw artifacts that notes or map nodes may point back to. | Canonical provenance in `01`. |
 | Task Thread and Working Set references | Allow task-scoped maps to index active files, symbols, decisions, and linked procedures without redefining operational memory behavior. | Operational memory in `04`. |
 | Attempt and Decision references | Allow task maps to surface rationale, dead ends, and choice points as orienting nodes. | Operational memory in `04`. |
-| Entity and codemap pointers | Provide canonical names, aliases, and code-reference anchors for cross-note and note-to-code navigation. | Canonical registries in `01`. |
+| Source-linked note metadata and verified code references | Provide aliases, source-linked identities, and note-to-code anchors that canonical artifacts already expose through curated notes, Source Records, and linked code references. | Canonical sources defined in `01`. |
 
 Deterministic extraction must prefer directly readable structure over semantic guesswork. Examples include:
 
@@ -104,7 +104,7 @@ Map content should be organized around derived nodes and edges:
 |---|---|
 | Node | Represents notes, headings, concepts, papers, code files, code symbols, tasks, attempts, decisions, procedures, sources, or rationale anchors. |
 | Edge | Represents a structural or explanatory relationship between nodes. |
-| Extraction metadata | Captures whether the node or edge was extracted, inferred, ambiguous, or manually added to the map layer. |
+| Extraction metadata | Captures whether the node or edge was extracted, inferred, or ambiguous within the derived map build. |
 | Confidence metadata | Helps map queries rank and explain structural certainty without declaring canonical truth. |
 | Source location metadata | Points back to the canonical artifact or source location that justified the node or edge. |
 

@@ -46,7 +46,7 @@ Model rules:
 1. Profile Memory is canonical for personal durable memory, but only within personal scope.
 2. Profile records should hold durable or recurrent facts, not every transient utterance.
 3. Selected Markdown export is allowed only for curated, explicitly permitted subsets; the DB-backed record remains authoritative.
-4. Profile Memory is not a general user-style-preference bucket for work execution. Short-lived formatting or collaboration preferences still belong in agent-operational memory if they are not truly personal durable memory.
+4. Profile Memory is not a general user-style-preference bucket for work execution. Short-lived formatting or collaboration preferences still belong in operational work records such as the Task Thread and Working Set when they matter only to active work continuity.
 
 ## Personal Episode Model
 
@@ -165,6 +165,7 @@ Required test areas:
 - write routing tests ensuring work interactions do not create Profile Memory records accidentally
 - personal-write tests ensuring personal interactions create Profile Memory or Personal Episodes in the right domain
 - mixed-scope tests confirming explicit cross-scope intent is required before retrieval or writes cross domains
+- retrieval-trace auditability tests confirming scope decisions and cross-scope retrieval paths are recorded when they materially affect an answer
 - export filter tests preventing personal data from appearing in work-visible or public artifacts
 - visibility inheritance tests confirming personal maps or summaries remain bounded by personal scope
 

@@ -43,8 +43,9 @@ Candidate-source rules:
 
 1. Derived signals are allowed to be useful before they are allowed to be true.
 2. A strong candidate may originate from the map layer, but map generation does not imply promotion authority.
-3. A candidate may target any canonical domain, including curated notes, procedures, operational summaries, or profile memory, without this document taking ownership of those domains' storage models.
-4. Direct authoritative updates may bypass the inbox only when `02-memory-loop-and-protocols.md` already classifies them as a canonical write for that domain. Everything else belongs here first.
+3. A candidate may target durable canonical domains such as curated notes, procedures, profile memory, or other reviewed long-lived records, without this document taking ownership of those domains' storage models.
+4. The inbox is not the route for active operational continuity. Task Thread and Working Set updates stay on the direct write path defined in `02-memory-loop-and-protocols.md` and `04-workstream-operational-memory.md`.
+5. Direct authoritative updates may bypass the inbox only when `02-memory-loop-and-protocols.md` already classifies them as a canonical write for that domain.
 
 ## Memory Inbox Model
 
@@ -55,7 +56,7 @@ Each `Memory Candidate` should capture at least:
 | Field | Purpose |
 |---|---|
 | `id` and `scopeId` | Identify the candidate and the memory scope it proposes to affect. |
-| `candidateType` | Distinguish fact, relationship, note update, procedure, profile, task update, open question, or rationale candidates. |
+| `candidateType` | Distinguish fact, relationship, note update, procedure, profile update, open question, or rationale candidates for durable-memory review. |
 | `proposedContent` | Hold the actual claim or change being proposed. |
 | `sourceRefs` | Point back to canonical provenance handles and source artifacts. |
 | `generatedBy` | Explain whether the candidate came from an agent, map analysis, dream cycle, manual input, or import. |
@@ -214,7 +215,7 @@ Required test areas:
 - contradiction tests covering reject, unresolved, and supersede outcomes
 - duplicate handling tests so recurrence improves triage instead of multiplying identical review work
 - code-sensitive verification gate tests preventing stale code claims from being promoted without re-checking
-- target-domain handoff tests confirming governance outcomes can link into notes, procedures, operational summaries, or profile memory without redefining those domains
+- target-domain handoff tests confirming governance outcomes can link into curated notes, procedures, profile memory, or other durable canonical records without redefining those domains
 
 Required evaluation questions:
 
