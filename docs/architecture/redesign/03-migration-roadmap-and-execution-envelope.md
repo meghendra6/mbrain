@@ -49,12 +49,12 @@ Within this envelope, SQLite is not a "lite" preview tier and Postgres is not th
 |---|---|---|
 | Phase 0 | Policy and compatibility | Establishes the envelope, parity rules, and rollback boundaries before new memory objects or read paths are introduced. |
 | Phase 1 | Operational memory | Addresses repeated-work prevention first by adding durable task continuity to the current system. |
-| Phase 2 | Note manifest and structural context map | Captures the earliest Graphify-derived win through deterministic extraction without changing canonical truth rules. |
-| Phase 3 | Context atlas and map query tools | Makes the structural layer operational for navigation after the underlying maps exist. |
-| Phase 4 | Procedure registry and rationale capture | Converts repeated work patterns into reusable operating knowledge once active work continuity exists. |
-| Phase 5 | Governance and Memory Inbox | Inserts the promotion boundary before more ambitious derived analysis can influence durable memory. |
-| Phase 6 | Semantic map analysis under governance | Introduces higher-noise semantic signals only after governance controls exist. |
-| Phase 7 | Fact/edge graph with temporal validity | Adds slower, more durable relationship storage after operational memory, structural orientation, and governance are already in place. |
+| Phase 2 | Structural extraction and derived orientation foundations | Captures the earliest Graphify-derived win through deterministic extraction without changing canonical truth rules. |
+| Phase 3 | Orientation and navigation expansion | Makes the structural layer operational for navigation after the underlying derived foundation exists. |
+| Phase 4 | Reusable operating knowledge | Converts repeated work patterns into reusable operating knowledge once active work continuity exists. |
+| Phase 5 | Governance and review boundaries | Inserts the promotion boundary before more ambitious derived analysis can influence durable memory. |
+| Phase 6 | Higher-noise derived analysis | Introduces richer derived signals only after governance controls exist. |
+| Phase 7 | Durable relationship and truth refinement | Adds slower, more durable knowledge structures after operational memory, structural orientation, and governance are already in place. |
 | Phase 8 | Evaluation harness and dream cycle | Turns the redesign into a measurable system after the major write and retrieval paths exist. |
 
 ## Deliverables by Phase
@@ -62,14 +62,14 @@ Within this envelope, SQLite is not a "lite" preview tier and Postgres is not th
 | Phase | Deliverables |
 |---|---|
 | Phase 0 | Scope and policy schema additions, compatibility rules, and SQLite/Postgres parity tests for the migration baseline. |
-| Phase 1 | `task_threads`, `working_sets`, `memory_events`, `episodes`, `attempts`, and `decisions` support plus task start, resume, decision, and attempt-capture surfaces with continuity tests. |
-| Phase 2 | Note manifest extraction, structural context map build, basic map reports, and tests against Markdown note corpora. |
-| Phase 3 | Map query, path, explain, and neighbor operations; Context Atlas registration; staleness and stats reporting; and interface exposure for agent use. |
-| Phase 4 | Procedure registry support, procedure creation and search flows, rationale capture, and Markdown-backed canonical procedure files. |
-| Phase 5 | Memory Candidate and Memory Inbox handling, review and promotion flows, scope and sensitivity gates, and governance dashboards or reports. |
-| Phase 6 | Semantic map build mode, controlled inferred-edge handling, bridge or surprise analysis, suggested-question output, and dream-cycle map review inputs. |
-| Phase 7 | Fact and relationship storage with temporal validity, evidence chain support, contradiction handling, and candidate-based compiled-truth update flows. |
-| Phase 8 | Evaluation commands, repeated-work prevention tests, resume and synthesis evaluations, privacy and scope leakage checks, and dream-cycle reporting. |
+| Phase 1 | Durable active-work continuity, resume-oriented retrieval support, and verification that repeated-work prevention improves the current workflow without breaking existing contracts. |
+| Phase 2 | Deterministic structural extraction from canonical sources, derived orientation artifacts, and validation that Markdown-first knowledge remains the canonical substrate. |
+| Phase 3 | Broader orientation coverage, agent-usable navigation surfaces, and operational checks for staleness, discoverability, and local performance fitness. |
+| Phase 4 | Canonical reusable operating knowledge, durable rationale capture, and migration-safe integration with the active-work model established earlier. |
+| Phase 5 | Reviewable governance state, explicit promotion boundaries, and acceptance controls that keep derived signals from bypassing provenance, scope, or contradiction checks. |
+| Phase 6 | Richer derived analysis under governance, constrained exposure of higher-noise signals, and measured validation that local/offline paths remain viable. |
+| Phase 7 | More durable truth-refinement infrastructure, time-aware relationship handling, and safeguards that prevent historical or inferred knowledge from outrunning current evidence. |
+| Phase 8 | System-level evaluation, benchmark baselines, regression detection for retrieval and scope isolation, and review loops for long-running maintenance. |
 
 Deliverables should remain scoped to what the current repository can absorb phase by phase. If a deliverable requires a deeper subsystem contract, that contract belongs in the later workstream document for that subsystem rather than here.
 
@@ -144,16 +144,16 @@ Phase 0 comes first because the redesign needs an execution envelope before it n
 
 Phase 1 comes next because repeated-work prevention is the first user goal and the strongest justification for redesign work that touches the live codebase. Durable task continuity also creates a safer base for later procedure capture, retrieval traces, and governance-aware writes.
 
-Phase 2 follows because deterministic structural extraction is the earliest Graphify-derived gain that fits the current repository. It improves navigation and synthesis without forcing a canonical graph story too early.
+Phase 2 follows because deterministic structural extraction is the earliest Graphify-derived gain that fits the current repository. It improves navigation and synthesis without forcing deeper subsystem commitments too early.
 
-Phase 3 is sequenced after Phase 2 because atlas and query tools are only valuable once structural maps exist and staleness can be observed. It turns the structural layer into an actual agent aid rather than an offline artifact.
+Phase 3 is sequenced after Phase 2 because broader orientation and navigation are only valuable once the derived structural foundation exists and staleness can be observed. It turns the structural layer into an actual agent aid rather than an offline artifact.
 
-Phase 4 waits until after operational continuity and structural orientation because procedures and rationales are most useful when they can be grounded in real task history instead of premature abstraction.
+Phase 4 waits until after operational continuity and structural orientation because reusable operating knowledge is most useful when it can be grounded in real task history instead of premature abstraction.
 
-Phase 5 must precede Phase 6 and Phase 7 because higher-noise derived analysis and slower-moving fact storage both need a governance boundary. Without Memory Inbox and promotion controls, semantic suggestions and relationship candidates would bypass the trust model.
+Phase 5 must precede Phase 6 and Phase 7 because higher-noise derived analysis and slower-moving truth refinement both need a governance boundary. Without review controls, richer derived signals would bypass the trust model.
 
-Phase 6 comes before Phase 7 because semantic map analysis is still derived, discardable, and easier to constrain. It is a lower-risk way to learn from richer structure before introducing a more durable fact and edge substrate with temporal validity.
+Phase 6 comes before Phase 7 because higher-noise derived analysis is still discardable and easier to constrain. It is a lower-risk way to learn from richer structure before introducing more durable truth-refinement infrastructure.
 
-Phase 7 is intentionally late because temporal fact storage is valuable only after the system already knows how to preserve provenance, contain contradictions, and distinguish current evidence from historical memory.
+Phase 7 is intentionally late because durable truth refinement is valuable only after the system already knows how to preserve provenance, contain contradictions, and distinguish current evidence from historical memory.
 
 Phase 8 closes the roadmap because evaluation and dream-cycle maintenance should validate the full loop rather than guess at isolated wins. Benchmarking, leakage checks, retrieval evaluation, and repeated-work tests are the evidence layer that tells the team whether the migration actually improved the existing product.
