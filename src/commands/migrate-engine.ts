@@ -142,6 +142,9 @@ export async function runMigrateEngine(sourceEngine: BrainEngine, args: string[]
   // Get all source pages
   const sourceStats = await sourceEngine.getStats();
   const allPages = await sourceEngine.listPages({ limit: 100000 });
+  const sourcePageEmbeddings = new Map(
+    (await sourceEngine.getPageEmbeddings()).map((entry) => [entry.slug, entry.embedding] as const),
+  );
   const pagesToMigrate = allPages.filter(p => !completedSet.has(p.slug));
 
   console.log(`Migrating ${pagesToMigrate.length} pages (${allPages.length} total, ${completedSet.size} already done)...`);
@@ -157,6 +160,10 @@ export async function runMigrateEngine(sourceEngine: BrainEngine, args: string[]
       frontmatter: page.frontmatter,
       content_hash: page.content_hash,
     });
+    await targetEngine.updatePageEmbedding(
+      page.slug,
+      sourcePageEmbeddings.get(page.slug) ?? null,
+    );
 
     // Copy chunks with embeddings
     const chunks = await sourceEngine.getChunksWithEmbeddings(page.slug);

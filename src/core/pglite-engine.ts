@@ -64,7 +64,6 @@ export class PGLiteEngine implements BrainEngine {
 
   async initSchema(): Promise<void> {
     await this.db.exec(PGLITE_SCHEMA_SQL);
-    await this.db.exec(`ALTER TABLE pages ADD COLUMN IF NOT EXISTS page_embedding vector(768)`);
 
     const { applied } = await runMigrations(this);
     if (applied > 0) {

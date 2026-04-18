@@ -138,7 +138,7 @@ describe('PostgresEngine page embeddings', () => {
         return [{
           page_id: 7,
           slug: 'systems/compiler.md',
-          embedding: new Float32Array([0.1, 0.2, 0.3]),
+          embedding: expectedLiteral,
         }];
       }
 

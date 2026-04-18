@@ -64,7 +64,6 @@ export class PostgresEngine implements BrainEngine {
     await conn`SELECT pg_advisory_lock(42)`;
     try {
       await conn.unsafe(SCHEMA_SQL);
-      await conn`ALTER TABLE pages ADD COLUMN IF NOT EXISTS page_embedding vector(768)`;
 
       // Run any pending migrations automatically
       const { applied } = await runMigrations(this);
