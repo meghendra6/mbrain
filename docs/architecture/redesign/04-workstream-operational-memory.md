@@ -18,8 +18,8 @@ This document does not redefine the derived orientation subsystem or the review 
 
 | Object | Role | Canonical Status |
 |---|---|---|
-| Task Thread | Durable container for multi-session work, including status, goal, repo or branch context, linked episodes, active files and symbols, and next-step continuity. | Canonical, DB-backed. |
-| Working Set | Focused continuation record for the active Task Thread: current goal, active files, blockers, next steps, open questions, recent decisions, and known failed approaches. | Canonical, DB-backed. |
+| Task Thread | Durable container for multi-session work, including task identity, scope, status, goal, repo or branch context, linked episodes, and the stable historical envelope that continuity depends on. | Canonical, DB-backed. |
+| Working Set | Focused continuation record for the active Task Thread: the current view of active files, active symbols, blockers, next steps, open questions, recent decisions, and known failed approaches that should shape the next move now. | Canonical, DB-backed. |
 | Resume Card | Presentation view over the Working Set for CLI, MCP, or generated Markdown display. | Projection only, not canonical. |
 | Event | Atomic operational record such as a message, tool call, file change, observation, or test run. | Canonical, DB-backed append-only record. |
 | Episode | Session-level rollup of related Events, extracted Attempts, extracted Decisions, and continuity summary. | Canonical, DB-backed. |
@@ -28,6 +28,12 @@ This document does not redefine the derived orientation subsystem or the review 
 | Procedure Registry Entry | Searchable handle for a reusable operating procedure, linked to canonical Markdown procedure content and usage history. | Mixed canonical split: Markdown procedure content plus DB-backed registry and usage state. |
 
 Operational memory is task-aware rather than fact-oriented. These objects exist to answer questions such as "where did we leave off?", "what already failed?", and "what decision is still in force?" before the system starts new analysis.
+
+The authority boundary between the two top-level task objects is strict:
+
+- `Task Thread` owns durable task identity and history: which unit of work this is, which scope and repo or branch it belongs to, what status it is in, and which Episodes, Attempts, Decisions, and procedures are attached to it.
+- `Working Set` owns focused continuation state: what should be looked at next, which files or symbols are active now, which blockers matter now, and which next steps are currently justified.
+- `Working Set` is therefore a canonical projection of the current best resume state for one `Task Thread`, not a competing owner of task identity or historical membership.
 
 ## Lifecycle
 
@@ -56,10 +62,18 @@ Task-state objects are DB-backed. `Task Thread`, `Working Set`, `Event / Episode
 The canonical storage rules for this subsystem are:
 
 - Task-state objects are DB-backed and authoritative.
+- `Task Thread` is authoritative for durable task identity, status, scope, and history linkage.
+- `Working Set` is authoritative for focused continuation state and should be treated as the canonical "resume now" surface for the thread.
 - Resume snapshots may have generated Markdown views, but DB state remains authoritative.
 - Resume cards, generated thread summaries, and task-oriented reports are projections over canonical DB records.
 - Procedures remain human-readable canonical artifacts in Markdown, with DB-backed registry metadata used for search, applicability checks, usage counters, and task linkage.
 - Derived task maps or orientation reports may help navigation, but they do not replace Task Thread or Working Set as the canonical source for active-work continuity.
+
+If the two records diverge, the resolution rule is object-specific rather than last-write-wins:
+
+- task identity, scope, status, and historical linkage come from `Task Thread`
+- active files, active symbols, blockers, open questions, and next-step continuity come from `Working Set`
+- divergence between them is treated as an operational inconsistency that should trigger Working Set refresh or task verification rather than silent merge logic
 
 This split keeps operational memory fast to update while preserving Markdown where humans need to inspect and refine reusable procedures directly.
 
@@ -119,6 +133,10 @@ Verification rules:
 
 - Historical Events, Episodes, Attempts, and Decisions remain valid as history even when their conclusions require re-checking.
 - Code-sensitive next steps must be revalidated before they are presented as current truth.
+- A failed `Attempt` is suppressive only while its applicability assumptions still hold for the current branch, symbol layout, test behavior, environment, and dependency context.
+- If any of those applicability anchors drift materially, the failed `Attempt` remains visible as historical evidence but drops from "do not retry" to "retry only after revalidation" status.
+- Attempts should therefore carry enough applicability context to explain why the failure happened and what would have to stay true for that failure to continue suppressing the same approach.
+- A stale failed `Attempt` may still warn the system to inspect the old failure first, but it should not veto a retried approach without a fresh check that the prior failure conditions still exist.
 - Decisions may carry explicit validity windows or supersession links so old rationale is preserved without being mistaken for current policy.
 - Working Set entries should distinguish "historical memory" from "currently verified state" when the thread crosses branch or time boundaries.
 - Procedure applicability should be rechecked against current preconditions instead of assumed from past success alone.
