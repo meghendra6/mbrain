@@ -1,4 +1,4 @@
-import type { EmbeddingProvider as EmbeddingProviderMode, GBrainConfig } from '../config.ts';
+import type { EmbeddingProvider as EmbeddingProviderMode, MBrainConfig } from '../config.ts';
 
 const DEFAULT_LOCAL_MODEL = 'nomic-embed-text';
 const DEFAULT_OLLAMA_HOST = 'http://127.0.0.1:11434';
@@ -18,7 +18,7 @@ export interface ResolvedEmbeddingProvider {
 }
 
 export interface ResolveEmbeddingProviderOptions {
-  config?: GBrainConfig | null;
+  config?: MBrainConfig | null;
 }
 
 export function modelUsesNomicTaskPrefixes(model: string | null | undefined): boolean {
@@ -42,22 +42,22 @@ export function resolveEmbeddingProvider(
     model: null,
     dimensions: null,
     reason: mode === 'local'
-      ? 'Local embedding runtime is not configured. Set OLLAMA_HOST or GBRAIN_LOCAL_EMBEDDING_URL.'
+      ? 'Local embedding runtime is not configured. Set OLLAMA_HOST or MBRAIN_LOCAL_EMBEDDING_URL.'
       : 'Embedding provider is disabled (embedding_provider=\"none\").',
   });
 }
 
 function resolveLocalProvider(
   mode: EmbeddingProviderMode,
-  config: GBrainConfig | null,
+  config: MBrainConfig | null,
 ): ResolvedEmbeddingProvider | null {
   if (mode !== 'local') return null;
 
   const configuredUrl = resolveLocalEmbeddingUrl();
-  const configuredModel = process.env.GBRAIN_LOCAL_EMBEDDING_MODEL
+  const configuredModel = process.env.MBRAIN_LOCAL_EMBEDDING_MODEL
     || config?.embedding_model
     || DEFAULT_LOCAL_MODEL;
-  const configuredDimensions = parsePositiveInt(process.env.GBRAIN_LOCAL_EMBEDDING_DIMENSIONS);
+  const configuredDimensions = parsePositiveInt(process.env.MBRAIN_LOCAL_EMBEDDING_DIMENSIONS);
 
   return {
     capability: {
@@ -102,7 +102,7 @@ function resolveLocalProvider(
 }
 
 function resolveLocalEmbeddingUrl(): string {
-  const configured = process.env.GBRAIN_LOCAL_EMBEDDING_URL;
+  const configured = process.env.MBRAIN_LOCAL_EMBEDDING_URL;
   if (configured) return configured;
 
   const ollamaHost = process.env.OLLAMA_HOST;

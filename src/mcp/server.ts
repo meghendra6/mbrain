@@ -10,7 +10,7 @@ import { VERSION } from '../version.ts';
 
 export async function startMcpServer(engine: BrainEngine) {
   const server = new Server(
-    { name: 'gbrain', version: VERSION },
+    { name: 'mbrain', version: VERSION },
     {
       capabilities: { tools: {} },
       instructions: MCP_INSTRUCTIONS,
@@ -74,7 +74,7 @@ export async function startMcpServer(engine: BrainEngine) {
   await server.connect(transport);
 }
 
-// Backward compat: used by `gbrain call` command
+// Backward compat: used by `mbrain call` command
 export async function handleToolCall(
   engine: BrainEngine,
   tool: string,

@@ -91,7 +91,7 @@ function createUnavailableProvider(reason: string) {
 
 
 function writeUserConfig(config: Record<string, unknown>) {
-  const configDir = join(tempDir, '.gbrain');
+  const configDir = join(tempDir, '.mbrain');
   mkdirSync(configDir, { recursive: true });
   writeFileSync(join(configDir, 'config.json'), JSON.stringify(config, null, 2));
 }
@@ -123,11 +123,11 @@ function captureConsole() {
 }
 
 beforeEach(async () => {
-  tempDir = mkdtempSync(join(tmpdir(), 'gbrain-local-offline-'));
+  tempDir = mkdtempSync(join(tmpdir(), 'mbrain-local-offline-'));
   dbPath = join(tempDir, 'brain.db');
   process.env.HOME = tempDir;
-  delete process.env.GBRAIN_CONFIG_DIR;
-  delete process.env.GBRAIN_DATABASE_URL;
+  delete process.env.MBRAIN_CONFIG_DIR;
+  delete process.env.MBRAIN_DATABASE_URL;
   delete process.env.DATABASE_URL;
   engine = new SQLiteEngine();
   await engine.connect({ engine: 'sqlite', database_path: dbPath });
@@ -178,13 +178,13 @@ describe('local/offline profile semantics', () => {
 
     expect(config).toMatchObject({
       engine: 'sqlite',
-      database_path: join(tempDir, '.gbrain', 'brain.db'),
+      database_path: join(tempDir, '.mbrain', 'brain.db'),
       offline: true,
       embedding_provider: 'local',
       embedding_model: 'nomic-embed-text',
       query_rewrite_provider: 'heuristic',
     });
-    expect(readFileSync(join(tempDir, '.gbrain', 'config.json'), 'utf-8')).toContain('"engine": "sqlite"');
+    expect(readFileSync(join(tempDir, '.mbrain', 'config.json'), 'utf-8')).toContain('"engine": "sqlite"');
   });
 
   test('query rewrite provider none returns the original query without contacting a runtime', async () => {
@@ -211,9 +211,9 @@ describe('local/offline profile semantics', () => {
     }
   });
 
-  test('local_llm rewrite uses GBRAIN_LOCAL_LLM_URL JSON mode', async () => {
-    process.env.GBRAIN_LOCAL_LLM_URL = 'http://127.0.0.1:4010/rewrite';
-    process.env.GBRAIN_LOCAL_LLM_MODEL = 'test-local-rewrite';
+  test('local_llm rewrite uses MBRAIN_LOCAL_LLM_URL JSON mode', async () => {
+    process.env.MBRAIN_LOCAL_LLM_URL = 'http://127.0.0.1:4010/rewrite';
+    process.env.MBRAIN_LOCAL_LLM_MODEL = 'test-local-rewrite';
 
     const originalFetch = globalThis.fetch;
     const fetchSpy = mock(async (input: RequestInfo | URL) => {
@@ -246,14 +246,14 @@ describe('local/offline profile semantics', () => {
       expect(fetchSpy).toHaveBeenCalledTimes(1);
     } finally {
       globalThis.fetch = originalFetch;
-      delete process.env.GBRAIN_LOCAL_LLM_URL;
-      delete process.env.GBRAIN_LOCAL_LLM_MODEL;
+      delete process.env.MBRAIN_LOCAL_LLM_URL;
+      delete process.env.MBRAIN_LOCAL_LLM_MODEL;
     }
   });
 
   test('local_llm rewrite uses OLLAMA_HOST generate mode', async () => {
     process.env.OLLAMA_HOST = 'http://127.0.0.1:11434';
-    process.env.GBRAIN_LOCAL_LLM_MODEL = 'qwen-test';
+    process.env.MBRAIN_LOCAL_LLM_MODEL = 'qwen-test';
 
     const originalFetch = globalThis.fetch;
     const fetchSpy = mock(async (input: RequestInfo | URL) => {
@@ -289,7 +289,7 @@ describe('local/offline profile semantics', () => {
     } finally {
       globalThis.fetch = originalFetch;
       delete process.env.OLLAMA_HOST;
-      delete process.env.GBRAIN_LOCAL_LLM_MODEL;
+      delete process.env.MBRAIN_LOCAL_LLM_MODEL;
     }
   });
 
@@ -324,7 +324,7 @@ describe('local/offline profile semantics', () => {
   });
 
   test('local_llm rewrite falls back to original query on non-200 responses', async () => {
-    process.env.GBRAIN_LOCAL_LLM_URL = 'http://127.0.0.1:4010/rewrite';
+    process.env.MBRAIN_LOCAL_LLM_URL = 'http://127.0.0.1:4010/rewrite';
 
     const originalFetch = globalThis.fetch;
     const fetchSpy = mock(async () => new Response('upstream unavailable', {
@@ -348,7 +348,7 @@ describe('local/offline profile semantics', () => {
       expect(result).toEqual(['offline rewrite keeps original terms']);
     } finally {
       globalThis.fetch = originalFetch;
-      delete process.env.GBRAIN_LOCAL_LLM_URL;
+      delete process.env.MBRAIN_LOCAL_LLM_URL;
     }
   });
 
@@ -435,16 +435,16 @@ describe('local/offline embedding flow', () => {
 
   test('local provider auto-detects the default Ollama endpoint when env vars are unset', async () => {
     const previousOpenAI = process.env.OPENAI_API_KEY;
-    const previousLocalUrl = process.env.GBRAIN_LOCAL_EMBEDDING_URL;
+    const previousLocalUrl = process.env.MBRAIN_LOCAL_EMBEDDING_URL;
     const previousOllama = process.env.OLLAMA_HOST;
-    const previousModel = process.env.GBRAIN_LOCAL_EMBEDDING_MODEL;
-    const previousDimensions = process.env.GBRAIN_LOCAL_EMBEDDING_DIMENSIONS;
+    const previousModel = process.env.MBRAIN_LOCAL_EMBEDDING_MODEL;
+    const previousDimensions = process.env.MBRAIN_LOCAL_EMBEDDING_DIMENSIONS;
 
     process.env.OPENAI_API_KEY = 'test-key';
-    delete process.env.GBRAIN_LOCAL_EMBEDDING_URL;
+    delete process.env.MBRAIN_LOCAL_EMBEDDING_URL;
     delete process.env.OLLAMA_HOST;
-    delete process.env.GBRAIN_LOCAL_EMBEDDING_MODEL;
-    delete process.env.GBRAIN_LOCAL_EMBEDDING_DIMENSIONS;
+    delete process.env.MBRAIN_LOCAL_EMBEDDING_MODEL;
+    delete process.env.MBRAIN_LOCAL_EMBEDDING_DIMENSIONS;
 
     const originalFetch = globalThis.fetch;
     const fetchSpy = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -494,9 +494,9 @@ describe('local/offline embedding flow', () => {
       }
 
       if (previousLocalUrl === undefined) {
-        delete process.env.GBRAIN_LOCAL_EMBEDDING_URL;
+        delete process.env.MBRAIN_LOCAL_EMBEDDING_URL;
       } else {
-        process.env.GBRAIN_LOCAL_EMBEDDING_URL = previousLocalUrl;
+        process.env.MBRAIN_LOCAL_EMBEDDING_URL = previousLocalUrl;
       }
 
       if (previousOllama === undefined) {
@@ -506,27 +506,27 @@ describe('local/offline embedding flow', () => {
       }
 
       if (previousModel === undefined) {
-        delete process.env.GBRAIN_LOCAL_EMBEDDING_MODEL;
+        delete process.env.MBRAIN_LOCAL_EMBEDDING_MODEL;
       } else {
-        process.env.GBRAIN_LOCAL_EMBEDDING_MODEL = previousModel;
+        process.env.MBRAIN_LOCAL_EMBEDDING_MODEL = previousModel;
       }
 
       if (previousDimensions === undefined) {
-        delete process.env.GBRAIN_LOCAL_EMBEDDING_DIMENSIONS;
+        delete process.env.MBRAIN_LOCAL_EMBEDDING_DIMENSIONS;
       } else {
-        process.env.GBRAIN_LOCAL_EMBEDDING_DIMENSIONS = previousDimensions;
+        process.env.MBRAIN_LOCAL_EMBEDDING_DIMENSIONS = previousDimensions;
       }
     }
   });
 
   test('local provider prefers config embedding_model when env vars are unset', async () => {
-    const previousLocalUrl = process.env.GBRAIN_LOCAL_EMBEDDING_URL;
+    const previousLocalUrl = process.env.MBRAIN_LOCAL_EMBEDDING_URL;
     const previousOllama = process.env.OLLAMA_HOST;
-    const previousModel = process.env.GBRAIN_LOCAL_EMBEDDING_MODEL;
+    const previousModel = process.env.MBRAIN_LOCAL_EMBEDDING_MODEL;
 
-    delete process.env.GBRAIN_LOCAL_EMBEDDING_URL;
+    delete process.env.MBRAIN_LOCAL_EMBEDDING_URL;
     delete process.env.OLLAMA_HOST;
-    delete process.env.GBRAIN_LOCAL_EMBEDDING_MODEL;
+    delete process.env.MBRAIN_LOCAL_EMBEDDING_MODEL;
 
     const originalFetch = globalThis.fetch;
     const fetchSpy = mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -563,9 +563,9 @@ describe('local/offline embedding flow', () => {
       globalThis.fetch = originalFetch;
 
       if (previousLocalUrl === undefined) {
-        delete process.env.GBRAIN_LOCAL_EMBEDDING_URL;
+        delete process.env.MBRAIN_LOCAL_EMBEDDING_URL;
       } else {
-        process.env.GBRAIN_LOCAL_EMBEDDING_URL = previousLocalUrl;
+        process.env.MBRAIN_LOCAL_EMBEDDING_URL = previousLocalUrl;
       }
 
       if (previousOllama === undefined) {
@@ -575,9 +575,9 @@ describe('local/offline embedding flow', () => {
       }
 
       if (previousModel === undefined) {
-        delete process.env.GBRAIN_LOCAL_EMBEDDING_MODEL;
+        delete process.env.MBRAIN_LOCAL_EMBEDDING_MODEL;
       } else {
-        process.env.GBRAIN_LOCAL_EMBEDDING_MODEL = previousModel;
+        process.env.MBRAIN_LOCAL_EMBEDDING_MODEL = previousModel;
       }
     }
   });

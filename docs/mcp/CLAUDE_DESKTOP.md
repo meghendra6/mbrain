@@ -1,4 +1,4 @@
-# Connect GBrain to Claude Desktop
+# Connect MBrain to Claude Desktop
 
 **Important:** Claude Desktop does NOT connect to remote MCP servers via
 `claude_desktop_config.json`. That file only works for local stdio servers.
@@ -27,7 +27,7 @@ Start a new conversation and try:
 Search my brain for [any topic]
 ```
 
-Claude Desktop will use your GBrain tools automatically.
+Claude Desktop will use your MBrain tools automatically.
 
 ## Common Mistakes
 

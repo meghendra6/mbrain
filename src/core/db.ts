@@ -1,15 +1,15 @@
 import postgres from 'postgres';
-import { GBrainError, type EngineConfig } from './types.ts';
+import { MBrainError, type EngineConfig } from './types.ts';
 import { SCHEMA_SQL } from './schema-embedded.ts';
 
 let sql: ReturnType<typeof postgres> | null = null;
 
 export function getConnection(): ReturnType<typeof postgres> {
   if (!sql) {
-    throw new GBrainError(
+    throw new MBrainError(
       'No database connection',
       'connect() has not been called',
-      'Run gbrain init --supabase or gbrain init --url <connection_string>',
+      'Run mbrain init --supabase or mbrain init --url <connection_string>',
     );
   }
   return sql;
@@ -20,10 +20,10 @@ export async function connect(config: EngineConfig): Promise<void> {
 
   const url = config.database_url;
   if (!url) {
-    throw new GBrainError(
+    throw new MBrainError(
       'No database URL',
       'database_url is missing from config',
-      'Run gbrain init --supabase or gbrain init --url <connection_string>',
+      'Run mbrain init --supabase or mbrain init --url <connection_string>',
     );
   }
 
@@ -43,10 +43,10 @@ export async function connect(config: EngineConfig): Promise<void> {
   } catch (e: unknown) {
     sql = null;
     const msg = e instanceof Error ? e.message : String(e);
-    throw new GBrainError(
+    throw new MBrainError(
       'Cannot connect to database',
       msg,
-      'Check your connection URL in ~/.gbrain/config.json',
+      'Check your connection URL in ~/.mbrain/config.json',
     );
   }
 }

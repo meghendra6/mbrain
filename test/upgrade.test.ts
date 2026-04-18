@@ -12,7 +12,7 @@ describe('upgrade command', () => {
     });
     const stdout = await new Response(proc.stdout).text();
     const exitCode = await proc.exited;
-    expect(stdout).toContain('Usage: gbrain upgrade');
+    expect(stdout).toContain('Usage: mbrain upgrade');
     expect(stdout).toContain('Detects install method');
     expect(exitCode).toBe(0);
   });
@@ -25,7 +25,7 @@ describe('upgrade command', () => {
     });
     const stdout = await new Response(proc.stdout).text();
     const exitCode = await proc.exited;
-    expect(stdout).toContain('Usage: gbrain upgrade');
+    expect(stdout).toContain('Usage: mbrain upgrade');
     expect(exitCode).toBe(0);
   });
 });
@@ -40,12 +40,12 @@ describe('detectInstallMethod heuristic (source analysis)', () => {
 
   test('checks node_modules before binary', () => {
     const nodeModulesIdx = source.indexOf('node_modules');
-    const binaryIdx = source.indexOf("endsWith('/gbrain')");
+    const binaryIdx = source.indexOf("endsWith('/mbrain')");
     expect(nodeModulesIdx).toBeLessThan(binaryIdx);
   });
 
   test('checks binary before clawhub', () => {
-    const binaryIdx = source.indexOf("endsWith('/gbrain')");
+    const binaryIdx = source.indexOf("endsWith('/mbrain')");
     const clawhubIdx = source.indexOf("clawhub --version");
     expect(binaryIdx).toBeLessThan(clawhubIdx);
   });
@@ -73,7 +73,7 @@ describe('detectInstallMethod heuristic (source analysis)', () => {
   });
 
   test('refreshes agent rules after a successful upgrade', () => {
-    expect(source).toContain('gbrain setup-agent --skip-mcp');
-    expect(source).not.toContain("execSync('gbrain setup-agent',");
+    expect(source).toContain('mbrain setup-agent --skip-mcp');
+    expect(source).not.toContain("execSync('mbrain setup-agent',");
   });
 });

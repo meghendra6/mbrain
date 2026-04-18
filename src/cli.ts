@@ -51,7 +51,7 @@ async function main() {
   }
 
   if (command === '--version' || command === 'version') {
-    console.log(`gbrain ${VERSION}`);
+    console.log(`mbrain ${VERSION}`);
     return;
   }
 
@@ -79,7 +79,7 @@ async function main() {
   const op = cliOps.get(command);
   if (!op) {
     console.error(`Unknown command: ${command}`);
-    console.error('Run gbrain --help for available commands.');
+    console.error('Run mbrain --help for available commands.');
     process.exit(1);
   }
 
@@ -92,7 +92,7 @@ async function main() {
         const cliName = op.cliHints?.name || op.name;
         const positional = op.cliHints?.positional || [];
         const usage = positional.map(p => `<${p}>`).join(' ');
-        console.error(`Usage: gbrain ${cliName} ${usage}`);
+        console.error(`Usage: mbrain ${cliName} ${usage}`);
         process.exit(1);
       }
     }
@@ -417,7 +417,7 @@ async function handleCliOnly(command: string, args: string[]) {
 async function connectEngine(): Promise<BrainEngine> {
   const config = loadConfig();
   if (!config) {
-    console.error('No brain configured. Run: gbrain init or set GBRAIN_DATABASE_URL / DATABASE_URL.');
+    console.error('No brain configured. Run: mbrain init or set MBRAIN_DATABASE_URL / DATABASE_URL.');
     process.exit(1);
   }
   return createConnectedEngine(config);
@@ -426,7 +426,7 @@ async function connectEngine(): Promise<BrainEngine> {
 function printOpHelp(op: Operation) {
   const positional = (op.cliHints?.positional || []).map(p => `<${p}>`).join(' ');
   const name = op.cliHints?.name || op.name;
-  console.log(`Usage: gbrain ${name} ${positional} [options]\n`);
+  console.log(`Usage: mbrain ${name} ${positional} [options]\n`);
   console.log(op.description + '\n');
   const entries = Object.entries(op.params);
   if (entries.length > 0) {
@@ -441,10 +441,10 @@ function printOpHelp(op: Operation) {
 }
 
 function printHelp() {
-  console.log(`gbrain ${VERSION} -- personal knowledge brain
+  console.log(`mbrain ${VERSION} -- personal knowledge brain
 
 USAGE
-  gbrain <command> [options]
+  mbrain <command> [options]
 
 SETUP
   init [--local|--pglite|--supabase|--url <conn>]
@@ -512,7 +512,7 @@ ADMIN
   version                            Version info
   --tools-json                       Tool discovery (JSON)
 
-Run gbrain <command> --help for command-specific help.
+Run mbrain <command> --help for command-specific help.
 `);
 }
 

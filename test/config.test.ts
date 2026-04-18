@@ -7,7 +7,7 @@ const originalEnv = { ...process.env };
 let tempHome: string;
 
 function writeUserConfig(config: Record<string, unknown>) {
-  const dir = join(tempHome, '.gbrain');
+  const dir = join(tempHome, '.mbrain');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'config.json'), JSON.stringify(config, null, 2));
 }
@@ -20,9 +20,9 @@ function redactUrl(url: string): string {
 }
 
 beforeEach(() => {
-  tempHome = mkdtempSync(join(tmpdir(), 'gbrain-config-'));
+  tempHome = mkdtempSync(join(tmpdir(), 'mbrain-config-'));
   process.env.HOME = tempHome;
-  delete process.env.GBRAIN_DATABASE_URL;
+  delete process.env.MBRAIN_DATABASE_URL;
   delete process.env.DATABASE_URL;
   delete process.env.OPENAI_API_KEY;
 });
@@ -41,7 +41,7 @@ describe('config loading', () => {
   test('loads sqlite engine settings from config', async () => {
     writeUserConfig({
       engine: 'sqlite',
-      database_path: '~/.gbrain/brain.db',
+      database_path: '~/.mbrain/brain.db',
       offline: true,
       embedding_provider: 'local',
       embedding_model: 'bge-m3',
@@ -53,7 +53,7 @@ describe('config loading', () => {
 
     expect(config).toMatchObject({
       engine: 'sqlite',
-      database_path: '~/.gbrain/brain.db',
+      database_path: '~/.mbrain/brain.db',
       offline: true,
       embedding_provider: 'local',
       embedding_model: 'bge-m3',
@@ -63,24 +63,24 @@ describe('config loading', () => {
 
   test('preserves backward compatibility for legacy config files with no engine key', async () => {
     writeUserConfig({
-      database_url: 'postgresql://user:pass@localhost:5432/gbrain',
+      database_url: 'postgresql://user:pass@localhost:5432/mbrain',
     });
 
     const { loadConfig } = await import('../src/core/config.ts');
     expect(loadConfig()).toMatchObject({
       engine: 'postgres',
-      database_url: 'postgresql://user:pass@localhost:5432/gbrain',
+      database_url: 'postgresql://user:pass@localhost:5432/mbrain',
       offline: false,
     });
   });
 
   test('defaults env-only database config to postgres unless local mode is explicitly configured', async () => {
-    process.env.GBRAIN_DATABASE_URL = 'postgresql://env-user:env-pass@localhost:5432/gbrain';
+    process.env.MBRAIN_DATABASE_URL = 'postgresql://env-user:env-pass@localhost:5432/mbrain';
 
     const { loadConfig } = await import('../src/core/config.ts');
     expect(loadConfig()).toMatchObject({
       engine: 'postgres',
-      database_url: 'postgresql://env-user:env-pass@localhost:5432/gbrain',
+      database_url: 'postgresql://env-user:env-pass@localhost:5432/mbrain',
       offline: false,
     });
   });
@@ -88,17 +88,17 @@ describe('config loading', () => {
   test('keeps explicit sqlite mode even when postgres env vars are present', async () => {
     writeUserConfig({
       engine: 'sqlite',
-      database_path: '~/.gbrain/brain.db',
+      database_path: '~/.mbrain/brain.db',
       offline: true,
       embedding_provider: 'local',
       query_rewrite_provider: 'heuristic',
     });
-    process.env.GBRAIN_DATABASE_URL = 'postgresql://env-user:env-pass@localhost:5432/gbrain';
+    process.env.MBRAIN_DATABASE_URL = 'postgresql://env-user:env-pass@localhost:5432/mbrain';
 
     const { loadConfig } = await import('../src/core/config.ts');
     expect(loadConfig()).toMatchObject({
       engine: 'sqlite',
-      database_path: '~/.gbrain/brain.db',
+      database_path: '~/.mbrain/brain.db',
       offline: true,
       embedding_provider: 'local',
       query_rewrite_provider: 'heuristic',

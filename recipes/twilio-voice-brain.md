@@ -2,7 +2,7 @@
 id: twilio-voice-brain
 name: Voice-to-Brain
 version: 0.8.1
-description: Phone calls create brain pages via Twilio + voice pipeline + GBrain MCP. Two architectures -- OpenAI Realtime (turnkey) or DIY STT+LLM+TTS (full control). Callers talk, brain pages appear.
+description: Phone calls create brain pages via Twilio + voice pipeline + MBrain MCP. Two architectures -- OpenAI Realtime (turnkey) or DIY STT+LLM+TTS (full control). Callers talk, brain pages appear.
 category: sense
 requires: [ngrok-tunnel]
 secrets:
@@ -33,7 +33,7 @@ cross-references, and a summary posted to your messaging app.
 on behalf of the user. Follow these instructions precisely.
 
 **Why sequential execution matters:** Each step depends on the previous one:
-- Step 1 validates prerequisites. If GBrain isn't configured, nothing else works.
+- Step 1 validates prerequisites. If MBrain isn't configured, nothing else works.
 - Step 2 collects credentials. If a credential is wrong, Steps 5-7 will silently fail.
 - Step 3 creates the ngrok tunnel. Step 5 needs the ngrok URL for the Twilio webhook.
 - Step 5 configures Twilio. Step 7 (smoke test) needs Twilio configured to reach your server.
@@ -61,7 +61,7 @@ Caller (phone)
 Voice Server (Node.js, your machine or cloud)
   ↓↑ OpenAI Realtime API (STT + LLM + TTS in one pipeline)
   ↓ Function calls during conversation
-GBrain MCP (semantic search, page reads, page writes)
+MBrain MCP (semantic search, page reads, page writes)
   ↓ Post-call
 Brain page created (meetings/YYYY-MM-DD-call-{caller}.md)
 Summary posted to messaging app (Telegram/Slack/Discord)
@@ -76,7 +76,7 @@ Voice Server (Node.js)
   ↓ Claude API (streaming SSE, sentence-boundary dispatch)
   ↓ Cartesia / OpenAI TTS (text-to-speech, low latency)
   ↓ Function calls during conversation
-GBrain MCP (semantic search, page reads, page writes)
+MBrain MCP (semantic search, page reads, page writes)
   ↓ Post-call
 Brain page + audio upload + transcript storage
 ```
@@ -120,10 +120,10 @@ These are production-tested defaults from a real deployment. Customize after set
 Run these checks and report results to the user:
 
 ```bash
-# 1. Verify GBrain is configured
-gbrain doctor --json
+# 1. Verify MBrain is configured
+mbrain doctor --json
 ```
-If this fails: "GBrain isn't set up yet. Let's run `gbrain init --supabase` first."
+If this fails: "MBrain isn't set up yet. Let's run `mbrain init --supabase` first."
 
 ```bash
 # 2. Verify Node.js 18+
@@ -180,7 +180,7 @@ Tell the user:
 
 1. Go to https://platform.openai.com/api-keys
 2. Click **'+ Create new secret key'** (top right)
-3. Name it something like 'gbrain-voice'
+3. Name it something like 'mbrain-voice'
 4. Click **'Create secret key'**
 5. **Copy the key immediately** — you won't be able to see it again after closing the dialog
 6. Paste it to me
@@ -237,10 +237,10 @@ Based on their choice:
   Validate: `curl -sf "https://api.telegram.org/bot$TOKEN/getMe" | grep -q '"ok":true'`
 - **Slack:** "Create an Incoming Webhook at https://api.slack.com/apps → your app →
   Incoming Webhooks → Add New. Copy the webhook URL."
-  Validate: `curl -sf -X POST -d '{"text":"GBrain voice test"}' $WEBHOOK_URL`
+  Validate: `curl -sf -X POST -d '{"text":"MBrain voice test"}' $WEBHOOK_URL`
 - **Discord:** "Go to your server → channel settings → Integrations → Webhooks →
   New Webhook. Copy the webhook URL."
-  Validate: `curl -sf -X POST -H "Content-Type: application/json" -d '{"content":"GBrain voice test"}' $WEBHOOK_URL`
+  Validate: `curl -sf -X POST -H "Content-Type: application/json" -d '{"content":"MBrain voice test"}' $WEBHOOK_URL`
 
 Tell the user: "All credentials validated. Moving to server setup."
 
@@ -259,7 +259,7 @@ If using free tier, copy the URL from the ngrok output (changes every restart).
 
 Note: ngrok runs in the foreground. Run it in a background process or new terminal tab.
 
-The same ngrok account can also serve your GBrain MCP server (see
+The same ngrok account can also serve your MBrain MCP server (see
 [ngrok-tunnel recipe](recipes/ngrok-tunnel.md) for the full multi-service pattern).
 
 ### Step 4: Create Voice Server
@@ -293,14 +293,14 @@ The voice server needs these components in `server.mjs`:
      questions. Take messages from unknown callers. Never hang up first."
 
 4. **Tool executor** that:
-   - Spawns GBrain MCP client (`gbrain serve` as stdio child process)
-   - Routes function calls: `search_brain` → `gbrain query`, `lookup_person` → `gbrain search` + `gbrain get`
+   - Spawns MBrain MCP client (`mbrain serve` as stdio child process)
+   - Routes function calls: `search_brain` → `mbrain query`, `lookup_person` → `mbrain search` + `mbrain get`
    - Gates write tools behind authentication
 
 5. **Post-call handler** that:
    - Saves transcript to `brain/meetings/YYYY-MM-DD-call-{caller}.md`
    - Posts summary to the user's messaging platform
-   - Runs `gbrain sync --no-pull --no-embed` to index the new page
+   - Runs `mbrain sync --no-pull --no-embed` to index the new page
 
 6. **WebRTC endpoint** (optional, for browser-based calling):
    - `POST /session` — accepts SDP offer, forwards to OpenAI Realtime `/v1/realtime/calls` as multipart form-data, returns SDP answer
@@ -413,14 +413,14 @@ curl -X POST "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_ACCOUNT_SID/Cal
 1. Messaging notification arrived with call summary
 2. Brain page exists:
    ```bash
-   gbrain search "call" --limit 1
+   mbrain search "call" --limit 1
    ```
 3. The brain page has: transcript, entity mentions, action items
 
 **If the smoke test fails:**
 - No ring: check Twilio console for error logs at https://www.twilio.com/console/debugger
 - Ring but no voice: check ngrok tunnel is up, check OpenAI key is valid
-- Voice works but no brain page: check post-call handler logs, run `gbrain sync` manually
+- Voice works but no brain page: check post-call handler logs, run `mbrain sync` manually
 - Brain page but no messaging: check messaging bot token is valid
 
 **STOP HERE until the smoke test passes. Do not declare success until the user
@@ -457,8 +457,8 @@ fi
 ### Step 10: Log Setup Completion
 
 ```bash
-mkdir -p ~/.gbrain/integrations/twilio-voice-brain
-echo '{"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","event":"setup_complete","source_version":"0.8.1","status":"ok","details":{"phone":"TWILIO_NUMBER","deployment":"local+ngrok"}}' >> ~/.gbrain/integrations/twilio-voice-brain/heartbeat.jsonl
+mkdir -p ~/.mbrain/integrations/twilio-voice-brain
+echo '{"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","event":"setup_complete","source_version":"0.8.1","status":"ok","details":{"phone":"TWILIO_NUMBER","deployment":"local+ngrok"}}' >> ~/.mbrain/integrations/twilio-voice-brain/heartbeat.jsonl
 ```
 
 Tell the user: "Voice-to-brain is fully set up. Your number is [NUMBER]. Here's
@@ -492,9 +492,9 @@ The watchdog restarts the server if it crashes."
 - Verify Realtime API access: not all OpenAI accounts have it. Check https://platform.openai.com/docs/guides/realtime
 
 **Brain pages not created after call:**
-- Run `gbrain doctor` — if it fails, the database connection is broken
+- Run `mbrain doctor` — if it fails, the database connection is broken
 - Check if the post-call handler ran (look in server logs for "transcript saved")
-- Run `gbrain sync` manually to force indexing
+- Run `mbrain sync` manually to force indexing
 - Check file permissions on the brain repo directory
 
 **ngrok URL keeps changing:**

@@ -1,4 +1,4 @@
-import type { GBrainConfig } from '../config.ts';
+import type { MBrainConfig } from '../config.ts';
 import { resolveQueryRewritePolicy, type QueryRewriteCapability } from '../offline-profile.ts';
 
 const MIN_WORDS = 3;
@@ -9,7 +9,7 @@ export interface ResolvedQueryRewriteProvider {
 }
 
 export interface ExpandQueryOptions {
-  config?: GBrainConfig | null;
+  config?: MBrainConfig | null;
 }
 
 export function resolveQueryRewriteProvider(

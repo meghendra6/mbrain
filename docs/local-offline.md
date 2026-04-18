@@ -1,12 +1,12 @@
-# Local / Offline GBrain
+# Local / Offline MBrain
 
-This guide is for people who want to install and use GBrain **without Supabase, OpenAI, Anthropic, or any other required cloud service**.
+This guide is for people who want to install and use MBrain **without Supabase, OpenAI, Anthropic, or any other required cloud service**.
 
 In this profile:
 
 - your markdown repo stays on disk as the source of truth
-- GBrain stores its index in a local SQLite file
-- `gbrain serve` exposes the same MCP tools over local stdio
+- MBrain stores its index in a local SQLite file
+- `mbrain serve` exposes the same MCP tools over local stdio
 - keyword search works immediately
 - embeddings and local LLM rewrite are optional follow-up steps
 
@@ -27,22 +27,22 @@ Use the **managed Postgres** profile when you want:
 
 - hosted pgvector scale
 - remote MCP over HTTP
-- cloud file/storage workflows (`gbrain files ...`)
+- cloud file/storage workflows (`mbrain files ...`)
 
 This guide only covers the **local/offline SQLite** path.
 
 ---
 
-## 2. What `gbrain init --local` creates
+## 2. What `mbrain init --local` creates
 
-Running `gbrain init --local` writes a config to `~/.gbrain/config.json` and boots the SQLite schema.
+Running `mbrain init --local` writes a config to `~/.mbrain/config.json` and boots the SQLite schema.
 
 Typical result:
 
 ```json
 {
   "engine": "sqlite",
-  "database_path": "/Users/alice/.gbrain/brain.db",
+  "database_path": "/Users/alice/.mbrain/brain.db",
   "offline": true,
   "embedding_provider": "local",
   "embedding_model": "nomic-embed-text",
@@ -53,7 +53,7 @@ Typical result:
 Important detail:
 
 - the saved `database_path` is an **expanded absolute path**
-- GBrain does **not** persist a literal `~/.gbrain/brain.db` string
+- MBrain does **not** persist a literal `~/.mbrain/brain.db` string
 
 ---
 
@@ -68,27 +68,27 @@ curl -fsSL https://bun.com/install | bash
 # 2) Reload your shell so `bun` is on PATH
 exec /bin/zsh
 
-# 3) Install gbrain globally
-bun add -g github:meghendra6/gbrain
+# 3) Install mbrain globally
+bun add -g github:meghendra6/mbrain
 
 # 4) Create a local/offline SQLite brain
-gbrain init --local
+mbrain init --local
 
 # 5) Import a markdown repo
-gbrain import ~/git/brain
+mbrain import ~/git/brain
 
 # 6) Prove search works immediately
-gbrain query "some phrase that should exist in my notes"
+mbrain query "some phrase that should exist in my notes"
 
 # 7) Start the local MCP server
-gbrain serve
+mbrain serve
 ```
 
 At this point:
 
 - your notes are indexed locally
 - keyword search is available
-- Codex / Claude Code can attach through `gbrain serve`
+- Codex / Claude Code can attach through `mbrain serve`
 
 You do **not** need embeddings to start using the brain.
 
@@ -108,61 +108,61 @@ bun --version
 
 Expected result: Bun prints a version string.
 
-### Step 2: Install GBrain
+### Step 2: Install MBrain
 
 ```bash
-bun add -g github:meghendra6/gbrain
-gbrain --version
+bun add -g github:meghendra6/mbrain
+mbrain --version
 ```
 
-Expected result: `gbrain` prints a version string.
+Expected result: `mbrain` prints a version string.
 
 ### Step 3: Initialize a local brain
 
 Default path:
 
 ```bash
-gbrain init --local
+mbrain init --local
 ```
 
 Custom SQLite path:
 
 ```bash
-gbrain init --local --path ~/brains/personal-brain.db
+mbrain init --local --path ~/brains/personal-brain.db
 ```
 
 Expected result:
 
-- GBrain creates the SQLite file
-- GBrain writes `~/.gbrain/config.json`
-- GBrain prints the resolved SQLite path
+- MBrain creates the SQLite file
+- MBrain writes `~/.mbrain/config.json`
+- MBrain prints the resolved SQLite path
 
 ### Step 4: Import your markdown repo
 
 ```bash
-gbrain import /path/to/your/brain
+mbrain import /path/to/your/brain
 ```
 
 Examples:
 
 ```bash
-gbrain import ~/git/brain
-gbrain import ~/Documents/obsidian-vault
+mbrain import ~/git/brain
+mbrain import ~/Documents/obsidian-vault
 ```
 
 Expected result:
 
 - pages and chunks are written to SQLite
 - keyword search is usable immediately
-- embeddings remain deferred until you run `gbrain embed`
+- embeddings remain deferred until you run `mbrain embed`
 
 ### Step 5: Query the local brain
 
 ```bash
-gbrain query "what do we know about competitive dynamics?"
-gbrain search "Pedro"
-gbrain stats
-gbrain health
+mbrain query "what do we know about competitive dynamics?"
+mbrain search "Pedro"
+mbrain stats
+mbrain health
 ```
 
 Expected result:
@@ -177,9 +177,9 @@ Expected result:
 
 By default, local/offline mode is **write-first**:
 
-- `gbrain import` does **not** block on embeddings
-- `gbrain sync` does **not** block on embeddings
-- `gbrain embed` is the explicit backfill path
+- `mbrain import` does **not** block on embeddings
+- `mbrain sync` does **not** block on embeddings
+- `mbrain embed` is the explicit backfill path
 
 That means you can start with keyword search immediately, then turn on semantic backfill later.
 
@@ -192,23 +192,23 @@ You still get:
 - page CRUD
 - keyword search
 - links / graph / timeline / stats
-- MCP access through `gbrain serve`
+- MCP access through `mbrain serve`
 
 ### Option B: configure a local embedding runtime later
 
-GBrain resolves the embedding runtime in this order:
+MBrain resolves the embedding runtime in this order:
 
-1. `GBRAIN_LOCAL_EMBEDDING_URL`
+1. `MBRAIN_LOCAL_EMBEDDING_URL`
 2. `OLLAMA_HOST` (uses `/api/embed`)
 3. default Ollama endpoint `http://127.0.0.1:11434/api/embed`
 
 If Ollama is already running on the default host/port and you are using the default model, no extra runtime URL configuration is required:
 
 ```bash
-gbrain embed --stale
+mbrain embed --stale
 ```
 
-The default model is `nomic-embed-text`. GBrain applies the retrieval prefixes
+The default model is `nomic-embed-text`. MBrain applies the retrieval prefixes
 internally, so document chunks use `search_document:` and search queries use
 `search_query:` automatically.
 
@@ -216,29 +216,29 @@ If you need a custom host/port or a non-default model, override only those piece
 
 ```bash
 export OLLAMA_HOST=http://127.0.0.1:11434
-export GBRAIN_LOCAL_EMBEDDING_MODEL=nomic-embed-text
-gbrain embed --stale
+export MBRAIN_LOCAL_EMBEDDING_MODEL=nomic-embed-text
+mbrain embed --stale
 ```
 
 Optional tuning:
 
 ```bash
-export GBRAIN_LOCAL_EMBEDDING_DIMENSIONS=768
+export MBRAIN_LOCAL_EMBEDDING_DIMENSIONS=768
 ```
 
 Use these commands:
 
 ```bash
-gbrain embed --stale         # only missing chunks
-gbrain embed --all           # rebuild every chunk
-gbrain embed notes/offline-demo
+mbrain embed --stale         # only missing chunks
+mbrain embed --all           # rebuild every chunk
+mbrain embed notes/offline-demo
 ```
 
 What to expect:
 
 - `--stale` only embeds missing chunks
-- page-level `gbrain embed <slug>` can rebuild that page explicitly
-- if Ollama is not running on the default endpoint, use `OLLAMA_HOST` or `GBRAIN_LOCAL_EMBEDDING_URL`
+- page-level `mbrain embed <slug>` can rebuild that page explicitly
+- if Ollama is not running on the default endpoint, use `OLLAMA_HOST` or `MBRAIN_LOCAL_EMBEDDING_URL`
 - if the runtime is reachable but the model is missing, Ollama returns that error directly
 
 ---
@@ -254,7 +254,7 @@ Local/offline defaults to:
 That means:
 
 - search still works with no LLM runtime
-- GBrain uses cheap deterministic rewrites only
+- MBrain uses cheap deterministic rewrites only
 
 If you want local LLM rewrite instead, switch config to:
 
@@ -264,16 +264,16 @@ If you want local LLM rewrite instead, switch config to:
 
 Then configure one of:
 
-- `GBRAIN_LOCAL_LLM_URL`
+- `MBRAIN_LOCAL_LLM_URL`
 - `OLLAMA_HOST` (uses `/api/generate`)
 
 Optional model override:
 
 ```bash
-export GBRAIN_LOCAL_LLM_MODEL=qwen2.5:3b
+export MBRAIN_LOCAL_LLM_MODEL=qwen2.5:3b
 ```
 
-If the runtime is missing, returns malformed output, or responds with an error, GBrain falls back to the original query.
+If the runtime is missing, returns malformed output, or responds with an error, MBrain falls back to the original query.
 
 ---
 
@@ -282,32 +282,32 @@ If the runtime is missing, returns malformed output, or responds with an error, 
 Initialize the brain first:
 
 ```bash
-gbrain init --local
+mbrain init --local
 ```
 
 Then add the MCP server:
 
 ```bash
-codex mcp add gbrain -- gbrain serve
+codex mcp add mbrain -- mbrain serve
 ```
 
 What this does:
 
-- Codex spawns `gbrain serve`
-- `gbrain serve` reads `~/.gbrain/config.json`
+- Codex spawns `mbrain serve`
+- `mbrain serve` reads `~/.mbrain/config.json`
 - all MCP calls hit your local SQLite brain
 
 Recommended sanity check after adding it:
 
 - start a fresh Codex session
-- ask it to list GBrain tools or query a page you know exists
+- ask it to list MBrain tools or query a page you know exists
 
 If you use a non-default config directory, prefer a small wrapper script:
 
 ```bash
 #!/bin/zsh
-export GBRAIN_CONFIG_DIR="$HOME/.gbrain-alt"
-exec gbrain serve
+export MBRAIN_CONFIG_DIR="$HOME/.mbrain-alt"
+exec mbrain serve
 ```
 
 Then point Codex at that wrapper instead of assuming custom env support in every client.
@@ -319,30 +319,30 @@ Then point Codex at that wrapper instead of assuming custom env support in every
 The shortest path mirrors the Codex setup:
 
 ```bash
-claude mcp add gbrain -- gbrain serve
+claude mcp add mbrain -- mbrain serve
 ```
 
 What this does:
 
-- Claude Code spawns `gbrain serve` on demand
-- `gbrain serve` reads `~/.gbrain/config.json`
+- Claude Code spawns `mbrain serve` on demand
+- `mbrain serve` reads `~/.mbrain/config.json`
 - all MCP calls hit your local SQLite brain
 
 Recommended workflow:
 
-1. run `gbrain init --local`
-2. run `gbrain import /path/to/brain`
-3. run `claude mcp add gbrain -- gbrain serve`
+1. run `mbrain init --local`
+2. run `mbrain import /path/to/brain`
+3. run `claude mcp add mbrain -- mbrain serve`
 4. start a new Claude Code session
-5. ask Claude Code to call a simple GBrain tool
+5. ask Claude Code to call a simple MBrain tool
 
 Alternatively, you can add the server manually via JSON config. In `~/.claude.json` or a project `.claude/mcp.json`:
 
 ```json
 {
   "mcpServers": {
-    "gbrain": {
-      "command": "gbrain",
+    "mbrain": {
+      "command": "mbrain",
       "args": ["serve"]
     }
   }
@@ -353,57 +353,57 @@ If you need a non-default config directory, use the same wrapper-script pattern 
 
 ---
 
-## 9. One-command agent setup: `gbrain setup-agent`
+## 9. One-command agent setup: `mbrain setup-agent`
 
 Instead of manually registering MCP and copying behavioral rules, run:
 
 ```bash
-gbrain setup-agent
+mbrain setup-agent
 ```
 
 This single command:
 
 1. **Detects** which AI clients are installed (`~/.claude/` and/or `~/.codex/`)
 2. **Registers** the MCP server with each detected client (if not already registered)
-3. **Injects** the GBrain agent rules into each client's global config
-4. **Installs** the Claude Code Stop hook that prompts for end-of-session gbrain writeback
+3. **Injects** the MBrain agent rules into each client's global config
+4. **Installs** the Claude Code Stop hook that prompts for end-of-session mbrain writeback
 
 The agent rules teach your AI client the brain-agent loop: read brain before responding, write new information back, detect entities on every message, and back-link everything. Without these rules the MCP tools are available but the knowledge compounding does not happen.
 
 ### Options
 
 ```bash
-gbrain setup-agent              # auto-detect and set up all installed clients
-gbrain setup-agent --claude     # Claude Code only
-gbrain setup-agent --codex      # Codex only
-gbrain setup-agent --skip-mcp   # inject rules only, skip MCP registration
-gbrain setup-agent --print      # print the rules to stdout instead of writing files
-gbrain setup-agent --json       # machine-readable output
+mbrain setup-agent              # auto-detect and set up all installed clients
+mbrain setup-agent --claude     # Claude Code only
+mbrain setup-agent --codex      # Codex only
+mbrain setup-agent --skip-mcp   # inject rules only, skip MCP registration
+mbrain setup-agent --print      # print the rules to stdout instead of writing files
+mbrain setup-agent --json       # machine-readable output
 ```
 
 ### What gets written
 
 | Client | MCP registration | Rules injected into |
 |--------|-----------------|---------------------|
-| Claude Code | `claude mcp add gbrain -- gbrain serve` | `~/.claude/CLAUDE.md` |
-| Codex | `codex mcp add gbrain -- gbrain serve` | `~/.codex/AGENTS.md` |
+| Claude Code | `claude mcp add mbrain -- mbrain serve` | `~/.claude/CLAUDE.md` |
+| Codex | `codex mcp add mbrain -- mbrain serve` | `~/.codex/AGENTS.md` |
 
-Rules are wrapped in `<!-- GBRAIN:RULES:START -->` / `<!-- GBRAIN:RULES:END -->` markers so existing content is never touched. Running `setup-agent` again updates the gbrain section in place.
+Rules are wrapped in `<!-- MBRAIN:RULES:START -->` / `<!-- MBRAIN:RULES:END -->` markers so existing content is never touched. Running `setup-agent` again updates the mbrain section in place.
 
 For Claude Code, `setup-agent` also installs:
 
-- `~/.claude/scripts/hooks/stop-gbrain-check.sh`
-- `~/.claude/scripts/hooks/lib/gbrain-relevance.sh`
-- `~/.claude/gbrain-skip-dirs`
-- `~/.claude/hooks/hooks.json` entry `stop:gbrain-check`
+- `~/.claude/scripts/hooks/stop-mbrain-check.sh`
+- `~/.claude/scripts/hooks/lib/mbrain-relevance.sh`
+- `~/.claude/mbrain-skip-dirs`
+- `~/.claude/hooks/hooks.json` entry `stop:mbrain-check`
 
-The Stop hook runs once at session end, blocks once for relevant sessions, and asks Claude Code to either write new session knowledge back to gbrain or respond with `GBRAIN-PASS: <reason>`.
+The Stop hook runs once at session end, blocks once for relevant sessions, and asks Claude Code to either write new session knowledge back to mbrain or respond with `MBRAIN-PASS: <reason>`.
 
 ### After setup
 
 Start a new session in your AI client and verify:
 
-- ask it to list GBrain tools (should see `search`, `query`, `get_page`, etc.)
+- ask it to list MBrain tools (should see `search`, `query`, `get_page`, etc.)
 - ask it about someone or something in your brain
 - confirm it checks the brain before answering
 
@@ -411,21 +411,21 @@ Start a new session in your AI client and verify:
 
 ## 10. Using Codex and Claude Code simultaneously
 
-Both clients can connect to the same local brain at the same time. Each spawns its own `gbrain serve` process, and both read from the same SQLite database at `~/.gbrain/brain.db`. SQLite WAL mode makes concurrent reads safe.
+Both clients can connect to the same local brain at the same time. Each spawns its own `mbrain serve` process, and both read from the same SQLite database at `~/.mbrain/brain.db`. SQLite WAL mode makes concurrent reads safe.
 
 The quickest way to set up both:
 
 ```bash
-gbrain init --local
-gbrain import ~/git/brain
-gbrain setup-agent               # registers MCP + injects rules for both clients
+mbrain init --local
+mbrain import ~/git/brain
+mbrain setup-agent               # registers MCP + injects rules for both clients
 ```
 
 Or manually:
 
 ```bash
-codex mcp add gbrain -- gbrain serve
-claude mcp add gbrain -- gbrain serve
+codex mcp add mbrain -- mbrain serve
+claude mcp add mbrain -- mbrain serve
 ```
 
 After this:
@@ -445,26 +445,26 @@ A practical local/offline routine looks like this:
 
 ```bash
 # one-time bootstrap
-gbrain init --local
+mbrain init --local
 
 # first load
-gbrain import ~/git/brain
+mbrain import ~/git/brain
 
 # normal querying
-gbrain query "what changed with the series A?"
-gbrain search "Pedro"
+mbrain query "what changed with the series A?"
+mbrain search "Pedro"
 
 # keep the index current as files change
-gbrain sync --repo ~/git/brain
+mbrain sync --repo ~/git/brain
 
 # optional semantic backfill later
-gbrain embed --stale
+mbrain embed --stale
 ```
 
 If you use an MCP client daily:
 
 ```bash
-gbrain serve
+mbrain serve
 ```
 
 Or let Codex / Claude Code spawn it for you.
@@ -476,16 +476,16 @@ Or let Codex / Claude Code spawn it for you.
 Run these in order:
 
 ```bash
-gbrain init --local
-gbrain import /path/to/brain
-gbrain query "phrase I know exists"
-gbrain stats
-gbrain health
+mbrain init --local
+mbrain import /path/to/brain
+mbrain query "phrase I know exists"
+mbrain stats
+mbrain health
 ```
 
 Then verify MCP:
 
-1. connect Codex or Claude Code to `gbrain serve`
+1. connect Codex or Claude Code to `mbrain serve`
 2. confirm tool listing succeeds
 3. confirm one simple call succeeds, for example:
    - `search`
@@ -495,8 +495,8 @@ Then verify MCP:
 If you configured embeddings:
 
 ```bash
-gbrain embed --stale
-gbrain health
+mbrain embed --stale
+mbrain health
 ```
 
 You should see embedding coverage increase.
@@ -508,7 +508,7 @@ You should see embedding coverage increase.
 These workflows are still managed/Postgres-oriented:
 
 - remote MCP deployment over HTTP
-- cloud file/storage migration workflows (`gbrain files ...`)
+- cloud file/storage migration workflows (`mbrain files ...`)
 - Supabase admin / deployment helpers
 
 In local/offline mode, these commands are expected to fail with honest guidance.
@@ -519,42 +519,42 @@ That is intentional. The current local profile is designed to be truthful, not t
 
 ## 13. Troubleshooting
 
-### `gbrain init --local` succeeded, but query returns nothing
+### `mbrain init --local` succeeded, but query returns nothing
 
 You probably have not imported anything yet.
 
 Run:
 
 ```bash
-gbrain import /path/to/brain
-gbrain stats
+mbrain import /path/to/brain
+mbrain stats
 ```
 
-### `gbrain embed --stale` fails while trying to reach Ollama
+### `mbrain embed --stale` fails while trying to reach Ollama
 
-By default, GBrain tries `http://127.0.0.1:11434/api/embed`.
+By default, MBrain tries `http://127.0.0.1:11434/api/embed`.
 
 If your local runtime is on a different host or port, set one of:
 
-- `GBRAIN_LOCAL_EMBEDDING_URL`
+- `MBRAIN_LOCAL_EMBEDDING_URL`
 - `OLLAMA_HOST`
 
 Then rerun:
 
 ```bash
-gbrain embed --stale
+mbrain embed --stale
 ```
 
-### `gbrain serve` works in the terminal but not from my MCP client
+### `mbrain serve` works in the terminal but not from my MCP client
 
 Most often this means the client is using a different environment/config location than your shell.
 
 Use:
 
-- the default `~/.gbrain/config.json`, or
-- a wrapper script that exports the needed env vars before `exec gbrain serve`
+- the default `~/.mbrain/config.json`, or
+- a wrapper script that exports the needed env vars before `exec mbrain serve`
 
-### `gbrain files ...` fails in local mode
+### `mbrain files ...` fails in local mode
 
 That is expected today.
 

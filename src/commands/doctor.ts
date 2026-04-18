@@ -104,7 +104,7 @@ export async function runDoctor(engine: BrainEngine, args: string[]) {
     if (v >= LATEST_VERSION) {
       checks.push({ name: 'schema_version', status: 'ok', message: `Version ${v} (latest: ${LATEST_VERSION})` });
     } else {
-      checks.push({ name: 'schema_version', status: 'warn', message: `Version ${v}, latest is ${LATEST_VERSION}. Run gbrain init to migrate.` });
+      checks.push({ name: 'schema_version', status: 'warn', message: `Version ${v}, latest is ${LATEST_VERSION}. Run mbrain init to migrate.` });
     }
   } catch {
     checks.push({ name: 'schema_version', status: 'warn', message: 'Could not check schema version' });
@@ -117,9 +117,9 @@ export async function runDoctor(engine: BrainEngine, args: string[]) {
     if (health.embed_coverage >= 0.9) {
       checks.push({ name: 'embeddings', status: 'ok', message: `${pct}% coverage, ${health.missing_embeddings} missing` });
     } else if (health.embed_coverage > 0) {
-      checks.push({ name: 'embeddings', status: 'warn', message: `${pct}% coverage, ${health.missing_embeddings} missing. Run: gbrain embed refresh` });
+      checks.push({ name: 'embeddings', status: 'warn', message: `${pct}% coverage, ${health.missing_embeddings} missing. Run: mbrain embed refresh` });
     } else {
-      checks.push({ name: 'embeddings', status: 'warn', message: 'No embeddings yet. Run: gbrain embed refresh' });
+      checks.push({ name: 'embeddings', status: 'warn', message: 'No embeddings yet. Run: mbrain embed refresh' });
     }
   } catch {
     checks.push({ name: 'embeddings', status: 'warn', message: 'Could not check embedding health' });
@@ -136,7 +136,7 @@ function outputResults(checks: Check[], json: boolean) {
     return;
   }
 
-  console.log('\nGBrain Health Check');
+  console.log('\nMBrain Health Check');
   console.log('===================');
   for (const c of checks) {
     const icon = c.status === 'ok' ? 'OK' : c.status === 'warn' ? 'WARN' : 'FAIL';

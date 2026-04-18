@@ -1,4 +1,4 @@
-import { loadConfig, type GBrainConfig } from './config.ts';
+import { loadConfig, type MBrainConfig } from './config.ts';
 import type { ChunkInput } from './types.ts';
 import type { ResolvedEmbeddingProvider } from './embedding/provider.ts';
 import { modelUsesNomicTaskPrefixes, resolveEmbeddingProvider } from './embedding/provider.ts';
@@ -12,7 +12,7 @@ export type {
 } from './embedding/provider.ts';
 
 export interface EmbeddingRuntimeOptions {
-  config?: GBrainConfig | null;
+  config?: MBrainConfig | null;
   provider?: ResolvedEmbeddingProvider;
 }
 
@@ -156,7 +156,7 @@ function prepareEmbeddingInput(
     : `search_query: ${text}`;
 }
 
-function safeLoadConfig(): GBrainConfig | null {
+function safeLoadConfig(): MBrainConfig | null {
   try {
     return loadConfig();
   } catch {

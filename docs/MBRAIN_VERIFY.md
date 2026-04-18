@@ -1,6 +1,6 @@
-# GBrain Installation Verification Runbook
+# MBrain Installation Verification Runbook
 
-Run these checks after install to confirm every part of GBrain is working.
+Run these checks after install to confirm every part of MBrain is working.
 Each check includes the command, expected output, and what to do if it fails.
 
 The most important check is #4 (live sync). "Sync ran" is not the same as
@@ -14,7 +14,7 @@ worse than no sync at all, because you think it's working.
 **Command:**
 
 ```bash
-gbrain doctor --json
+mbrain doctor --json
 ```
 
 **Expected:** All checks return `"ok"`:
@@ -33,12 +33,12 @@ check. See `skills/setup/SKILL.md` Error Recovery table.
 
 **Check:** Ask the agent: "What is the brain-agent loop?"
 
-**Expected:** The agent references GBRAIN_SKILLPACK.md Section 2 and describes
+**Expected:** The agent references MBRAIN_SKILLPACK.md Section 2 and describes
 the read-write cycle: detect entities, read brain, respond with context, write
 brain, sync.
 
 **If it fails:** The agent hasn't loaded the skillpack. Run step 6 from the
-install paste (read `docs/GBRAIN_SKILLPACK.md`).
+install paste (read `docs/MBRAIN_SKILLPACK.md`).
 
 ---
 
@@ -47,13 +47,13 @@ install paste (read `docs/GBRAIN_SKILLPACK.md`).
 **Command:**
 
 ```bash
-gbrain check-update --json
+mbrain check-update --json
 ```
 
 **Expected:** Returns JSON with `current_version`, `latest_version`,
-`update_available` (boolean). The cron `gbrain-update-check` is registered.
+`update_available` (boolean). The cron `mbrain-update-check` is registered.
 
-**If it fails:** Run step 7 from the install paste. See GBRAIN_SKILLPACK.md
+**If it fails:** Run step 7 from the install paste. See MBRAIN_SKILLPACK.md
 Section 17.
 
 ---
@@ -67,7 +67,7 @@ This is the most important check. Three parts.
 Compare page count in the DB against syncable file count in the repo:
 
 ```bash
-gbrain stats
+mbrain stats
 ```
 
 Then count syncable files:
@@ -84,7 +84,7 @@ find /data/brain -name '*.md' \
   | wc -l
 ```
 
-**Expected:** Page count in `gbrain stats` should be close to the file count.
+**Expected:** Page count in `mbrain stats` should be close to the file count.
 Some difference is normal (files added since last sync), but if page count is
 less than half the file count, sync is silently skipping pages.
 
@@ -94,13 +94,13 @@ Check your `DATABASE_URL`:
   not Transaction mode.
 - Transaction mode breaks `engine.transaction()` and causes `.begin() is not a
   function` errors.
-- Fix: switch to Session mode pooler string, then run `gbrain sync --full`
+- Fix: switch to Session mode pooler string, then run `mbrain sync --full`
   to reimport everything.
 
 ### 4b. Embed Check
 
 ```bash
-gbrain stats
+mbrain stats
 ```
 
 **Expected:** Embedded chunk count should be close to total chunk count.
@@ -108,7 +108,7 @@ gbrain stats
 **If embedded is much lower than total:**
 
 ```bash
-gbrain embed --stale
+mbrain embed --stale
 ```
 
 If your local embedding runtime is not reachable, or `nomic-embed-text` is not
@@ -119,8 +119,8 @@ If you are upgrading an existing Postgres brain to the 768-dim nomic schema,
 run this once before backfilling:
 
 ```bash
-gbrain init
-gbrain embed --all
+mbrain init
+mbrain embed --all
 ```
 
 ### 4c. End-to-End Test
@@ -141,16 +141,16 @@ git add -A && git commit -m "test: verify live sync" && git push
 3. Search for the corrected text:
 
 ```bash
-gbrain search "<text from the correction>"
+mbrain search "<text from the correction>"
 ```
 
 **Expected:** The search returns the **corrected** text, not the old version.
 
 **If it returns old text:** Sync failed silently. Check:
 - Is the sync cron registered and running?
-- Is `gbrain sync --watch` still alive (if using watch mode)?
-- Run `gbrain config get sync.last_run` to see when sync last ran.
-- Run `gbrain sync --repo /data/brain` manually and check for errors.
+- Is `mbrain sync --watch` still alive (if using watch mode)?
+- Run `mbrain config get sync.last_run` to see when sync last ran.
+- Run `mbrain sync --repo /data/brain` manually and check for errors.
 - If you see `.begin() is not a function`, fix the pooler (see 4a above).
 
 ---
@@ -160,7 +160,7 @@ gbrain search "<text from the correction>"
 **Command:**
 
 ```bash
-gbrain stats
+mbrain stats
 ```
 
 **Expected:** Embedded chunk count matches (or is close to) total chunk count.
@@ -176,7 +176,7 @@ If the model is missing, install it. Then:
 
 ```bash
 ollama pull nomic-embed-text
-gbrain embed --stale
+mbrain embed --stale
 ```
 
 ---
@@ -185,7 +185,7 @@ gbrain embed --stale
 
 **Check:** Ask the agent about a person or concept that exists in the brain.
 
-**Expected:** The agent uses `gbrain search` or `gbrain query` FIRST, not grep
+**Expected:** The agent uses `mbrain search` or `mbrain query` FIRST, not grep
 or external APIs. The response includes brain-sourced context with source
 attribution.
 
@@ -198,22 +198,22 @@ system context. See `skills/setup/SKILL.md` Phase D.
 
 ```bash
 # 1. Schema
-gbrain doctor --json
+mbrain doctor --json
 
 # 2. Sync recency
-gbrain config get sync.last_run
+mbrain config get sync.last_run
 
 # 3. Page count + embed coverage
-gbrain stats
+mbrain stats
 
 # 4. Search works
-gbrain search "test query from your brain content"
+mbrain search "test query from your brain content"
 
 # 5. Catch any unembedded chunks
-gbrain embed --stale
+mbrain embed --stale
 
 # 6. Auto-update
-gbrain check-update --json
+mbrain check-update --json
 ```
 
 If all six return successfully, the installation is healthy. For the full

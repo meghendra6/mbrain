@@ -1,11 +1,11 @@
 /**
- * GBrain Remote MCP Server — Supabase Edge Function
+ * MBrain Remote MCP Server — Supabase Edge Function
  *
- * Exposes GBrain operations as remote MCP tools via Streamable HTTP transport.
+ * Exposes MBrain operations as remote MCP tools via Streamable HTTP transport.
  * Auth via bearer tokens stored in access_tokens table (SHA-256 hashed).
  *
- * Deploy: supabase functions deploy gbrain-mcp --no-verify-jwt
- * URL:    https://<project>.supabase.co/functions/v1/gbrain-mcp/mcp
+ * Deploy: supabase functions deploy mbrain-mcp --no-verify-jwt
+ * URL:    https://<project>.supabase.co/functions/v1/mbrain-mcp/mcp
  */
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
@@ -14,8 +14,8 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import postgres from 'postgres';
 import { createHash } from 'crypto';
-import { operations, OperationError, PostgresEngine, VERSION, MCP_INSTRUCTIONS } from './gbrain-core.js';
-import type { OperationContext } from './gbrain-core.js';
+import { operations, OperationError, PostgresEngine, VERSION, MCP_INSTRUCTIONS } from './mbrain-core.js';
+import type { OperationContext } from './mbrain-core.js';
 
 // Operations excluded from remote (may exceed 60s Edge Function timeout)
 const REMOTE_EXCLUDED = new Set(['sync_brain', 'file_upload', 'get_skillpack']);
@@ -127,14 +127,14 @@ async function logRequest(tokenName: string, operation: string, latencyMs: numbe
     `;
   } catch {
     // Best effort, don't crash on log failure
-    console.error('[gbrain-mcp] Failed to log request');
+    console.error('[mbrain-mcp] Failed to log request');
   }
 }
 
 // Create MCP Server with tool handlers
 function createMcpServer(eng: PostgresEngine): Server {
   const server = new Server(
-    { name: 'gbrain', version: VERSION },
+    { name: 'mbrain', version: VERSION },
     {
       capabilities: { tools: {} },
       instructions: MCP_INSTRUCTIONS,
@@ -200,7 +200,7 @@ function createMcpServer(eng: PostgresEngine): Server {
 }
 
 // Hono app — routes: /mcp (MCP transport), /health (monitoring)
-const app = new Hono().basePath('/gbrain-mcp');
+const app = new Hono().basePath('/mbrain-mcp');
 
 app.use('/*', cors({
   origin: '*',

@@ -5,7 +5,7 @@ import { tmpdir } from 'os';
 import { PGLiteEngine } from '../src/core/pglite-engine.ts';
 import { acquireLock } from '../src/core/pglite-lock.ts';
 
-const TEST_DIR = join(tmpdir(), `gbrain-pglite-engine-lock-${process.pid}`);
+const TEST_DIR = join(tmpdir(), `mbrain-pglite-engine-lock-${process.pid}`);
 
 afterEach(() => {
   if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true, force: true });
@@ -24,7 +24,7 @@ describe('PGLiteEngine lock cleanup', () => {
     };
 
     await expect(engine.disconnect()).rejects.toThrow('simulated close failure');
-    expect(existsSync(join(TEST_DIR, '.gbrain-lock'))).toBe(false);
+    expect(existsSync(join(TEST_DIR, '.mbrain-lock'))).toBe(false);
     expect(engine._lock).toBeNull();
   });
 });

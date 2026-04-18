@@ -89,7 +89,7 @@ Agent reads collected data
 
 ## Prerequisites
 
-1. **GBrain installed and configured** (`gbrain doctor` passes)
+1. **MBrain installed and configured** (`mbrain doctor` passes)
 2. **Node.js 18+** (for the collector script)
 3. **X Developer account** with API access
 
@@ -102,7 +102,7 @@ Tell the user:
 
 1. Go to https://developer.x.com/en/portal/dashboard
 2. If you don't have a developer account, click 'Sign up' (free tier available)
-3. Create a new Project (name it anything, e.g., 'GBrain')
+3. Create a new Project (name it anything, e.g., 'MBrain')
 4. Inside the project, create a new App
 5. Go to the app's 'Keys and tokens' tab
 6. Under 'Bearer Token', click 'Generate' (or 'Regenerate')
@@ -180,13 +180,13 @@ Show the user a sample: "Found N tweets from your timeline, M mentions, K search
 This is YOUR job (the agent). Read the collected tweets:
 
 1. **Detect entities**: who tweeted? Who is mentioned? What companies/topics?
-2. **Check the brain**: `gbrain search "person name"` — do we have a page?
+2. **Check the brain**: `mbrain search "person name"` — do we have a page?
 3. **Update brain pages**: for each notable person or company mentioned:
    `- YYYY-MM-DD | Tweeted about {topic} [Source: X, @handle, {date}]`
 4. **Track narratives**: if someone tweets about the same topic 3+ times in a week, note the pattern in their compiled truth
 5. **Flag deletions**: if a tracked account deleted a tweet, note it:
    `- YYYY-MM-DD | Deleted tweet: "{content}" [Source: X deletion, detected {date}]`
-6. **Sync**: `gbrain sync --no-pull --no-embed`
+6. **Sync**: `mbrain sync --no-pull --no-embed`
 
 ### Step 6: Set Up Cron
 
@@ -200,8 +200,8 @@ The agent should review collected data 2-3x daily and run enrichment.
 ### Step 7: Log Setup Completion
 
 ```bash
-mkdir -p ~/.gbrain/integrations/x-to-brain
-echo '{"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","event":"setup_complete","source_version":"0.8.1","status":"ok","details":{"user_id":"X_USER_ID"}}' >> ~/.gbrain/integrations/x-to-brain/heartbeat.jsonl
+mkdir -p ~/.mbrain/integrations/x-to-brain
+echo '{"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","event":"setup_complete","source_version":"0.8.1","status":"ok","details":{"user_id":"X_USER_ID"}}' >> ~/.mbrain/integrations/x-to-brain/heartbeat.jsonl
 ```
 
 ## Production Patterns (v0.8.1)

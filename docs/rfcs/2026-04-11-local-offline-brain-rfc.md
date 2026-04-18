@@ -1,4 +1,4 @@
-# RFC: Fully Local / Offline GBrain for Claude Code and Codex
+# RFC: Fully Local / Offline MBrain for Claude Code and Codex
 
 **Status:** Proposed  
 **Date:** 2026-04-11  
@@ -9,7 +9,7 @@
 
 ## 1. Summary
 
-GBrain should support a **fully local, fully offline, zero-cloud-spend** operating mode for personal use.
+MBrain should support a **fully local, fully offline, zero-cloud-spend** operating mode for personal use.
 
 In this mode:
 
@@ -27,7 +27,7 @@ This RFC intentionally targets the **final desired product state**, not a cloud-
 
 The current project is optimized for a managed Postgres/Supabase deployment with hosted embeddings and query expansion:
 
-- the repo currently presents GBrain as **Postgres + pgvector + Supabase** first (`README.md`, `CLAUDE.md`)
+- the repo currently presents MBrain as **Postgres + pgvector + Supabase** first (`README.md`, `CLAUDE.md`)
 - CLI and bootstrap paths instantiate `PostgresEngine` directly (`src/cli.ts`, `src/commands/init.ts`)
 - embedding generation is hard-wired to **OpenAI embeddings** (`src/core/embedding.ts`)
 - query expansion is hard-wired to **Anthropic Haiku** (`src/core/search/expansion.ts`)
@@ -49,7 +49,7 @@ This RFC resolves that tension by making the engine, search, and model layers ge
 
 Today, the project has a documented SQLite direction (`docs/ENGINES.md`, `docs/SQLITE_ENGINE.md`) but not a usable local/offline product.
 
-The missing pieces are not only storage. A true local/offline GBrain requires all of the following:
+The missing pieces are not only storage. A true local/offline MBrain requires all of the following:
 
 1. **A local engine**  
    SQLite must become a real `BrainEngine` implementation rather than a future note.
@@ -75,7 +75,7 @@ The missing pieces are not only storage. A true local/offline GBrain requires al
 
 ### 4.1 Primary goals
 
-- Support a **fully local** GBrain profile with **no paid cloud dependencies**
+- Support a **fully local** MBrain profile with **no paid cloud dependencies**
 - Preserve the current product's core value:
   - markdown repo as source of truth
   - fast keyword search
@@ -114,7 +114,7 @@ The target is **functional equivalence of purpose**, not byte-for-byte behavior 
 
 ### Scenario A: Personal local brain
 
-A user maintains a markdown knowledge repo on disk, runs `gbrain init --local`, indexes it into a local SQLite database, and asks Codex or Claude Code to search and update the brain without any internet dependency.
+A user maintains a markdown knowledge repo on disk, runs `mbrain init --local`, indexes it into a local SQLite database, and asks Codex or Claude Code to search and update the brain without any internet dependency.
 
 ### Scenario B: Laptop offline operation
 
@@ -133,7 +133,7 @@ The user imports thousands of files once. Initial embedding backfill may take ti
 
 ### Scenario D: Claude Code / Codex as local clients
 
-The user keeps GBrain as a local stdio MCP server and connects both Codex and Claude Code to the same local process contract.
+The user keeps MBrain as a local stdio MCP server and connects both Codex and Claude Code to the same local process contract.
 
 ---
 
@@ -153,7 +153,7 @@ Use SQLite strictly for storage and FTS5 keyword search. Drop semantic search en
 
 **Cons**
 
-- weakens GBrain's core retrieval story
+- weakens MBrain's core retrieval story
 - poorer recall for concept-level or fuzzy semantic questions
 - diverges sharply from the current product thesis
 
@@ -167,7 +167,7 @@ Use SQLite for storage and FTS5, local embeddings for semantic retrieval, recipr
 
 **Pros**
 
-- preserves GBrain's central value proposition
+- preserves MBrain's central value proposition
 - zero cloud spend
 - aligns with existing `BrainEngine` design
 - degrades gracefully to keyword-only when embeddings are unavailable
@@ -210,7 +210,7 @@ Rejected as the immediate architecture. Elements can be added later inside the c
 Markdown Brain Repo (source of truth)
         |
         v
-  gbrain sync / import
+  mbrain sync / import
         |
         v
  Local SQLite Brain DB
@@ -231,7 +231,7 @@ Markdown Brain Repo (source of truth)
           ---- RRF fusion ----
                    |
                    v
-            gbrain MCP server
+            mbrain MCP server
                    |
           +--------+--------+
           |                 |
@@ -296,7 +296,7 @@ Default local profile:
 ```json
 {
   "engine": "sqlite",
-  "database_path": "~/.gbrain/brain.db",
+  "database_path": "~/.mbrain/brain.db",
   "offline": true,
   "embedding_provider": "local",
   "query_rewrite_provider": "heuristic"
@@ -306,7 +306,7 @@ Default local profile:
 Backward-compatibility rule:
 
 - existing configs with no explicit `engine` continue to resolve to Postgres
-- env-only `DATABASE_URL` / `GBRAIN_DATABASE_URL` setups continue to resolve to Postgres unless local mode is explicitly selected
+- env-only `DATABASE_URL` / `MBRAIN_DATABASE_URL` setups continue to resolve to Postgres unless local mode is explicitly selected
 
 ### 9.4 Schema policy
 
@@ -420,7 +420,7 @@ Why:
 - easy for users already experimenting with local models
 - conceptually aligned with Codex CLI's local-provider support
 
-This RFC does **not** require Codex or Claude Code themselves to provide embeddings. They are clients of GBrain, not the embedding runtime.
+This RFC does **not** require Codex or Claude Code themselves to provide embeddings. They are clients of MBrain, not the embedding runtime.
 
 ### 11.4 Performance policy
 
@@ -473,7 +473,7 @@ The offline architecture should change this:
 
 #### Background / explicit embedding path
 
-- `gbrain embed --stale`
+- `mbrain embed --stale`
 - optional watch-mode or background worker
 - optional inline flag for small imports
 
@@ -565,7 +565,7 @@ file change -> sync changed markdown -> mark affected chunks stale -> embed stal
 This can be driven by:
 
 - manual commands
-- `gbrain sync --watch`
+- `mbrain sync --watch`
 - editor-triggered scripts
 - cron/launch-agent jobs on the local machine
 
@@ -587,7 +587,7 @@ If local embedding fails:
 The preferred client integration remains a **local stdio MCP server**:
 
 ```bash
-gbrain serve
+mbrain serve
 ```
 
 This is the correct fit for a local/offline personal brain because:
@@ -604,13 +604,13 @@ Codex CLI currently exposes local MCP management through `codex mcp add`.
 Target installation flow:
 
 ```bash
-codex mcp add gbrain -- gbrain serve
+codex mcp add mbrain -- mbrain serve
 ```
 
 If environment variables are needed:
 
 ```bash
-codex mcp add gbrain --env GBRAIN_CONFIG_PROFILE=local -- gbrain serve
+codex mcp add mbrain --env MBRAIN_CONFIG_PROFILE=local -- mbrain serve
 ```
 
 ### 14.3 Claude Code integration
@@ -622,8 +622,8 @@ Target contract:
 ```json
 {
   "mcpServers": {
-    "gbrain": {
-      "command": "gbrain",
+    "mbrain": {
+      "command": "mbrain",
       "args": ["serve"]
     }
   }
@@ -644,7 +644,7 @@ A new explicit offline/local profile should exist.
 
 ### 15.1 Expected defaults
 
-- bootstrap command = `gbrain init --local`
+- bootstrap command = `mbrain init --local`
 - engine = sqlite
 - storage backend = local filesystem
 - embedding provider = local
@@ -674,7 +674,7 @@ That includes storage/file features during the first local milestone: until a SQ
 
 No migration needed. The markdown repo stays canonical.
 
-### 16.2 Existing hosted GBrain users
+### 16.2 Existing hosted MBrain users
 
 Hosted users should be able to move to local mode by:
 
@@ -733,8 +733,8 @@ The final local/offline implementation must prove:
    - changed files re-embed only affected chunks
 
 5. **MCP works locally**
-   - Codex connects to `gbrain serve`
-   - Claude Code connects to `gbrain serve`
+   - Codex connects to `mbrain serve`
+   - Claude Code connects to `mbrain serve`
 
 6. **Offline profile disables cloud assumptions**
    - no OpenAI/Anthropic/Supabase calls
@@ -800,7 +800,7 @@ These workstreams are intended to map directly to GitHub issues.
 
 ## 21. Decision
 
-GBrain will gain a **fully local/offline operating mode** based on:
+MBrain will gain a **fully local/offline operating mode** based on:
 
 - **SQLite** for the local engine
 - **FTS5** for mandatory keyword search
@@ -826,4 +826,4 @@ This is the correct architecture for users who want a sovereign personal knowled
 - `src/commands/embed.ts`
 - `docs/ENGINES.md`
 - `docs/SQLITE_ENGINE.md`
-- `docs/GBRAIN_SKILLPACK.md`
+- `docs/MBRAIN_SKILLPACK.md`

@@ -3,14 +3,14 @@ import { dirname, join } from 'path';
 import { execSync } from 'child_process';
 import { VERSION } from '../version.ts';
 import {
-  CLAUDE_GBRAIN_RELEVANCE_LIB,
-  CLAUDE_GBRAIN_SKIP_DIRS,
-  CLAUDE_GBRAIN_STOP_HOOK,
+  CLAUDE_MBRAIN_RELEVANCE_LIB,
+  CLAUDE_MBRAIN_SKIP_DIRS,
+  CLAUDE_MBRAIN_STOP_HOOK,
 } from './setup-agent-hook-assets.ts';
 
-const MARKER_START = '<!-- GBRAIN:RULES:START -->';
-const MARKER_END = '<!-- GBRAIN:RULES:END -->';
-const MARKER_VERSION_RE = /<!-- gbrain-agent-rules-version: ([\d.]+) -->/;
+const MARKER_START = '<!-- MBRAIN:RULES:START -->';
+const MARKER_END = '<!-- MBRAIN:RULES:END -->';
+const MARKER_VERSION_RE = /<!-- mbrain-agent-rules-version: ([\d.]+) -->/;
 
 interface DetectedClient {
   name: 'claude' | 'codex';
@@ -27,10 +27,10 @@ export async function runSetupAgent(args: string[]) {
   const jsonOutput = args.includes('--json');
   const skipMcp = args.includes('--skip-mcp');
 
-  // Load the agent rules from the gbrain package
+  // Load the agent rules from the mbrain package
   const rulesContent = loadAgentRules();
   if (!rulesContent) {
-    console.error('Could not find docs/GBRAIN_AGENT_RULES.md in the gbrain package.');
+    console.error('Could not find docs/MBRAIN_AGENT_RULES.md in the mbrain package.');
     process.exit(1);
   }
 
@@ -65,7 +65,7 @@ export async function runSetupAgent(args: string[]) {
 
   if (clients.length === 0) {
     console.error('No AI clients detected. Expected ~/.claude/ or ~/.codex/ to exist.');
-    console.error('Install Claude Code or Codex first, then rerun: gbrain setup-agent');
+    console.error('Install Claude Code or Codex first, then rerun: mbrain setup-agent');
     process.exit(1);
   }
 
@@ -94,7 +94,7 @@ export async function runSetupAgent(args: string[]) {
   if (jsonOutput) {
     console.log(JSON.stringify({ status: 'ok', version: VERSION, clients: results }));
   } else {
-    console.log('\ngbrain setup-agent complete:\n');
+    console.log('\nmbrain setup-agent complete:\n');
     for (const r of results) {
       const clientLabel = r.client === 'claude' ? 'Claude Code' : 'Codex';
       const mcpIcon = r.mcp === 'registered' ? '+' : r.mcp === 'already_registered' ? '=' : '-';
@@ -110,9 +110,9 @@ export async function runSetupAgent(args: string[]) {
 
 function loadAgentRules(): string | null {
   const candidates = [
-    join(process.cwd(), 'docs', 'GBRAIN_AGENT_RULES.md'),
-    join(__dirname, '..', '..', 'docs', 'GBRAIN_AGENT_RULES.md'),
-    join(__dirname, '..', 'docs', 'GBRAIN_AGENT_RULES.md'),
+    join(process.cwd(), 'docs', 'MBRAIN_AGENT_RULES.md'),
+    join(__dirname, '..', '..', 'docs', 'MBRAIN_AGENT_RULES.md'),
+    join(__dirname, '..', 'docs', 'MBRAIN_AGENT_RULES.md'),
   ];
 
   for (const candidate of candidates) {
@@ -126,7 +126,7 @@ function loadAgentRules(): string | null {
 
 function checkMcpRegistered(client: 'claude' | 'codex', home: string): boolean {
   if (client === 'claude') {
-    // Check ~/.claude.json and ~/.claude/server.json for gbrain MCP entry
+    // Check ~/.claude.json and ~/.claude/server.json for mbrain MCP entry
     const paths = [
       join(home, '.claude.json'),
       join(home, '.claude', 'server.json'),
@@ -135,23 +135,23 @@ function checkMcpRegistered(client: 'claude' | 'codex', home: string): boolean {
       if (existsSync(p)) {
         try {
           const content = readFileSync(p, 'utf-8');
-          if (content.includes('"gbrain"')) return true;
+          if (content.includes('"mbrain"')) return true;
         } catch { /* ignore read errors */ }
       }
     }
     // Also check via `claude mcp list` if available
     try {
       const out = execSync('claude mcp list 2>/dev/null', { encoding: 'utf-8', timeout: 5000 });
-      if (out.split('\n').some(line => /\bgbrain\b/.test(line))) return true;
+      if (out.split('\n').some(line => /\bmbrain\b/.test(line))) return true;
     } catch { /* command not found or failed */ }
     return false;
   }
 
   if (client === 'codex') {
-    // Check codex config for gbrain MCP entry
+    // Check codex config for mbrain MCP entry
     try {
       const out = execSync('codex mcp list 2>/dev/null', { encoding: 'utf-8', timeout: 5000 });
-      if (out.split('\n').some(line => /\bgbrain\b/.test(line))) return true;
+      if (out.split('\n').some(line => /\bmbrain\b/.test(line))) return true;
     } catch { /* command not found or failed */ }
     return false;
   }
@@ -161,8 +161,8 @@ function checkMcpRegistered(client: 'claude' | 'codex', home: string): boolean {
 
 function registerMcp(client: 'claude' | 'codex'): string {
   const cmd = client === 'claude'
-    ? 'claude mcp add gbrain -- gbrain serve'
-    : 'codex mcp add gbrain -- gbrain serve';
+    ? 'claude mcp add mbrain -- mbrain serve'
+    : 'codex mcp add mbrain -- mbrain serve';
 
   try {
     execSync(cmd, { encoding: 'utf-8', timeout: 15000, stdio: 'pipe' });
@@ -215,17 +215,17 @@ function injectRules(client: DetectedClient, rulesContent: string): string {
 }
 
 function installClaudeStopHook(claudeDir: string): void {
-  const hookPath = join(claudeDir, 'scripts', 'hooks', 'stop-gbrain-check.sh');
-  const libPath = join(claudeDir, 'scripts', 'hooks', 'lib', 'gbrain-relevance.sh');
-  const skipDirsPath = join(claudeDir, 'gbrain-skip-dirs');
+  const hookPath = join(claudeDir, 'scripts', 'hooks', 'stop-mbrain-check.sh');
+  const libPath = join(claudeDir, 'scripts', 'hooks', 'lib', 'mbrain-relevance.sh');
+  const skipDirsPath = join(claudeDir, 'mbrain-skip-dirs');
   const settingsPath = join(claudeDir, 'settings.json');
   const legacyHooksJsonPath = join(claudeDir, 'hooks', 'hooks.json');
 
-  atomicWrite(hookPath, CLAUDE_GBRAIN_STOP_HOOK);
+  atomicWrite(hookPath, CLAUDE_MBRAIN_STOP_HOOK);
   chmodSync(hookPath, 0o755);
 
-  atomicWrite(libPath, CLAUDE_GBRAIN_RELEVANCE_LIB);
-  atomicWrite(skipDirsPath, CLAUDE_GBRAIN_SKIP_DIRS);
+  atomicWrite(libPath, CLAUDE_MBRAIN_RELEVANCE_LIB);
+  atomicWrite(skipDirsPath, CLAUDE_MBRAIN_SKIP_DIRS);
 
   upsertClaudeStopHook(settingsPath);
   cleanupLegacyHooksJson(legacyHooksJsonPath);
@@ -236,11 +236,11 @@ function upsertClaudeStopHook(settingsPath: string): void {
     matcher: '*',
     hooks: [{
       type: 'command',
-      command: 'bash "$HOME/.claude/scripts/hooks/stop-gbrain-check.sh"',
+      command: 'bash "$HOME/.claude/scripts/hooks/stop-mbrain-check.sh"',
       timeout: 5,
     }],
-    description: 'Ask agent to write session knowledge back to gbrain.',
-    id: 'stop:gbrain-check',
+    description: 'Ask agent to write session knowledge back to mbrain.',
+    id: 'stop:mbrain-check',
   };
 
   const base: Record<string, unknown> = existsSync(settingsPath)
@@ -249,7 +249,7 @@ function upsertClaudeStopHook(settingsPath: string): void {
 
   const hooks = typeof base.hooks === 'object' && base.hooks ? base.hooks as Record<string, unknown> : {};
   const stop = Array.isArray(hooks.Stop) ? hooks.Stop as any[] : [];
-  const withoutExisting = stop.filter(entry => entry?.id !== 'stop:gbrain-check');
+  const withoutExisting = stop.filter(entry => entry?.id !== 'stop:mbrain-check');
 
   hooks.Stop = [...withoutExisting, stopHookEntry];
   base.hooks = hooks;
@@ -258,7 +258,7 @@ function upsertClaudeStopHook(settingsPath: string): void {
 }
 
 function cleanupLegacyHooksJson(legacyPath: string): void {
-  // Older versions of setup-agent wrote stop:gbrain-check into ~/.claude/hooks/hooks.json,
+  // Older versions of setup-agent wrote stop:mbrain-check into ~/.claude/hooks/hooks.json,
   // but Claude Code does not load user-level hooks from that path (it is plugin-scoped).
   // Remove only our own stale entry; leave any other hooks intact.
   if (!existsSync(legacyPath)) return;
@@ -270,7 +270,7 @@ function cleanupLegacyHooksJson(legacyPath: string): void {
   const stop = Array.isArray(hooks.Stop) ? hooks.Stop as any[] : null;
   if (!stop) return;
 
-  const filtered = stop.filter(entry => entry?.id !== 'stop:gbrain-check');
+  const filtered = stop.filter(entry => entry?.id !== 'stop:mbrain-check');
   if (filtered.length === stop.length) return;
 
   hooks.Stop = filtered;
@@ -291,7 +291,7 @@ function formatRulesBlock(rulesContent: string): string {
 }
 
 function extractVersion(content: string): string | null {
-  // Scope search to the gbrain marker region if markers exist
+  // Scope search to the mbrain marker region if markers exist
   const startIdx = content.indexOf(MARKER_START);
   const endIdx = content.indexOf(MARKER_END);
   const region = (startIdx !== -1 && endIdx !== -1) ? content.slice(startIdx, endIdx) : content;
@@ -301,7 +301,7 @@ function extractVersion(content: string): string | null {
 
 function atomicWrite(targetPath: string, content: string): void {
   mkdirSync(dirname(targetPath), { recursive: true });
-  const tmp = targetPath + '.gbrain.tmp';
+  const tmp = targetPath + '.mbrain.tmp';
   writeFileSync(tmp, content, 'utf-8');
   renameSync(tmp, targetPath);
 }

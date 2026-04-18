@@ -32,7 +32,7 @@ async function putChunks(slug: string, chunks: ChunkInput[]) {
 }
 
 beforeEach(async () => {
-  tempDir = mkdtempSync(join(tmpdir(), 'gbrain-sqlite-engine-'));
+  tempDir = mkdtempSync(join(tmpdir(), 'mbrain-sqlite-engine-'));
   dbPath = join(tempDir, 'brain.db');
   engine = new SQLiteEngine();
   await engine.connect({ engine: 'sqlite', database_path: dbPath });

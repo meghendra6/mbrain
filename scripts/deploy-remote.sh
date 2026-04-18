@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy GBrain Remote MCP Server to Supabase Edge Functions.
+# Deploy MBrain Remote MCP Server to Supabase Edge Functions.
 # Prerequisites: .env.production filled in, supabase CLI installed.
 set -e
 
@@ -24,7 +24,7 @@ if [ -z "$SUPABASE_PROJECT_REF" ]; then
   exit 1
 fi
 
-echo "Deploying GBrain Remote MCP Server..."
+echo "Deploying MBrain Remote MCP Server..."
 echo "  Project: $SUPABASE_PROJECT_REF"
 echo ""
 
@@ -43,13 +43,13 @@ echo ""
 
 # Deploy
 echo "Deploying Edge Function..."
-supabase functions deploy gbrain-mcp --no-verify-jwt
+supabase functions deploy mbrain-mcp --no-verify-jwt
 echo ""
 
 # Print success
-URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/gbrain-mcp/mcp"
+URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/mbrain-mcp/mcp"
 echo "================================================"
-echo "  GBrain Remote MCP Server deployed!"
+echo "  MBrain Remote MCP Server deployed!"
 echo "================================================"
 echo ""
 echo "  URL: $URL"
@@ -62,6 +62,6 @@ echo "    2. Test it:"
 echo "       bun run src/commands/auth.ts test $URL --token <your-token>"
 echo ""
 echo "    3. Add to Claude Code:"
-echo "       claude mcp add gbrain -t http $URL -H \"Authorization: Bearer <token>\""
+echo "       claude mcp add mbrain -t http $URL -H \"Authorization: Bearer <token>\""
 echo ""
 echo "  See docs/mcp/ for per-client setup guides."

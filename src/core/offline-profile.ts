@@ -1,4 +1,4 @@
-import type { GBrainConfig, QueryRewriteProvider } from './config.ts';
+import type { MBrainConfig, QueryRewriteProvider } from './config.ts';
 import { resolveEmbeddingProvider, type EmbeddingProviderCapability } from './embedding/provider.ts';
 
 const DEFAULT_LOCAL_REWRITE_MODEL = 'qwen2.5:3b';
@@ -31,7 +31,7 @@ export interface ResolvedQueryRewritePolicy {
 export interface OfflineProfile {
   status: 'standard' | 'local_offline';
   offline: boolean;
-  engine: { type: GBrainConfig['engine'] };
+  engine: { type: MBrainConfig['engine'] };
   embedding: EmbeddingProviderCapability;
   rewrite: QueryRewriteCapability;
   capabilities: {
@@ -46,11 +46,11 @@ interface LocalRewriteRuntime {
   kind: 'ollama-generate' | 'json-http';
 }
 
-export function isOfflineProfile(config?: GBrainConfig | null): boolean {
+export function isOfflineProfile(config?: MBrainConfig | null): boolean {
   return config?.engine === 'sqlite' && config.offline === true;
 }
 
-export function resolveOfflineProfile(config: GBrainConfig): OfflineProfile {
+export function resolveOfflineProfile(config: MBrainConfig): OfflineProfile {
   const offline = isOfflineProfile(config);
   const embedding = resolveEmbeddingProvider({ config }).capability;
   const rewrite = resolveQueryRewritePolicy(config).capability;
@@ -73,7 +73,7 @@ export function resolveOfflineProfile(config: GBrainConfig): OfflineProfile {
 }
 
 export function getUnsupportedCapabilityReason(
-  config: GBrainConfig,
+  config: MBrainConfig,
   capability: keyof OfflineProfile['capabilities'],
 ): string | null {
   const profile = resolveOfflineProfile(config);
@@ -81,7 +81,7 @@ export function getUnsupportedCapabilityReason(
   return status.supported ? null : (status.reason || `${capability} is unsupported in the current profile.`);
 }
 
-export function resolveQueryRewritePolicy(config?: GBrainConfig | null): ResolvedQueryRewritePolicy {
+export function resolveQueryRewritePolicy(config?: MBrainConfig | null): ResolvedQueryRewritePolicy {
   const mode: QueryRewriteProvider = config?.query_rewrite_provider ?? 'none';
 
   switch (mode) {
@@ -100,7 +100,7 @@ export function resolveQueryRewritePolicy(config?: GBrainConfig | null): Resolve
       if (!runtime) {
         return unavailableRewritePolicy(
           mode,
-          'Local query rewrite runtime is not configured. Set GBRAIN_LOCAL_LLM_URL or OLLAMA_HOST.',
+          'Local query rewrite runtime is not configured. Set MBRAIN_LOCAL_LLM_URL or OLLAMA_HOST.',
         );
       }
 
@@ -219,8 +219,8 @@ async function localLlmExpandQuery(query: string, runtime: LocalRewriteRuntime):
 }
 
 function resolveLocalRewriteRuntime(): LocalRewriteRuntime | null {
-  const configuredUrl = process.env.GBRAIN_LOCAL_LLM_URL;
-  const model = process.env.GBRAIN_LOCAL_LLM_MODEL || DEFAULT_LOCAL_REWRITE_MODEL;
+  const configuredUrl = process.env.MBRAIN_LOCAL_LLM_URL;
+  const model = process.env.MBRAIN_LOCAL_LLM_MODEL || DEFAULT_LOCAL_REWRITE_MODEL;
 
   if (configuredUrl) {
     return {
@@ -230,7 +230,7 @@ function resolveLocalRewriteRuntime(): LocalRewriteRuntime | null {
     };
   }
 
-  if (process.env.OLLAMA_HOST || process.env.GBRAIN_LOCAL_LLM_MODEL) {
+  if (process.env.OLLAMA_HOST || process.env.MBRAIN_LOCAL_LLM_MODEL) {
     const host = withTrailingSlash(process.env.OLLAMA_HOST || 'http://127.0.0.1:11434');
     return {
       url: new URL('/api/generate', host).toString(),

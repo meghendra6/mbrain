@@ -10,15 +10,15 @@ const originalEnv = { ...process.env };
 let tempHome: string;
 
 function writeUserConfig(config: Record<string, unknown>) {
-  const dir = join(tempHome, '.gbrain');
+  const dir = join(tempHome, '.mbrain');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'config.json'), JSON.stringify(config, null, 2));
 }
 
 beforeEach(() => {
-  tempHome = mkdtempSync(join(tmpdir(), 'gbrain-cli-'));
+  tempHome = mkdtempSync(join(tmpdir(), 'mbrain-cli-'));
   process.env.HOME = tempHome;
-  delete process.env.GBRAIN_DATABASE_URL;
+  delete process.env.MBRAIN_DATABASE_URL;
   delete process.env.DATABASE_URL;
   delete process.env.OPENAI_API_KEY;
 });
@@ -57,6 +57,12 @@ describe('CLI source shape', () => {
 });
 
 describe('CLI version', () => {
+  test('package identity uses mbrain for package and bin names', async () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
+    expect(pkg.name).toBe('mbrain');
+    expect(pkg.bin).toMatchObject({ mbrain: 'src/cli.ts' });
+  });
+
   test('VERSION matches package.json', async () => {
     const { VERSION } = await import('../src/version.ts');
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
@@ -79,7 +85,7 @@ describe('CLI dispatch integration', () => {
     });
     const stdout = await new Response(proc.stdout).text();
     await proc.exited;
-    expect(stdout.trim()).toMatch(/^gbrain \d+\.\d+\.\d+/);
+    expect(stdout.trim()).toMatch(/^mbrain \d+\.\d+\.\d+/);
   });
 
   test('unknown command prints error and exits 1', async () => {
@@ -104,7 +110,7 @@ describe('CLI dispatch integration', () => {
     });
     const stdout = await new Response(proc.stdout).text();
     const exitCode = await proc.exited;
-    expect(stdout).toContain('Usage: gbrain get');
+    expect(stdout).toContain('Usage: mbrain get');
     expect(exitCode).toBe(0);
   });
 
@@ -117,7 +123,7 @@ describe('CLI dispatch integration', () => {
     });
     const stdout = await new Response(proc.stdout).text();
     const exitCode = await proc.exited;
-    expect(stdout).toContain('Usage: gbrain upgrade');
+    expect(stdout).toContain('Usage: mbrain upgrade');
     expect(exitCode).toBe(0);
   });
 
@@ -130,16 +136,16 @@ describe('CLI dispatch integration', () => {
     });
     const stdout = await new Response(proc.stdout).text();
     const exitCode = await proc.exited;
-    expect(stdout).toContain('Usage: gbrain init');
+    expect(stdout).toContain('Usage: mbrain init');
     expect(stdout).toContain('--local');
     expect(stdout).toContain('--pglite');
     expect(stdout).toContain('--supabase');
     expect(exitCode).toBe(0);
-    // Must not have created any brain artifacts under $HOME/.gbrain
+    // Must not have created any brain artifacts under $HOME/.mbrain
     const { existsSync } = await import('fs');
-    expect(existsSync(join(tempHome, '.gbrain', 'config.json'))).toBe(false);
-    expect(existsSync(join(tempHome, '.gbrain', 'brain.db'))).toBe(false);
-    expect(existsSync(join(tempHome, '.gbrain', 'brain.pglite'))).toBe(false);
+    expect(existsSync(join(tempHome, '.mbrain', 'config.json'))).toBe(false);
+    expect(existsSync(join(tempHome, '.mbrain', 'brain.db'))).toBe(false);
+    expect(existsSync(join(tempHome, '.mbrain', 'brain.pglite'))).toBe(false);
   });
 
   test('init -h prints usage without creating a brain', async () => {
@@ -151,10 +157,10 @@ describe('CLI dispatch integration', () => {
     });
     const stdout = await new Response(proc.stdout).text();
     const exitCode = await proc.exited;
-    expect(stdout).toContain('Usage: gbrain init');
+    expect(stdout).toContain('Usage: mbrain init');
     expect(exitCode).toBe(0);
     const { existsSync } = await import('fs');
-    expect(existsSync(join(tempHome, '.gbrain', 'config.json'))).toBe(false);
+    expect(existsSync(join(tempHome, '.mbrain', 'config.json'))).toBe(false);
   });
 
   test('--help prints global help', async () => {
@@ -167,7 +173,7 @@ describe('CLI dispatch integration', () => {
     const stdout = await new Response(proc.stdout).text();
     const exitCode = await proc.exited;
     expect(stdout).toContain('USAGE');
-    expect(stdout).toContain('gbrain <command>');
+    expect(stdout).toContain('mbrain <command>');
     expect(exitCode).toBe(0);
   });
 
@@ -217,7 +223,7 @@ describe('CLI dispatch integration', () => {
   test('bootstrap rejects invalid engine/provider config before attempting a database connection', async () => {
     writeUserConfig({
       engine: 'postgres',
-      database_url: 'postgresql://user:pass@localhost:5432/gbrain',
+      database_url: 'postgresql://user:pass@localhost:5432/mbrain',
       embedding_provider: 'local',
     });
 
@@ -239,7 +245,7 @@ describe('CLI dispatch integration', () => {
   test('bootstrap rejects invalid engine config before attempting a database connection', async () => {
     writeUserConfig({
       engine: 'mysql',
-      database_url: 'postgresql://user:pass@localhost:5432/gbrain',
+      database_url: 'postgresql://user:pass@localhost:5432/mbrain',
     });
 
     const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'stats'], {

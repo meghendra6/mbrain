@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-GBrain is a personal knowledge brain. It now ships in two truthful runtime profiles: managed Postgres + pgvector, or a fully local/offline SQLite profile with the same CLI/MCP contract.
+MBrain is a personal knowledge brain. It now ships in two truthful runtime profiles: managed Postgres + pgvector, or a fully local/offline SQLite profile with the same CLI/MCP contract.
 
 ## Architecture
 
@@ -29,11 +29,11 @@ available in local mode versus what must fail with honest guidance.
 - `src/core/search/` — Hybrid search: vector + keyword + RRF + heuristic/local query expansion + dedup
 - `src/core/embedding.ts` — Embedding pipeline orchestration
 - `src/mcp/server.ts` — MCP stdio server (generated from operations)
-- `supabase/functions/gbrain-mcp/index.ts` — Remote MCP server (Supabase Edge Function)
+- `supabase/functions/mbrain-mcp/index.ts` — Remote MCP server (Supabase Edge Function)
 - `src/edge-entry.ts` — Curated bundle entry point for Edge Function (excludes fs-dependent modules)
 - `src/commands/auth.ts` — Standalone token management (create/list/revoke/test)
 - `src/commands/setup-agent.ts` — Auto-detect Claude Code/Codex, register MCP, inject agent rules
-- `docs/GBRAIN_AGENT_RULES.md` — Compact behavioral rules for AI agents (injected by setup-agent)
+- `docs/MBRAIN_AGENT_RULES.md` — Compact behavioral rules for AI agents (injected by setup-agent)
 - `docs/MCP_INSTRUCTIONS.md` — Documentation copy of the `MCP_INSTRUCTIONS` constant returned by the server in `InitializeResult` (runtime source: `src/core/operations.ts`)
 - `skills/codemap-ingest/SKILL.md` — Technical knowledge map workflow for system pages + codemap-backed concepts
 - `src/core/schema-embedded.ts` — AUTO-GENERATED from schema.sql (run `bun run build:schema`)
@@ -43,14 +43,14 @@ available in local mode versus what must fail with honest guidance.
 - `docs/local-offline.md` — Local/offline SQLite + Codex/Claude Code setup guide (English)
 - `docs/local-offline.ko.md` — Local/offline SQLite + Codex/Claude Code setup guide (Korean)
 - `skills/_brain-filing-rules.md` — Cross-cutting brain filing rules (referenced by all brain-writing skills)
-- `docs/UPSTREAM_SYNC.md` — Log of which upstream (garrytan/gbrain) commits have been adopted, skipped (with reasons), or deferred. READ BEFORE a new upstream sync.
+- `docs/UPSTREAM_SYNC.md` — Historical/reference log for optional upstream cherry-picks from `garrytan/gbrain`. Consult it when evaluating upstream imports, not for routine `mbrain` feature work.
 - `openclaw.plugin.json` — ClawHub bundle plugin manifest
 
 ## Commands
 
-Run `gbrain --help` or `gbrain --tools-json` for full command reference. For local/offline contributors: `gbrain init --local` writes the SQLite/offline profile, `gbrain serve` is the stdio MCP entrypoint both Codex and Claude Code consume, and `gbrain setup-agent` auto-detects installed AI clients, registers the MCP server, and injects behavioral rules. User-facing local setup docs now live in both `docs/local-offline.md` and `docs/local-offline.ko.md`.
+Run `mbrain --help` or `mbrain --tools-json` for full command reference. For local/offline contributors: `mbrain init --local` writes the SQLite/offline profile, `mbrain serve` is the stdio MCP entrypoint both Codex and Claude Code consume, and `mbrain setup-agent` auto-detects installed AI clients, registers the MCP server, and injects behavioral rules. User-facing local setup docs now live in both `docs/local-offline.md` and `docs/local-offline.ko.md`.
 
-Deterministic brain-quality tools (no LLM calls, no DB connection, engine-agnostic): `gbrain publish` renders a brain page as a self-contained HTML (optionally AES-256-GCM encrypted behind a password), `gbrain check-backlinks check|fix` enforces the Iron Law of Back-Linking across a brain directory, `gbrain lint` flags LLM preambles, broken frontmatter, and placeholder dates (use `--fix` to auto-clean), and `gbrain report --type <name>` saves a timestamped report into `brain/reports/{type}/YYYY-MM-DD-HHMM.md`.
+Deterministic brain-quality tools (no LLM calls, no DB connection, engine-agnostic): `mbrain publish` renders a brain page as a self-contained HTML (optionally AES-256-GCM encrypted behind a password), `mbrain check-backlinks check|fix` enforces the Iron Law of Back-Linking across a brain directory, `mbrain lint` flags LLM preambles, broken frontmatter, and placeholder dates (use `--fix` to auto-clean), and `mbrain report --type <name>` saves a timestamped report into `brain/reports/{type}/YYYY-MM-DD-HHMM.md`.
 
 ## Testing
 
@@ -96,18 +96,18 @@ Do not leave containers running after tests. Do not skip E2E tests.
    pick a different port (try 5435, 5436, 5437) and start on that one instead.
 3. **Start the test DB:**
    ```bash
-   docker run -d --name gbrain-test-pg \
+   docker run -d --name mbrain-test-pg \
      -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
-     -e POSTGRES_DB=gbrain_test \
+     -e POSTGRES_DB=mbrain_test \
      -p PORT:5432 pgvector/pgvector:pg16
    ```
-   Wait for ready: `docker exec gbrain-test-pg pg_isready -U postgres`
+   Wait for ready: `docker exec mbrain-test-pg pg_isready -U postgres`
 4. **Run E2E tests:**
-   `DATABASE_URL=postgresql://postgres:postgres@localhost:PORT/gbrain_test bun run test:e2e`
+   `DATABASE_URL=postgresql://postgres:postgres@localhost:PORT/mbrain_test bun run test:e2e`
 5. **Tear down immediately after tests finish (pass or fail):**
-   `docker stop gbrain-test-pg && docker rm gbrain-test-pg`
+   `docker stop mbrain-test-pg && docker rm mbrain-test-pg`
 
-Never leave `gbrain-test-pg` running. If you find a stale one from a previous run,
+Never leave `mbrain-test-pg` running. If you find a stale one from a previous run,
 stop and remove it before starting a new one.
 
 ## Skills
@@ -119,7 +119,7 @@ codemap-ingest, maintain, enrich, briefing, migrate, setup.
 
 ## Build
 
-`bun build --compile --outfile bin/gbrain src/cli.ts`
+`bun build --compile --outfile bin/mbrain src/cli.ts`
 
 ## Pre-ship requirements
 
@@ -158,8 +158,8 @@ upgrade, not document the implementation.
 - Lead with what the user can now DO that they couldn't before
 - Frame as benefits and capabilities, not files changed or code written
 - Make the user think "hell yeah, I want that"
-- Bad: "Added GBRAIN_VERIFY.md installation verification runbook"
-- Good: "Your agent now verifies the entire GBrain installation end-to-end, catching
+- Bad: "Added MBRAIN_VERIFY.md installation verification runbook"
+- Good: "Your agent now verifies the entire MBrain installation end-to-end, catching
   silent sync failures and stale embeddings before they bite you"
 - Bad: "Setup skill Phase H and Phase I added"
 - Good: "New installs automatically set up live sync so your brain never falls behind"
@@ -174,7 +174,7 @@ reads these files post-upgrade (Section 17, Step 4) and executes them.
 - New setup step that existing installs don't have (e.g., v0.5.0 added live sync,
   existing users need to set it up, not just new installs)
 - New SKILLPACK section with a MUST ADD setup requirement
-- Schema changes that require `gbrain init` or manual SQL
+- Schema changes that require `mbrain init` or manual SQL
 - Changed defaults that affect existing behavior
 - Deprecated commands or flags that need replacement
 - New verification steps that should run on existing installs
@@ -195,7 +195,7 @@ for the pattern.
 
 ## Schema state tracking
 
-`~/.gbrain/update-state.json` tracks which recommended schema directories the user
+`~/.mbrain/update-state.json` tracks which recommended schema directories the user
 adopted, declined, or added custom. The auto-update agent (SKILLPACK Section 17)
 reads this during upgrades to suggest new schema additions without re-suggesting
 things the user already declined. The setup skill writes the initial state during

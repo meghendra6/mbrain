@@ -1,4 +1,4 @@
-# RFC: Technical Knowledge Map — Cross-Codebase Navigation Layer for GBrain
+# RFC: Technical Knowledge Map — Cross-Codebase Navigation Layer for MBrain
 
 **Status:** Proposed  
 **Date:** 2026-04-15  
@@ -8,7 +8,7 @@
 
 ## 1. Summary
 
-GBrain should support a **technical knowledge map** layer that serves as a persistent, pre-computed navigation index for large, multi-repository engineering environments.
+MBrain should support a **technical knowledge map** layer that serves as a persistent, pre-computed navigation index for large, multi-repository engineering environments.
 
 In this mode:
 
@@ -45,9 +45,9 @@ Engineering concepts rarely live in one place. "Operator fusion" might be:
 
 No single codebase search can reconstruct this cross-cutting picture. The agent must already know the concept spans three systems, know which files to look at in each, and know the vocabulary differences (LLVM calls it "instruction combining", PyTorch calls it "fusion group", TensorRT calls it "fused kernel").
 
-### 2.3 What GBrain Already Does Well
+### 2.3 What MBrain Already Does Well
 
-GBrain is already a compounding knowledge system with:
+MBrain is already a compounding knowledge system with:
 
 - **Compiled truth + timeline** pattern (pre-computed synthesis, not raw RAG)
 - **Graph links** between pages (typed, bidirectional)
@@ -59,7 +59,7 @@ The gap is that concept pages today are designed for **people/company/deal** kno
 
 ### 2.4 The Proposed Solution: Brain as Technical Map
 
-Extend GBrain so that concept pages can serve as **navigation indexes** for technical knowledge:
+Extend MBrain so that concept pages can serve as **navigation indexes** for technical knowledge:
 
 ```
 User asks: "How does operator fusion work across PyTorch and LLVM?"
@@ -68,7 +68,7 @@ Without map:
   Agent: *searches 2 codebases, reads 12K tokens, synthesizes from scratch*
 
 With map:
-  Agent: gbrain get "concepts/operator-fusion"
+  Agent: mbrain get "concepts/operator-fusion"
   Brain returns:
     Compiled truth: "Operator fusion merges multiple operations into one kernel.
       - In LLVM: InstructionCombining pass merges adjacent ops in IR
@@ -88,7 +88,7 @@ With map:
 
 ## 3. Problem Statement
 
-GBrain's current concept system has the following limitations for technical knowledge:
+MBrain's current concept system has the following limitations for technical knowledge:
 
 1. **Flat concept pages** — no structured fields for codebase-specific pointers
 2. **No system-level pages** — nowhere to store "codebase X has these entry points, this directory structure, these key abstractions"
@@ -149,7 +149,7 @@ An engineer asks their AI agent: "How does automatic differentiation work across
 
 **Today:** Agent searches both codebases from scratch. Reads 50+ files. Spends 15K tokens. Produces a long answer that's mostly correct but may miss connections between the two systems.
 
-**With knowledge map:** Agent calls `gbrain get "concepts/autograd"`. Gets a 400-token compiled truth with pointers to both codebases. Verifies 2 key files. Answers in 3K tokens with a clear cross-system picture and specific file references.
+**With knowledge map:** Agent calls `mbrain get "concepts/autograd"`. Gets a 400-token compiled truth with pointers to both codebases. Verifies 2 key files. Answers in 3K tokens with a clear cross-system picture and specific file references.
 
 ### Scenario B: New Team Member Onboarding
 
@@ -157,7 +157,7 @@ A new engineer joins and needs to understand the LLVM codebase.
 
 **Today:** They ask the AI agent "explain the LLVM architecture." Agent reads README, scans directory tree, reads 10 random files. Produces a vague overview. Next session, it forgets everything.
 
-**With knowledge map:** Agent calls `gbrain get "systems/llvm"`. Gets architecture summary, key entry points, pass pipeline structure, and build commands. Uses this as a starting point for targeted exploration. The knowledge persists and improves over time.
+**With knowledge map:** Agent calls `mbrain get "systems/llvm"`. Gets architecture summary, key entry points, pass pipeline structure, and build commands. Uses this as a starting point for targeted exploration. The knowledge persists and improves over time.
 
 ### Scenario C: Agent Builds Map Incrementally
 
@@ -365,7 +365,7 @@ This RFC extends that to: "Also detect **technical concept mentions** and **syst
 - User asks a cross-system question ("how does X in system A relate to Y in system B")
 
 **Agent behavior on trigger:**
-1. `gbrain search "concept name"` or `gbrain get "concepts/slug"`
+1. `mbrain search "concept name"` or `mbrain get "concepts/slug"`
 2. If page exists with codemap → use pointers for targeted code navigation
 3. If page exists without codemap → read code, then update page with discovered pointers
 4. If no page exists → explore code, then create concept page with codemap
@@ -494,7 +494,7 @@ Add guidance for technical queries:
 When the user asks about a technical concept (architecture, mechanism, 
 pattern) that might span multiple systems:
 
-1. Search brain: `gbrain search "concept name"`
+1. Search brain: `mbrain search "concept name"`
 2. If concept page exists with codemap:
    - Read the compiled truth for orientation
    - Use codemap pointers for targeted code navigation
@@ -507,7 +507,7 @@ pattern) that might span multiple systems:
    - After understanding, create concept page with codemap
 ```
 
-### 10.3 Updated: Agent Rules (GBRAIN_AGENT_RULES.md)
+### 10.3 Updated: Agent Rules (MBRAIN_AGENT_RULES.md)
 
 Add to Section 3 (Entity Detection):
 
@@ -528,7 +528,7 @@ In addition to people/company/deal entities, detect:
 
 ## 11. SKILLPACK Changes
 
-Add a new section to `docs/GBRAIN_SKILLPACK.md`:
+Add a new section to `docs/MBRAIN_SKILLPACK.md`:
 
 ```markdown
 ## Section 19: Technical Knowledge Maps

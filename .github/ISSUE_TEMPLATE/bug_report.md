@@ -16,12 +16,12 @@ labels: bug
 3.
 
 **Environment**
-- gbrain version: (`gbrain version`)
+- mbrain version: (`mbrain version`)
 - OS:
 - Bun version: (`bun --version`)
 - Database: Supabase / self-hosted Postgres
 
-**`gbrain doctor --json` output**
+**`mbrain doctor --json` output**
 ```json
 (paste output here)
 ```

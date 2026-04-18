@@ -8,15 +8,15 @@ const originalEnv = { ...process.env };
 let tempHome: string;
 
 function writeConfig(config: Record<string, unknown>) {
-  const dir = join(tempHome, '.gbrain');
+  const dir = join(tempHome, '.mbrain');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'config.json'), JSON.stringify(config, null, 2));
 }
 
 beforeEach(() => {
-  tempHome = mkdtempSync(join(tmpdir(), 'gbrain-engine-factory-'));
+  tempHome = mkdtempSync(join(tmpdir(), 'mbrain-engine-factory-'));
   process.env.HOME = tempHome;
-  delete process.env.GBRAIN_DATABASE_URL;
+  delete process.env.MBRAIN_DATABASE_URL;
   delete process.env.DATABASE_URL;
   delete process.env.OPENAI_API_KEY;
 });
@@ -29,7 +29,7 @@ afterEach(() => {
 describe('engine factory', () => {
   test('creates a Postgres engine for legacy configs with no engine key', async () => {
     writeConfig({
-      database_url: 'postgresql://user:pass@localhost:5432/gbrain',
+      database_url: 'postgresql://user:pass@localhost:5432/mbrain',
     });
 
     const { loadConfig } = await import('../src/core/config.ts');
@@ -46,7 +46,7 @@ describe('engine factory', () => {
   test('selects sqlite from config and instantiates the SQLite engine', async () => {
     writeConfig({
       engine: 'sqlite',
-      database_path: '~/.gbrain/brain.db',
+      database_path: '~/.mbrain/brain.db',
       offline: true,
       embedding_provider: 'local',
       query_rewrite_provider: 'heuristic',
@@ -67,7 +67,7 @@ describe('engine factory', () => {
 
     expect(() => resolveConfig({
       engine: 'postgres',
-      database_url: 'postgresql://user:pass@localhost:5432/gbrain',
+      database_url: 'postgresql://user:pass@localhost:5432/mbrain',
       embedding_provider: 'local',
     })).toThrow(/embedding_provider.*requires sqlite/i);
   });
@@ -77,7 +77,7 @@ describe('engine factory', () => {
 
     expect(() => resolveConfig({
       engine: 'mysql' as unknown as 'postgres',
-      database_url: 'postgresql://user:pass@localhost:5432/gbrain',
+      database_url: 'postgresql://user:pass@localhost:5432/mbrain',
     })).toThrow(/unsupported engine: mysql/i);
   });
 

@@ -2,7 +2,7 @@
 
 ## The idea
 
-Every GBrain operation goes through `BrainEngine`. The engine is the contract between "what the brain can do" and "how it's stored." Swap the engine, keep everything else.
+Every MBrain operation goes through `BrainEngine`. The engine is the contract between "what the brain can do" and "how it's stored." Swap the engine, keep everything else.
 
 v0 ships `PostgresEngine` backed by Supabase. The interface is designed so a `SQLiteEngine`, `DuckDBEngine`, or `TursoEngine` could slot in without touching the CLI, MCP server, skills, or any consumer code.
 
@@ -156,7 +156,7 @@ RRF fusion, multi-query expansion, and 4-layer dedup are engine-agnostic. They o
      }
    }
    ```
-3. Store engine type in `~/.gbrain/config.json`: `{ "engine": "sqlite", ... }`
+3. Store engine type in `~/.mbrain/config.json`: `{ "engine": "sqlite", ... }`
 4. Add tests. The test suite should be engine-agnostic where possible... same test cases, different engine constructor.
 5. Document in this file + add a design doc in `docs/`
 

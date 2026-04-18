@@ -20,19 +20,19 @@ fill gaps.
 ```
 lookup(name_or_topic):
   // STEP 1: Keyword search (fast, works day one, no embeddings needed)
-  results = gbrain search "{name_or_topic}"
+  results = mbrain search "{name_or_topic}"
   if results.length > 0:
-    page = gbrain get {results[0].slug}
+    page = mbrain get {results[0].slug}
     return page  // done, brain had it
 
   // STEP 2: Hybrid search (needs embeddings, finds semantic matches)
-  results = gbrain query "what do we know about {name_or_topic}"
+  results = mbrain query "what do we know about {name_or_topic}"
   if results.length > 0:
-    page = gbrain get {results[0].slug}
+    page = mbrain get {results[0].slug}
     return page
 
   // STEP 3: Direct slug (if you know or can guess the slug)
-  page = gbrain get "people/{slugify(name_or_topic)}"
+  page = mbrain get "people/{slugify(name_or_topic)}"
   if page: return page
 
   // STEP 4: External API or broad repo search (FALLBACK ONLY)
@@ -66,7 +66,7 @@ entry points, and here is the vocabulary each codebase uses."
    (day one). Hybrid search needs embeddings but finds semantic matches. Try
    both in sequence.
 
-2. **Fuzzy slug matching.** `gbrain get` supports fuzzy matching. If the exact
+2. **Fuzzy slug matching.** `mbrain get` supports fuzzy matching. If the exact
    slug doesn't exist, it suggests alternatives. Use this for name variants
    ("Pedro" → "pedro-franceschi").
 
@@ -92,4 +92,4 @@ entry points, and here is the vocabulary each codebase uses."
 
 ---
 
-*Part of the [GBrain Skillpack](../GBRAIN_SKILLPACK.md). See also: [Brain-Agent Loop](brain-agent-loop.md), [Search Modes](search-modes.md)*
+*Part of the [MBrain Skillpack](../MBRAIN_SKILLPACK.md). See also: [Brain-Agent Loop](brain-agent-loop.md), [Search Modes](search-modes.md)*

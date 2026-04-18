@@ -28,14 +28,14 @@ export async function runImport(engine: BrainEngine, args: string[]) {
   const dir = args.find((a, i) => !a.startsWith('--') && !flagValues.has(i));
 
   if (!dir) {
-    console.error('Usage: gbrain import <dir> [--no-embed] [--workers N] [--fresh] [--json]');
+    console.error('Usage: mbrain import <dir> [--no-embed] [--workers N] [--fresh] [--json]');
     process.exit(1);
   }
 
   const allFiles = collectMarkdownFiles(dir);
   console.log(`Found ${allFiles.length} markdown files`);
 
-  const checkpointPath = join(homedir(), '.gbrain', 'import-checkpoint.json');
+  const checkpointPath = join(homedir(), '.mbrain', 'import-checkpoint.json');
   let files = allFiles;
   let resumeIndex = 0;
 
@@ -71,7 +71,7 @@ export async function runImport(engine: BrainEngine, args: string[]) {
     const rate = elapsed > 0 ? Math.round(processed / elapsed) : 0;
     const remaining = rate > 0 ? Math.round((files.length - processed) / rate) : 0;
     const pct = Math.round((processed / files.length) * 100);
-    console.log(`[gbrain import] ${processed}/${files.length} (${pct}%) | ${rate} files/sec | imported: ${imported} | skipped: ${skipped} | errors: ${errors} | ETA: ${remaining}s`);
+    console.log(`[mbrain import] ${processed}/${files.length} (${pct}%) | ${rate} files/sec | imported: ${imported} | skipped: ${skipped} | errors: ${errors} | ETA: ${remaining}s`);
   }
 
   async function processFile(eng: BrainEngine, filePath: string) {
@@ -105,7 +105,7 @@ export async function runImport(engine: BrainEngine, args: string[]) {
       logProgress();
       if (processed % 100 === 0) {
         try {
-          const cpDir = join(homedir(), '.gbrain');
+          const cpDir = join(homedir(), '.mbrain');
           if (!existsSync(cpDir)) {
             const { mkdirSync } = await import('fs');
             mkdirSync(cpDir, { recursive: true });
@@ -127,7 +127,7 @@ export async function runImport(engine: BrainEngine, args: string[]) {
   if (actualWorkers > 1) {
     const config = loadConfig();
     if (!config) {
-      throw new Error('No brain configured. Run: gbrain init or set GBRAIN_DATABASE_URL / DATABASE_URL.');
+      throw new Error('No brain configured. Run: mbrain init or set MBRAIN_DATABASE_URL / DATABASE_URL.');
     }
 
     if (!supportsParallelWorkers(config)) {
@@ -214,7 +214,7 @@ export function collectMarkdownFiles(dir: string): string[] {
 
   const rootStat = lstatSync(dir);
   if (rootStat.isSymbolicLink()) {
-    console.warn(`[gbrain import] Skipping symlinked import root: ${dir}`);
+    console.warn(`[mbrain import] Skipping symlinked import root: ${dir}`);
     return files;
   }
 
@@ -228,12 +228,12 @@ export function collectMarkdownFiles(dir: string): string[] {
       try {
         stat = lstatSync(full);
       } catch {
-        console.warn(`[gbrain import] Skipping unreadable path: ${full}`);
+        console.warn(`[mbrain import] Skipping unreadable path: ${full}`);
         continue;
       }
 
       if (stat.isSymbolicLink()) {
-        console.warn(`[gbrain import] Skipping symlink: ${full}`);
+        console.warn(`[mbrain import] Skipping symlink: ${full}`);
         continue;
       }
 

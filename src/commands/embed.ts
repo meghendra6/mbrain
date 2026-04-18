@@ -24,7 +24,7 @@ export async function runEmbed(engine: BrainEngine, args: string[]) {
     return;
   }
 
-  console.error('Usage: gbrain embed [<slug>|--all|--stale]');
+  console.error('Usage: mbrain embed [<slug>|--all|--stale]');
   process.exit(1);
 }
 

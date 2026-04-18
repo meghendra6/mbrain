@@ -4,26 +4,26 @@ Periodic brain health checks and cleanup.
 
 ## Workflow
 
-1. **Run health check.** Check gbrain health to get the dashboard.
+1. **Run health check.** Check mbrain health to get the dashboard.
 2. **Check each dimension:**
 
 ### Stale pages
 Pages where compiled_truth is older than the latest timeline entry. The assessment hasn't been updated to reflect recent evidence.
 - Check the health output for stale page count
-- For each stale page: read the page from gbrain, review timeline, determine if compiled_truth needs rewriting
+- For each stale page: read the page from mbrain, review timeline, determine if compiled_truth needs rewriting
 
 ### Orphan pages
 Pages with zero inbound links. Nobody references them.
 - Review orphans: are they genuinely isolated or just missing links?
-- Add links in gbrain from related pages or flag for deletion
+- Add links in mbrain from related pages or flag for deletion
 
 ### Dead links
 Links pointing to pages that don't exist.
-- Remove dead links in gbrain
+- Remove dead links in mbrain
 
 ### Missing cross-references
 Pages that mention entity names but don't have formal links.
-- Read compiled_truth from gbrain, extract entity mentions, create links in gbrain
+- Read compiled_truth from mbrain, extract entity mentions, create links in mbrain
 
 ### Back-link enforcement
 Check that the back-linking iron law is being followed:
@@ -37,7 +37,7 @@ Check that the back-linking iron law is being followed:
 Check for common misfiling patterns (see `skills/_brain-filing-rules.md`):
 - Content with clear primary subjects filed in `sources/` instead of the
   appropriate directory (people/, companies/, concepts/, etc.)
-- Use gbrain search to find pages in `sources/` that reference specific
+- Use mbrain search to find pages in `sources/` that reference specific
   people, companies, or concepts -- these may be misfiled
 - Flag misfiled pages for review or re-filing
 
@@ -50,21 +50,21 @@ Spot-check pages for missing `[Source: ...]` citations:
 
 ### Tag consistency
 Inconsistent tagging (e.g., "vc" vs "venture-capital", "ai" vs "artificial-intelligence").
-- Standardize to the most common variant using gbrain tag operations
+- Standardize to the most common variant using mbrain tag operations
 
 ### Embedding freshness
 Chunks without embeddings, or chunks embedded with an old model.
 - For large embedding refreshes (>1000 chunks), use nohup:
-  `nohup gbrain embed refresh > /tmp/gbrain-embed.log 2>&1 &`
-- Then check progress: `tail -1 /tmp/gbrain-embed.log`
+  `nohup mbrain embed refresh > /tmp/mbrain-embed.log 2>&1 &`
+- Then check progress: `tail -1 /tmp/mbrain-embed.log`
 
 ### Security (RLS verification)
-Run `gbrain doctor --json` and check the RLS status.
-All tables should show RLS enabled. If not, run `gbrain init` again.
+Run `mbrain doctor --json` and check the RLS status.
+All tables should show RLS enabled. If not, run `mbrain init` again.
 
 ### Schema health
-Check that the schema version is up to date. `gbrain doctor --json` reports
-the current version vs expected. If behind, `gbrain init` runs migrations
+Check that the schema version is up to date. `mbrain doctor --json` reports
+the current version vs expected. If behind, `mbrain init` runs migrations
 automatically.
 
 ### Open threads
@@ -81,37 +81,37 @@ queries across difficulty tiers:
 - **Tier 3 (semantic):** queries with no exact keyword match -- needs embeddings
 - **Tier 4 (cross-domain):** relational/connection queries -- only semantic handles
 
-Compare results from `gbrain search` (keyword) vs `gbrain query` (hybrid).
+Compare results from `mbrain search` (keyword) vs `mbrain query` (hybrid).
 Quality matters more than speed (2.5s right > 200ms wrong).
 
 When to run benchmarks:
 - After major brain imports or re-imports
-- After gbrain version upgrades
+- After mbrain version upgrades
 - After embedding regeneration
 - Monthly to track quality drift
 
 ## Heartbeat Integration
 
-For production agents running on a schedule, integrate gbrain health checks into
+For production agents running on a schedule, integrate mbrain health checks into
 your operational heartbeat.
 
 ### On every heartbeat (hourly or per-session)
 
-Run `gbrain doctor --json` and check for degradation. Report any failing checks
+Run `mbrain doctor --json` and check for degradation. Report any failing checks
 to the user. Key signals: connection health, schema version, RLS status, embedding
 staleness.
 
 ### Weekly maintenance
 
-Run `gbrain embed --stale` to refresh embeddings for pages that have changed since
+Run `mbrain embed --stale` to refresh embeddings for pages that have changed since
 their last embedding. For large brains (>5000 pages), run this with nohup:
 ```bash
-nohup gbrain embed --stale > /tmp/gbrain-embed.log 2>&1 &
+nohup mbrain embed --stale > /tmp/mbrain-embed.log 2>&1 &
 ```
 
 ### Daily verification
 
-Verify sync is running: check `gbrain stats` and confirm `last_sync` is within
+Verify sync is running: check `mbrain stats` and confirm `last_sync` is within
 the last 24 hours. If sync has stopped, the brain is drifting from the repo.
 
 ### Stale compiled truth detection
@@ -136,16 +136,16 @@ This creates an audit trail for brain health over time.
 
 - Never delete pages without confirmation
 - Log all changes via timeline entries
-- Check gbrain health before and after to show improvement
+- Check mbrain health before and after to show improvement
 
 ## Tools Used
 
-- Check gbrain health (get_health)
-- List pages in gbrain with filters (list_pages)
-- Read a page from gbrain (get_page)
-- Check backlinks in gbrain (get_backlinks)
-- Link entities in gbrain (add_link)
-- Remove links in gbrain (remove_link)
-- Tag a page in gbrain (add_tag)
-- Remove a tag in gbrain (remove_tag)
-- View timeline in gbrain (get_timeline)
+- Check mbrain health (get_health)
+- List pages in mbrain with filters (list_pages)
+- Read a page from mbrain (get_page)
+- Check backlinks in mbrain (get_backlinks)
+- Link entities in mbrain (add_link)
+- Remove links in mbrain (remove_link)
+- Tag a page in mbrain (add_tag)
+- Remove a tag in mbrain (remove_tag)
+- View timeline in mbrain (get_timeline)
