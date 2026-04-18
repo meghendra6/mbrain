@@ -28,7 +28,7 @@ The target architecture resolves those issues without abandoning Markdown, local
 
 | Layer | Responsibility | Canonical Status |
 |---|---|---|
-| Source Inputs and Evidence | Capture imported notes, files, raw source material, code references, and user-authored inputs with provenance. | Canonical for evidence, not for synthesized truth. |
+| Source Inputs and Evidence | Capture imported notes, files, raw source material, code references, and user-authored inputs into Source Records with provenance and attached raw evidence. | Canonical through Source Records, not for synthesized truth. |
 | Canonical Memory | Store curated notes, procedures, operational work records, and profile memory as scoped canonical subdomains. | Canonical. |
 | Derived Structure and Orientation | Build manifests, context maps, context atlases, embeddings, indexes, and orientation reports from canonical sources. | Derived. |
 | Governance and Promotion | Hold the Memory Inbox, candidate claims, contradiction handling, and promotion or supersession records. | Canonical for governance state, not for truth claims until promoted. |
@@ -47,7 +47,7 @@ The target architecture uses the following stable object vocabulary:
 |---|---|
 | Curated Note | Canonical synthesized knowledge document for a topic, entity, project, or concept. |
 | Procedure | Canonical reusable operating knowledge that agents and users can inspect directly. |
-| Source Record | Canonical provenance object describing an observed source or imported artifact. |
+| Source Record | Canonical provenance object that describes an observed source and preserves its attached raw evidence or imported content. |
 | Task Thread | Canonical record for an ongoing unit of work spanning one or more sessions. |
 | Working Set / Resume Card | Canonical focused projection of what should be resumed next for active work. |
 | Event / Episode | Canonical record of a work session, interaction, or meaningful state change. |
@@ -72,7 +72,7 @@ Later redesign documents may deepen these objects, but they should not replace t
 | Curated knowledge | Curated Note Markdown | Note manifests, embeddings, search indexes, context maps, summaries |
 | Reusable operating knowledge | Procedure Markdown | Procedure manifests, embeddings, orientation reports |
 | Active work continuity | Task Thread, Working Set / Resume Card, Event / Episode, Attempt / Decision | Resume views, task maps, relevance rankings |
-| Provenance and raw inputs | Source Records and imported artifacts | Citation views, extraction outputs, ranked evidence sets |
+| Provenance and raw inputs | Source Records | Citation views, extraction outputs, ranked evidence sets |
 | Candidate governance state | Memory Inbox, Memory Candidates, and Promotion / Supersession records | Triage scores and contradiction reports |
 | Personal memory | Profile Memory and Personal Episode records | Scoped recall views, profile summaries |
 | Retrieval explainability | Retrieval Trace records | Session explainers and debug summaries |
@@ -83,7 +83,7 @@ This matrix preserves the core rule from `00`: orientation aids may be powerful,
 ## Data Flow Overview
 
 1. Source inputs enter the system as user-authored Markdown, imported artifacts, code references, or raw evidence.
-2. Observed inputs are written to Source Records and evidence artifacts as the explicit provenance destination for the event.
+2. Observed inputs are written to Source Records as the explicit provenance destination, with raw evidence preserved inside that canonical object.
 3. Canonical writes persist into the appropriate memory domain: curated knowledge, procedures, operational work records, profile records, or governance state.
 4. Deterministic extraction builds structural manifests from canonical sources.
 5. Derived processes build context maps, atlases, embeddings, indexes, and orientation artifacts from canonical state and manifests.
@@ -111,7 +111,7 @@ When explainability or auditability matters, the system persists a Retrieval Tra
 The target write path follows this shape:
 
 1. Classify the incoming signal by scope and memory domain.
-2. Write or link the source evidence into Source Records and evidence artifacts so provenance has an explicit destination.
+2. Write or link the source evidence into Source Records so provenance has one explicit canonical destination.
 3. Write directly to canonical memory when the signal is already an authoritative update for that domain.
 4. Write to the Memory Inbox and related governance state when the signal is inferred, ambiguous, contradictory, or not yet strong enough to become canonical truth.
 5. Persist a Retrieval Trace when the system needs a durable explanation of how retrieval or verification proceeded.
