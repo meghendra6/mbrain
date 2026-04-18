@@ -49,7 +49,7 @@ The target architecture uses the following stable object vocabulary:
 | Procedure | Canonical reusable operating knowledge that agents and users can inspect directly. |
 | Source Record | Canonical provenance object that describes an observed source and preserves its attached raw evidence or imported content. |
 | Task Thread | Canonical record for an ongoing unit of work spanning one or more sessions. |
-| Working Set / Resume Card | Canonical focused projection of what should be resumed next for active work. |
+| Working Set | Canonical focused projection of what should be resumed next for active work. |
 | Event / Episode | Canonical record of a work session, interaction, or meaningful state change. |
 | Attempt / Decision | Canonical records of what was tried, what failed, and what was chosen. |
 | Note Manifest | Derived structural extraction of deterministic note metadata and link structure. |
@@ -64,6 +64,7 @@ The target architecture uses the following stable object vocabulary:
 | Personal Episode | Canonical personal-scope event record analogous to work episodes. |
 
 Later redesign documents may deepen these objects, but they should not replace them with new top-level categories casually.
+In this architecture, a resume card is an interface or presentation view over the canonical Working Set rather than a distinct top-level object.
 
 ## Canonical Source Matrix
 
@@ -71,7 +72,7 @@ Later redesign documents may deepen these objects, but they should not replace t
 |---|---|---|
 | Curated knowledge | Curated Note Markdown | Note manifests, embeddings, search indexes, context maps, summaries |
 | Reusable operating knowledge | Procedure Markdown | Procedure manifests, embeddings, orientation reports |
-| Active work continuity | Task Thread, Working Set / Resume Card, Event / Episode, Attempt / Decision | Resume views, task maps, relevance rankings |
+| Active work continuity | Task Thread, Working Set, Event / Episode, Attempt / Decision | Resume cards, task maps, relevance rankings |
 | Provenance and raw inputs | Source Records | Citation views, extraction outputs, ranked evidence sets |
 | Candidate governance state | Memory Inbox, Memory Candidates, and Promotion / Supersession records | Triage scores and contradiction reports |
 | Personal memory | Profile Memory and Personal Episode records | Scoped recall views, profile summaries |

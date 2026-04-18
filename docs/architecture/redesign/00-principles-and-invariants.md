@@ -75,7 +75,7 @@ Canonical sources may be rendered, indexed, summarized, mapped, embedded, or cac
 | Canonical artifact | A source of truth that may be edited, reviewed, versioned, and cited directly. |
 | Derived artifact | A regenerable product created from canonical sources to improve search, navigation, explanation, or performance. |
 | Task Thread | The canonical record for a unit of ongoing work across sessions, including its active state, related attempts, decisions, and next-resume context. |
-| Working Set | The canonical focused projection of the files, symbols, notes, decisions, and next actions most relevant to continuing an active Task Thread. |
+| Working Set | The canonical focused projection of the files, symbols, notes, decisions, and next actions most relevant to continuing an active Task Thread; interface surfaces may render it as a resume card, but that is not a separate top-level object. |
 | Memory Inbox | The canonical governance container that holds inferred, ambiguous, or not-yet-promoted memory candidates for review, promotion, rejection, or supersession. |
 | Retrieval Trace | The canonical operational record of which sources, derived aids, and verification steps informed a retrieval result. |
 | Promotion | The act of moving a proposed claim or relationship into canonical state after review and evidence checks. |
