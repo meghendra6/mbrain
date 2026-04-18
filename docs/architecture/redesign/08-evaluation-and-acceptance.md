@@ -195,21 +195,42 @@ Acceptance rules:
 
 The local/offline evaluation is successful only if the redesign remains a local product, not a cloud-only one with a local shell.
 
+## Default Acceptance Thresholds
+
+The redesign uses shared pass/fail bars so phase acceptance is not negotiated ad hoc after results arrive.
+
+Unless a phase declares a stricter threshold before implementation begins, these defaults apply:
+
+| Threshold Class | Minimum Bar | Failure Condition |
+|---|---|---|
+| Primary improvement threshold | At least one primary metric owned by the phase improves by `>=10%` relative to the recorded baseline. | The phase claims a workflow win but no primary metric clears the minimum improvement bar. |
+| Guardrail non-regression threshold | Non-targeted core metrics and subsystem guardrails may not regress by more than `5%` relative to baseline. | A phase improves one target metric while materially degrading another core contract. |
+| Provenance completeness threshold | Durable writes and promoted candidates must maintain `100%` Source Record completeness on the acceptance workload. | Any promoted or durable record lands without canonical provenance linkage. |
+| Retrieval-trace completeness threshold | Required scope, route, verification, and durable-write fields must be present in `>=95%` of interactions that require durable explainability. | Trace coverage or required-field completeness drops below the threshold. |
+| Safety threshold | Scope-leak incidents, promotion-bypass incidents, contradiction-bypass incidents, and public-contract parity breaks are all `0` on the acceptance workload. | Any one of those boundary failures appears in acceptance evidence. |
+| Local/offline threshold | Core local/offline workloads must run without network dependence, and local latency or throughput may not regress by more than `10%` unless a stricter predeclared exception is approved in Phase 0. | The phase quietly shifts the supported local contract or exceeds the allowed local regression budget. |
+
+Threshold rules:
+
+1. A phase must satisfy the relevant threshold classes in addition to the qualitative acceptance rules below.
+2. If a phase needs a stricter bar, that stricter bar must be declared before the phase starts, not after measurement is known.
+3. If a metric cannot be compared against its baseline under the same workload assumptions, the threshold is considered unmet.
+
 ## Phase Acceptance Criteria
 
 Each phase must satisfy the baseline family it is expected to improve, plus the boundary contracts it touches.
 
 | Phase | Minimum Acceptance Criteria |
 |---|---|
-| Phase 0 | Baseline metrics are captured, backend and local-path parity is measured, and the execution envelope is explicit enough to support later comparison. |
-| Phase 1 | Repeated-work prevention improves against the baseline without breaking task continuity, Markdown continuity, or local/offline behavior. |
-| Phase 2 | Deterministic structural extraction improves orientation without weakening Markdown retrieval or canonical-source authority. |
-| Phase 3 | Context maps reduce raw search and improve path finding without exceeding bounded-output or freshness limits. |
-| Phase 4 | Reusable operating knowledge becomes easier to recall and reuse during repeated task patterns without collapsing task state into procedure state or losing procedure usefulness. |
-| Phase 5 | Governance decisions become more precise, more auditable, and harder to bypass than the baseline. |
-| Phase 6 | Higher-noise derived analysis remains constrained by governance and does not degrade local performance past the accepted threshold. |
-| Phase 7 | Later canonical knowledge consolidation preserves provenance, historical-validity safeguards, and current-evidence discipline without outrunning review boundaries. |
-| Phase 8 | The full redesign is measurable as a system, profile and scope isolation remain clean, regressions are detectable, and the baseline families remain comparable over time. |
+| Phase 0 | Baseline metrics are captured with `100%` workload coverage for the published acceptance workloads, backend and local-path parity is measured with `0` public-contract mismatches, and the execution envelope is explicit enough to support later comparison. |
+| Phase 1 | Repeated-work prevention clears the primary improvement threshold while stale-state detection, Markdown continuity, and local/offline behavior stay within the guardrail and safety thresholds. |
+| Phase 2 | Deterministic structural extraction clears the primary improvement threshold for orientation without weakening Markdown retrieval, canonical-source authority, or provenance completeness beyond the allowed thresholds. |
+| Phase 3 | Context maps clear the primary improvement threshold for raw-search reduction or path finding while bounded-output adherence, freshness, and canonical follow-through stay within guardrail and safety thresholds. |
+| Phase 4 | Reusable operating knowledge clears the primary improvement threshold through procedure usefulness or repeated-task-pattern reuse, without collapsing task state into procedure state or violating guardrail thresholds on task continuity. |
+| Phase 5 | Governance clears the primary improvement threshold for promotion, rejection, or supersession precision while keeping scope leakage, provenance bypass, and contradiction bypass at the safety threshold of `0`. |
+| Phase 6 | Higher-noise derived analysis remains constrained by governance, clears the relevant primary improvement threshold, and does not exceed the local/offline or guardrail regression thresholds. |
+| Phase 7 | Later canonical knowledge consolidation preserves provenance, historical-validity safeguards, and current-evidence discipline with `100%` provenance completeness and no safety-threshold violations. |
+| Phase 8 | The full redesign is measurable as a system, profile and scope isolation remain at the safety threshold of `0` known leakage incidents, and the baseline families remain comparable over time with no missing acceptance workloads. |
 
 General acceptance rule:
 

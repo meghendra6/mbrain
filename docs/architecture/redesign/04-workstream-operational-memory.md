@@ -45,15 +45,19 @@ The lifecycle centers on maintaining continuity for an active Task Thread.
 4. Attempts and Decisions are extracted or recorded as first-class objects whenever the work reaches a meaningful trial, failure, partial success, or architectural choice.
 5. The Working Set is refreshed whenever new information changes the best resume state for the thread.
 6. The thread transitions through `active`, `paused`, `blocked`, `completed`, or `abandoned` while preserving prior operational history.
-7. Repeated successful patterns or repeated failure-avoidance patterns can be handed off to the later review workflow as candidates for reusable procedures.
-8. Existing procedures can be recalled during active work, and their usage outcomes feed back into the Task Thread and Procedure Registry Entry.
+7. Repeated successful patterns or repeated failure-avoidance patterns are packaged as procedure candidates with supporting Attempts, Decisions, applicability conditions, and source task linkage.
+8. Those procedure candidates cross the governance boundary for review, but the target lifecycle for what becomes a reusable procedure remains owned here.
+9. Approved procedure candidates materialize as canonical Markdown procedures plus Procedure Registry Entries, with backlinks to the originating Task Thread, Attempts, Decisions, and later usage history.
+10. Existing procedures can be recalled during active work, and their usage outcomes feed back into the Task Thread and Procedure Registry Entry.
 
-Procedure lifecycle inside this subsystem is intentionally narrow:
+Procedure lifecycle inside this subsystem spans the full operating path while still respecting the review boundary in `06-workstream-governance-and-inbox.md`:
 
-- Operational memory can discover that a reusable pattern exists.
-- Operational memory can link an active Task Thread to an existing procedure.
-- Operational memory can record whether a procedure helped, failed, or became inapplicable.
-- The conversion of a repeated pattern into a durable reusable procedure is handled by the later review-focused workstream, not here.
+- Operational memory discovers that a reusable pattern exists from repeated task history.
+- Operational memory packages the pattern, evidence, applicability rules, and originating task context into a procedure candidate.
+- Governance reviews whether the candidate is safe and durable enough to become a reusable procedure, but governance does not take ownership of the procedure model itself.
+- On approval, this subsystem materializes or updates the Markdown procedure and its DB-backed Procedure Registry Entry.
+- Operational memory links active Task Threads to procedures and records whether a procedure helped, failed, drifted, or became inapplicable.
+- Later usage and decisions may supersede or retire a procedure, but those changes still flow back into the canonical procedure content and registry state owned here.
 
 ## Storage and Canonical Artifacts
 
