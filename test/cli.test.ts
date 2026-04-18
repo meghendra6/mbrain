@@ -39,6 +39,11 @@ function writeUserConfig(config: Record<string, unknown>) {
   writeFileSync(join(dir, 'config.json'), JSON.stringify(config, null, 2));
 }
 
+async function restoreActualModule(pathname: string, specifier: string) {
+  const actual = await import(new URL(`${specifier}?restore=${Date.now()}-${Math.random()}`, import.meta.url).href);
+  mock.module(pathname, () => actual);
+}
+
 function runGit(cwd: string, ...args: string[]) {
   const result = Bun.spawnSync({
     cmd: ['git', ...args],
@@ -187,6 +192,8 @@ describe('CLI dispatch integration', () => {
       const { runInit } = await import(modulePath);
       await runInit(['--url', 'postgresql://user:pass@localhost:5432/mbrain', '--json']);
     } finally {
+      await restoreActualModule(engineFactoryPath, '../src/core/engine-factory.ts');
+      await restoreActualModule(dbPath, '../src/core/db.ts');
       capture.restore();
     }
 
