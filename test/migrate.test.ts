@@ -80,6 +80,7 @@ describe('migrate', () => {
     const { SQLiteEngine } = await import('../src/core/sqlite-engine.ts');
     const { PGLiteEngine } = await import('../src/core/pglite-engine.ts');
 
+    process.env.MBRAIN_CONFIG_DIR = join(tempHome, 'custom-config');
     const sourcePath = join(tempHome, '.mbrain', 'source.db');
     const targetPath = join(tempHome, '.mbrain', 'target.pglite');
     const embedding = makeVector(1, 2, 3);

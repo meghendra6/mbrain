@@ -8,12 +8,12 @@
  */
 
 import { createEngine } from '../core/engine-factory.ts';
-import { loadConfig, saveConfig, toEngineConfig, type MBrainConfig } from '../core/config.ts';
+import { configDir, loadConfig, saveConfig, toEngineConfig, type MBrainConfig } from '../core/config.ts';
 import type { BrainEngine } from '../core/engine.ts';
 import type { EngineConfig } from '../core/types.ts';
 import { homedir } from 'os';
 import { join } from 'path';
-import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync } from 'fs';
 
 interface MigrateOpts {
   targetEngine: 'postgres' | 'pglite';
@@ -46,7 +46,7 @@ function parseArgs(args: string[]): MigrateOpts {
 }
 
 function getManifestPath(): string {
-  return join(homedir(), '.mbrain', 'migrate-manifest.json');
+  return join(configDir(), 'migrate-manifest.json');
 }
 
 interface MigrateManifest {
@@ -66,7 +66,9 @@ function loadManifest(): MigrateManifest | null {
 }
 
 function saveManifest(manifest: MigrateManifest): void {
-  writeFileSync(getManifestPath(), JSON.stringify(manifest, null, 2));
+  const path = getManifestPath();
+  mkdirSync(configDir(), { recursive: true });
+  writeFileSync(path, JSON.stringify(manifest, null, 2));
 }
 
 function clearManifest(): void {
