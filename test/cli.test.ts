@@ -1,9 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { operations } from '../src/core/operations.ts';
 
 const repoRoot = new URL('..', import.meta.url).pathname;
+const repoRootUrl = new URL('..', import.meta.url).href;
 const cliSource = readFileSync(new URL('../src/cli.ts', import.meta.url), 'utf-8');
 const initSource = readFileSync(new URL('../src/commands/init.ts', import.meta.url), 'utf-8');
 const originalEnv = { ...process.env };
@@ -13,6 +15,19 @@ function writeUserConfig(config: Record<string, unknown>) {
   const dir = join(tempHome, '.mbrain');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'config.json'), JSON.stringify(config, null, 2));
+}
+
+function runGit(cwd: string, ...args: string[]) {
+  const result = Bun.spawnSync({
+    cmd: ['git', ...args],
+    cwd,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+
+  if (result.exitCode !== 0) {
+    throw new Error(new TextDecoder().decode(result.stderr) || `git ${args.join(' ')} failed`);
+  }
 }
 
 beforeEach(() => {
@@ -25,10 +40,15 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env = { ...originalEnv };
+  mock.restore();
   rmSync(tempHome, { recursive: true, force: true });
 });
 
 describe('CLI source shape', () => {
+  test('operations contract still includes sync_brain', () => {
+    expect(operations.some(op => op.name === 'sync_brain')).toBe(true);
+  });
+
   test('setup-agent help mentions Claude stop hook installation', () => {
     expect(cliSource).toContain('Register MCP, inject rules, install Claude stop hook');
   });
@@ -43,6 +63,34 @@ describe('CLI source shape', () => {
 
   test('has formatResult function for CLI output', () => {
     expect(cliSource).toContain('function formatResult');
+  });
+
+  test('CLI uses shared command loader registries for CLI-only commands', () => {
+    expect(cliSource).toContain('CLI_NO_ENGINE_COMMANDS');
+    expect(cliSource).toContain('CLI_ENGINE_COMMANDS');
+  });
+
+  test('CLI_ONLY is limited to the small shell/process-bound command set', () => {
+    const cliOnlyBlock = cliSource.match(/const CLI_ONLY = new Set\(\[(.*?)\]\);/s)?.[1] ?? '';
+    expect(cliOnlyBlock).toContain("'serve'");
+    expect(cliOnlyBlock).toContain("'setup-agent'");
+    expect(cliOnlyBlock).toContain("'upgrade'");
+    expect(cliOnlyBlock).toContain("'post-upgrade'");
+    expect(cliOnlyBlock).toContain("'check-update'");
+
+    expect(cliOnlyBlock).not.toContain("'init'");
+    expect(cliOnlyBlock).not.toContain("'import'");
+    expect(cliOnlyBlock).not.toContain("'doctor'");
+    expect(cliOnlyBlock).not.toContain("'embed'");
+    expect(cliOnlyBlock).not.toContain("'files'");
+  });
+
+  test('every remaining CLI_ONLY command has an explanatory comment', () => {
+    expect(cliSource).toContain('`setup-agent` edits user tooling config and installs hooks outside the shared contract.');
+    expect(cliSource).toContain('`upgrade` replaces the installed package/binary and is process-management only.');
+    expect(cliSource).toContain('`post-upgrade` finalizes shell/package-manager side effects after self-update.');
+    expect(cliSource).toContain('`check-update` queries release metadata without depending on brain state.');
+    expect(cliSource).toContain('`serve` owns the current stdio process and cannot run through the shared request/response contract.');
   });
 
   test('init guidance keeps pgvector troubleshooting backend-neutral', () => {
@@ -76,6 +124,96 @@ describe('CLI version', () => {
 });
 
 describe('CLI dispatch integration', () => {
+  test('runInit postgres bootstrap uses createConnectedEngine so db.getConnection remains available', async () => {
+    const scriptPath = join(tempHome, 'postgres-init-child.ts');
+    writeFileSync(scriptPath, `
+      import { readFileSync } from 'fs';
+      import { join } from 'path';
+      import { mock } from 'bun:test';
+
+      const repoRootUrl = ${JSON.stringify(repoRootUrl)};
+      const engineFactoryPath = new URL('src/core/engine-factory.ts', repoRootUrl).pathname;
+      const dbPath = new URL('src/core/db.ts', repoRootUrl).pathname;
+      const fakeSql = async (strings) => {
+        const text = Array.from(strings).join('');
+        if (text.includes("SELECT extname FROM pg_extension")) return [{ extname: 'vector' }];
+        return [];
+      };
+
+      let createConnectedEngineCalls = 0;
+      const fakeEngine = {
+        connect: async () => undefined,
+        initSchema: async () => undefined,
+        getStats: async () => ({ page_count: 0 }),
+        disconnect: async () => undefined,
+      };
+
+      mock.module(engineFactoryPath, () => ({
+        createEngine: async () => {
+          throw new Error('unexpected createEngine');
+        },
+        createEngineFromConfig: () => {
+          throw new Error('createEngineFromConfig should not be used for postgres init');
+        },
+        createConnectedEngine: async (config) => {
+          if (config.engine !== 'postgres') {
+            throw new Error('expected postgres engine config');
+          }
+          createConnectedEngineCalls += 1;
+          return fakeEngine;
+        },
+        toEngineConfig: (config) => config,
+      }));
+
+      mock.module(dbPath, () => ({
+        getConnection: () => fakeSql,
+        disconnect: async () => undefined,
+      }));
+
+      const logs = [];
+      const originalLog = console.log;
+      console.log = (...args) => {
+        logs.push(args.map(arg => String(arg)).join(' '));
+      };
+
+      try {
+        const { runInit } = await import(new URL(\`src/commands/init.ts?postgres-init=\${Date.now()}\`, repoRootUrl).href);
+        await runInit(['--url', 'postgresql://user:pass@localhost:5432/mbrain', '--json']);
+      } finally {
+        console.log = originalLog;
+      }
+
+      if (createConnectedEngineCalls !== 1) {
+        throw new Error(\`expected createConnectedEngine once, got \${createConnectedEngineCalls}\`);
+      }
+
+      const config = JSON.parse(readFileSync(join(process.env.HOME, '.mbrain', 'config.json'), 'utf-8'));
+      if (config.engine !== 'postgres') {
+        throw new Error(\`expected postgres engine in config, got \${config.engine}\`);
+      }
+      if (config.database_url !== 'postgresql://user:pass@localhost:5432/mbrain') {
+        throw new Error('unexpected database_url in saved config');
+      }
+      if (!logs.some(line => line.includes('"engine":"postgres"'))) {
+        throw new Error('expected json init output to mention postgres engine');
+      }
+    `);
+
+    const proc = Bun.spawn(['bun', 'run', scriptPath], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe('');
+    expect(stdout).toBe('');
+  });
+
   test('--version outputs version', async () => {
     const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', '--version'], {
       cwd: repoRoot,
@@ -111,6 +249,21 @@ describe('CLI dispatch integration', () => {
     const stdout = await new Response(proc.stdout).text();
     const exitCode = await proc.exited;
     expect(stdout).toContain('Usage: mbrain get');
+    expect(exitCode).toBe(0);
+  });
+
+  test('sync --help surfaces watch-mode CLI extension flags', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'sync', '--help'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(stdout).toContain('Usage: mbrain sync');
+    expect(stdout).toContain('--watch');
+    expect(stdout).toContain('--interval');
     expect(exitCode).toBe(0);
   });
 
@@ -174,6 +327,9 @@ describe('CLI dispatch integration', () => {
     const exitCode = await proc.exited;
     expect(stdout).toContain('USAGE');
     expect(stdout).toContain('mbrain <command>');
+    expect(stdout).toContain('doctor [--json]');
+    expect(stdout).toContain('embed [<slug>|--all|--stale]');
+    expect(stdout).toContain('import <dir> [--no-embed]');
     expect(exitCode).toBe(0);
   });
 
@@ -261,5 +417,337 @@ describe('CLI dispatch integration', () => {
     expect(stderr).toMatch(/unsupported engine: mysql/i);
     expect(stderr).not.toMatch(/cannot connect to database/i);
     expect(exitCode).toBe(1);
+  });
+
+  test('doctor --json=true uses the same boolean normalization as shared contract commands', async () => {
+    const initProc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'init', '--local', '--json'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(await initProc.exited).toBe(0);
+
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'doctor', '--json=true'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+
+    expect(exitCode).toBe(0);
+    expect(() => JSON.parse(stdout)).not.toThrow();
+    expect(JSON.parse(stdout)).toHaveProperty('status');
+  });
+
+  test('sync stays operation-backed while preserving CLI status output for up-to-date runs', async () => {
+    const initProc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'init', '--local', '--json'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(await initProc.exited).toBe(0);
+
+    const repoDir = mkdtempSync(join(tmpdir(), 'mbrain-sync-repo-'));
+    try {
+      mkdirSync(join(repoDir, 'people'), { recursive: true });
+      writeFileSync(join(repoDir, 'people', 'alice.md'), `---
+type: person
+title: Alice
+---
+Engineer.
+`);
+
+      runGit(repoDir, 'init');
+      runGit(repoDir, 'config', 'user.email', 'test@example.com');
+      runGit(repoDir, 'config', 'user.name', 'Test User');
+      runGit(repoDir, 'add', '.');
+      runGit(repoDir, 'commit', '-m', 'initial import');
+
+      const firstSync = Bun.spawn(['bun', 'run', 'src/cli.ts', 'sync', '--repo', repoDir, '--no-pull'], {
+        cwd: repoRoot,
+        env: { ...process.env, HOME: tempHome },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      expect(await firstSync.exited).toBe(0);
+
+      const secondSync = Bun.spawn(['bun', 'run', 'src/cli.ts', 'sync', '--repo', repoDir, '--no-pull'], {
+        cwd: repoRoot,
+        env: { ...process.env, HOME: tempHome },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const stdout = await new Response(secondSync.stdout).text();
+      const exitCode = await secondSync.exited;
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain('Already up to date.');
+      expect(stdout).not.toContain('"status": "up_to_date"');
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
+  test('sync --interval without watch fails fast with a clear CLI error', async () => {
+    const initProc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'init', '--local', '--json'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(await initProc.exited).toBe(0);
+
+    const repoDir = mkdtempSync(join(tmpdir(), 'mbrain-sync-interval-repo-'));
+    try {
+      mkdirSync(join(repoDir, 'people'), { recursive: true });
+      writeFileSync(join(repoDir, 'people', 'alice.md'), `---
+type: person
+title: Alice
+---
+Engineer.
+`);
+
+      runGit(repoDir, 'init');
+      runGit(repoDir, 'config', 'user.email', 'test@example.com');
+      runGit(repoDir, 'config', 'user.name', 'Test User');
+      runGit(repoDir, 'add', '.');
+      runGit(repoDir, 'commit', '-m', 'initial import');
+
+      const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'sync', '--repo', repoDir, '--no-pull', '--interval', '1'], {
+        cwd: repoRoot,
+        env: { ...process.env, HOME: tempHome },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const stderr = await new Response(proc.stderr).text();
+      const exitCode = await proc.exited;
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('--interval requires --watch');
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
+  test('sync --watch=false stays on the one-shot operation-backed path', async () => {
+    const initProc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'init', '--local', '--json'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(await initProc.exited).toBe(0);
+
+    const repoDir = mkdtempSync(join(tmpdir(), 'mbrain-sync-watch-false-repo-'));
+    try {
+      mkdirSync(join(repoDir, 'people'), { recursive: true });
+      writeFileSync(join(repoDir, 'people', 'alice.md'), `---
+type: person
+title: Alice
+---
+Engineer.
+`);
+
+      runGit(repoDir, 'init');
+      runGit(repoDir, 'config', 'user.email', 'test@example.com');
+      runGit(repoDir, 'config', 'user.name', 'Test User');
+      runGit(repoDir, 'add', '.');
+      runGit(repoDir, 'commit', '-m', 'initial import');
+
+      const firstSync = Bun.spawn(['bun', 'run', 'src/cli.ts', 'sync', '--repo', repoDir, '--no-pull'], {
+        cwd: repoRoot,
+        env: { ...process.env, HOME: tempHome },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      expect(await firstSync.exited).toBe(0);
+
+      const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'sync', '--repo', repoDir, '--no-pull', '--watch=false'], {
+        cwd: repoRoot,
+        env: { ...process.env, HOME: tempHome },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain('Already up to date.');
+      expect(stdout).not.toContain('Watching for changes');
+      expect(stderr).not.toContain('--interval requires --watch');
+      expect(stderr).not.toContain('unknown flag --watch');
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
+  test('sync --watch enters watch mode and stays alive until terminated', async () => {
+    const initProc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'init', '--local', '--json'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(await initProc.exited).toBe(0);
+
+    const repoDir = mkdtempSync(join(tmpdir(), 'mbrain-sync-watch-repo-'));
+    try {
+      mkdirSync(join(repoDir, 'people'), { recursive: true });
+      writeFileSync(join(repoDir, 'people', 'alice.md'), `---
+type: person
+title: Alice
+---
+Engineer.
+`);
+
+      runGit(repoDir, 'init');
+      runGit(repoDir, 'config', 'user.email', 'test@example.com');
+      runGit(repoDir, 'config', 'user.name', 'Test User');
+      runGit(repoDir, 'add', '.');
+      runGit(repoDir, 'commit', '-m', 'initial import');
+
+      const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'sync', '--repo', repoDir, '--no-pull', '--watch', '--interval', '1'], {
+        cwd: repoRoot,
+        env: { ...process.env, HOME: tempHome },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+
+      const earlyExit = await Promise.race([
+        proc.exited.then(code => ({ exited: true as const, code })),
+        Bun.sleep(400).then(() => ({ exited: false as const })),
+      ]);
+      expect(earlyExit.exited).toBe(false);
+
+      proc.kill();
+      const [stdout, stderr] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+
+      expect(stdout).toContain('Watching for changes every 1s');
+      expect(stderr).not.toContain('unknown flag --watch');
+      expect(stderr).not.toContain('unknown flag --interval');
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
+  test('sync --watch surfaces unknown flag warnings instead of silently dropping them', async () => {
+    const initProc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'init', '--local', '--json'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(await initProc.exited).toBe(0);
+
+    const repoDir = mkdtempSync(join(tmpdir(), 'mbrain-sync-watch-warning-repo-'));
+    try {
+      mkdirSync(join(repoDir, 'people'), { recursive: true });
+      writeFileSync(join(repoDir, 'people', 'alice.md'), `---
+type: person
+title: Alice
+---
+Engineer.
+`);
+
+      runGit(repoDir, 'init');
+      runGit(repoDir, 'config', 'user.email', 'test@example.com');
+      runGit(repoDir, 'config', 'user.name', 'Test User');
+      runGit(repoDir, 'add', '.');
+      runGit(repoDir, 'commit', '-m', 'initial import');
+
+      const proc = Bun.spawn(
+        ['bun', 'run', 'src/cli.ts', 'sync', '--repo', repoDir, '--no-pull', '--watch', '--interval', '1', '--bogus', 'value'],
+        {
+          cwd: repoRoot,
+          env: { ...process.env, HOME: tempHome },
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+      );
+
+      const earlyExit = await Promise.race([
+        proc.exited.then(code => ({ exited: true as const, code })),
+        Bun.sleep(400).then(() => ({ exited: false as const })),
+      ]);
+      expect(earlyExit.exited).toBe(false);
+
+      proc.kill();
+      const [stdout, stderr] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+
+      expect(stdout).toContain('Watching for changes every 1s');
+      expect(stderr).toContain('Warning: unknown flag --bogus (ignored)');
+      expect(stderr).not.toContain('unknown flag --watch');
+      expect(stderr).not.toContain('unknown flag --interval');
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
+  test('sync --watch=true --interval=1 enters watch mode and stays alive until terminated', async () => {
+    const initProc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'init', '--local', '--json'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(await initProc.exited).toBe(0);
+
+    const repoDir = mkdtempSync(join(tmpdir(), 'mbrain-sync-watch-equals-repo-'));
+    try {
+      mkdirSync(join(repoDir, 'people'), { recursive: true });
+      writeFileSync(join(repoDir, 'people', 'alice.md'), `---
+type: person
+title: Alice
+---
+Engineer.
+`);
+
+      runGit(repoDir, 'init');
+      runGit(repoDir, 'config', 'user.email', 'test@example.com');
+      runGit(repoDir, 'config', 'user.name', 'Test User');
+      runGit(repoDir, 'add', '.');
+      runGit(repoDir, 'commit', '-m', 'initial import');
+
+      const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'sync', '--repo', repoDir, '--no-pull', '--watch=true', '--interval=1'], {
+        cwd: repoRoot,
+        env: { ...process.env, HOME: tempHome },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+
+      const earlyExit = await Promise.race([
+        proc.exited.then(code => ({ exited: true as const, code })),
+        Bun.sleep(400).then(() => ({ exited: false as const })),
+      ]);
+      expect(earlyExit.exited).toBe(false);
+
+      proc.kill();
+      const [stdout, stderr] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+
+      expect(stdout).toContain('Watching for changes every 1s');
+      expect(stderr).not.toContain('unknown flag --watch');
+      expect(stderr).not.toContain('unknown flag --interval');
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
   });
 });

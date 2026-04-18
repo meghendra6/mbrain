@@ -8,6 +8,7 @@ import { PGLITE_SCHEMA_SQL } from './pglite-schema.ts';
 import { acquireLock, releaseLock, type LockHandle } from './pglite-lock.ts';
 import { buildFrontmatterSearchText } from './markdown.ts';
 import { ensurePageChunks } from './page-chunks.ts';
+import { buildPageCentroid } from './services/page-embedding.ts';
 import type {
   Page, PageInput, PageFilters, PageType,
   Chunk, ChunkInput,
@@ -293,6 +294,7 @@ export class PGLiteEngine implements BrainEngine {
       );
     } else {
       await this.db.query('DELETE FROM content_chunks WHERE page_id = $1', [pageId]);
+      await this.refreshPageEmbeddingFromChunks(pageId);
       return;
     }
 
@@ -327,6 +329,8 @@ export class PGLiteEngine implements BrainEngine {
          embedded_at = COALESCE(EXCLUDED.embedded_at, content_chunks.embedded_at)`,
       params
     );
+
+    await this.refreshPageEmbeddingFromChunks(pageId);
   }
 
   async getChunks(slug: string): Promise<Chunk[]> {
@@ -341,11 +345,53 @@ export class PGLiteEngine implements BrainEngine {
   }
 
   async deleteChunks(slug: string): Promise<void> {
-    await this.db.query(
-      `DELETE FROM content_chunks
-       WHERE page_id = (SELECT id FROM pages WHERE slug = $1)`,
-      [slug]
-    );
+    const { rows } = await this.db.query('SELECT id FROM pages WHERE slug = $1', [slug]);
+    if (rows.length === 0) return;
+
+    const pageId = Number((rows[0] as { id: number }).id);
+    await this.db.query('DELETE FROM content_chunks WHERE page_id = $1', [pageId]);
+    await this.refreshPageEmbeddingFromChunks(pageId);
+  }
+
+  async getPageEmbeddings(type?: PageType): Promise<Array<{
+    page_id: number;
+    slug: string;
+    embedding: Float32Array | null;
+  }>> {
+    const query = type
+      ? `SELECT p.id AS page_id, p.slug, p.page_embedding AS embedding
+         FROM pages p
+         WHERE p.type = $1
+         ORDER BY p.slug`
+      : `SELECT p.id AS page_id, p.slug, p.page_embedding AS embedding
+         FROM pages p
+         ORDER BY p.slug`;
+    const params = type ? [type] : [];
+    const { rows } = await this.db.query(query, params);
+
+    return (rows as Record<string, unknown>[]).map((row) => ({
+      page_id: Number(row.page_id),
+      slug: String(row.slug),
+      embedding: vectorValueToFloat32(row.embedding),
+    }));
+  }
+
+  async updatePageEmbedding(slug: string, embedding: Float32Array | null): Promise<void> {
+    const query = embedding
+      ? `UPDATE pages
+         SET page_embedding = $1::vector(768)
+         WHERE slug = $2
+         RETURNING id`
+      : `UPDATE pages
+         SET page_embedding = NULL
+         WHERE slug = $1
+         RETURNING id`;
+    const params = embedding ? [vectorLiteral(embedding), slug] : [slug];
+    const { rows } = await this.db.query(query, params);
+
+    if (rows.length === 0) {
+      throw new Error(`Page not found: ${validateSlug(slug)}`);
+    }
   }
 
   // Links
@@ -733,4 +779,58 @@ export class PGLiteEngine implements BrainEngine {
     );
     return (rows as Record<string, unknown>[]).map(r => rowToChunk(r, true));
   }
+
+  private async refreshPageEmbeddingFromChunks(pageId: number): Promise<void> {
+    const { rows } = await this.db.query(
+      `SELECT embedding
+       FROM content_chunks
+       WHERE page_id = $1 AND embedding IS NOT NULL
+       ORDER BY chunk_index`,
+      [pageId],
+    );
+    const centroid = buildPageCentroid(
+      (rows as Record<string, unknown>[]).map((row) => vectorValueToFloat32(row.embedding)),
+    );
+
+    if (centroid) {
+      await this.db.query(
+        `UPDATE pages
+         SET page_embedding = $1::vector(768)
+         WHERE id = $2`,
+        [vectorLiteral(centroid), pageId],
+      );
+      return;
+    }
+
+    await this.db.query(
+      `UPDATE pages
+       SET page_embedding = NULL
+       WHERE id = $1`,
+      [pageId],
+    );
+  }
+}
+
+function vectorLiteral(embedding: Float32Array): string {
+  return `[${Array.from(embedding).join(',')}]`;
+}
+
+function vectorValueToFloat32(value: unknown): Float32Array | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Float32Array) return value;
+  if (Array.isArray(value)) return new Float32Array(value.map((entry) => Number(entry)));
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const body = trimmed.startsWith('[') && trimmed.endsWith(']')
+      ? trimmed.slice(1, -1)
+      : trimmed;
+    if (body.length === 0) return new Float32Array(0);
+
+    const parts = body.split(',').map((entry) => Number(entry.trim()));
+    if (parts.some((entry) => Number.isNaN(entry))) return null;
+    return new Float32Array(parts);
+  }
+
+  return null;
 }

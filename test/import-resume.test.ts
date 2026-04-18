@@ -2,6 +2,10 @@ import { describe, test, expect, afterEach } from 'bun:test';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import {
+  readImportCheckpoint,
+  resolveImportPlan,
+} from '../src/core/services/import-service.ts';
 
 const CHECKPOINT_PATH = join(homedir(), '.mbrain', 'import-checkpoint.json');
 
@@ -42,15 +46,43 @@ describe('import resume checkpoint', () => {
     mkdirSync(join(homedir(), '.mbrain'), { recursive: true });
     writeFileSync(CHECKPOINT_PATH, JSON.stringify(checkpoint));
 
-    // Simulate the resume check logic from import.ts
-    const cp = JSON.parse(readFileSync(CHECKPOINT_PATH, 'utf-8'));
-    const dir = '/data/brain';
-    const allFilesLength = 100;
+    const cp = readImportCheckpoint(CHECKPOINT_PATH);
+    const plan = resolveImportPlan({
+      rootDir: '/data/brain',
+      allFiles: Array.from({ length: 100 }, (_, index) => `/data/brain/${index}.md`),
+      fresh: false,
+      checkpoint: cp,
+    });
 
-    expect(cp.dir).toBe(dir);
-    expect(cp.totalFiles).toBe(allFilesLength);
-    expect(cp.processedIndex).toBe(50);
-    // Would resume from index 50
+    expect(cp?.dir).toBe('/data/brain');
+    expect(cp?.totalFiles).toBe(100);
+    expect(cp?.processedIndex).toBe(50);
+    expect(plan.resumeIndex).toBe(50);
+    expect(plan.resumed).toBe(true);
+  });
+
+  test('resume continues from processedIndex even when completedFiles is higher', () => {
+    const checkpoint = {
+      dir: '/data/brain',
+      totalFiles: 100,
+      processedIndex: 40,
+      completedFiles: 95,
+      timestamp: new Date().toISOString(),
+    };
+
+    mkdirSync(join(homedir(), '.mbrain'), { recursive: true });
+    writeFileSync(CHECKPOINT_PATH, JSON.stringify(checkpoint));
+
+    const plan = resolveImportPlan({
+      rootDir: '/data/brain',
+      allFiles: Array.from({ length: 100 }, (_, index) => `/data/brain/${index}.md`),
+      fresh: false,
+      checkpoint: readImportCheckpoint(CHECKPOINT_PATH),
+    });
+
+    expect(plan.resumeIndex).toBe(40);
+    expect(plan.files[0]).toBe('/data/brain/40.md');
+    expect(plan.resumed).toBe(true);
   });
 
   test('checkpoint with different dir does NOT resume', () => {
@@ -64,12 +96,15 @@ describe('import resume checkpoint', () => {
     mkdirSync(join(homedir(), '.mbrain'), { recursive: true });
     writeFileSync(CHECKPOINT_PATH, JSON.stringify(checkpoint));
 
-    const cp = JSON.parse(readFileSync(CHECKPOINT_PATH, 'utf-8'));
-    const dir = '/data/brain';
-    const allFilesLength = 100;
+    const plan = resolveImportPlan({
+      rootDir: '/data/brain',
+      allFiles: Array.from({ length: 100 }, (_, index) => `/data/brain/${index}.md`),
+      fresh: false,
+      checkpoint: readImportCheckpoint(CHECKPOINT_PATH),
+    });
 
-    // dir doesn't match, should start fresh
-    expect(cp.dir === dir && cp.totalFiles === allFilesLength).toBe(false);
+    expect(plan.resumeIndex).toBe(0);
+    expect(plan.resumed).toBe(false);
   });
 
   test('checkpoint with different totalFiles does NOT resume', () => {
@@ -83,25 +118,22 @@ describe('import resume checkpoint', () => {
     mkdirSync(join(homedir(), '.mbrain'), { recursive: true });
     writeFileSync(CHECKPOINT_PATH, JSON.stringify(checkpoint));
 
-    const cp = JSON.parse(readFileSync(CHECKPOINT_PATH, 'utf-8'));
-    const dir = '/data/brain';
-    const allFilesLength = 100;
+    const plan = resolveImportPlan({
+      rootDir: '/data/brain',
+      allFiles: Array.from({ length: 100 }, (_, index) => `/data/brain/${index}.md`),
+      fresh: false,
+      checkpoint: readImportCheckpoint(CHECKPOINT_PATH),
+    });
 
-    // totalFiles doesn't match (files were added/removed), start fresh
-    expect(cp.dir === dir && cp.totalFiles === allFilesLength).toBe(false);
+    expect(plan.resumeIndex).toBe(0);
+    expect(plan.resumed).toBe(false);
   });
 
   test('invalid checkpoint JSON starts fresh', () => {
     mkdirSync(join(homedir(), '.mbrain'), { recursive: true });
     writeFileSync(CHECKPOINT_PATH, 'not json');
 
-    let resumeIndex = 0;
-    try {
-      JSON.parse(readFileSync(CHECKPOINT_PATH, 'utf-8'));
-    } catch {
-      resumeIndex = 0; // start fresh on invalid checkpoint
-    }
-    expect(resumeIndex).toBe(0);
+    expect(readImportCheckpoint(CHECKPOINT_PATH)).toBeNull();
   });
 
   test('missing checkpoint file starts fresh', () => {

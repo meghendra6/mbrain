@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { runEmbed } from '../src/commands/embed.ts';
 import { embedChunks, getEmbeddingProvider, resetEmbeddingProviderForTests, setEmbeddingProviderForTests } from '../src/core/embedding.ts';
+import { getEngineCapabilities } from '../src/core/engine-capabilities.ts';
 import { importFile } from '../src/core/import-file.ts';
 import { hybridSearch } from '../src/core/search/hybrid.ts';
 import { SQLiteEngine } from '../src/core/sqlite-engine.ts';
@@ -142,6 +143,13 @@ afterEach(async () => {
 });
 
 describe('local/offline profile semantics', () => {
+  test('sqlite capability policy allows staged import concurrency without multi-writer fanout', () => {
+    expect(getEngineCapabilities({ engine: 'sqlite' } as any)).toMatchObject({
+      parallelWorkers: false,
+      stagedImportConcurrency: true,
+    });
+  });
+
   test('offline profile marks cloud-only capabilities unsupported in local mode', async () => {
     const { resolveOfflineProfile } = await import('../src/core/offline-profile.ts');
 
@@ -624,6 +632,11 @@ Original chunk content for the page.
 
     const embeddedBeforeRewrite = await engine.getChunks('concepts/rewritten');
     expect(embeddedBeforeRewrite.every(chunk => chunk.embedded_at instanceof Date)).toBe(true);
+    expect(await engine.getPageEmbeddings('concept')).toContainEqual({
+      page_id: expect.any(Number),
+      slug: 'concepts/rewritten',
+      embedding: new Float32Array([embeddedBeforeRewrite[0]!.chunk_text.length, 1, 1]),
+    });
 
     writeFileSync(filePath, `---
 type: concept
@@ -641,6 +654,11 @@ Updated chunk content for the same page.
     expect(chunksAfterRewrite[0].chunk_text).toContain('Updated chunk content');
     expect(chunksAfterRewrite[0].embedded_at).toBeNull();
     expect(chunksAfterRewrite[0].model).toBe('nomic-embed-text');
+    expect(await engine.getPageEmbeddings('concept')).toContainEqual({
+      page_id: expect.any(Number),
+      slug: 'concepts/rewritten',
+      embedding: null,
+    });
   });
 
   test('stale-only embedding repairs stale chunk layouts before embedding missing chunks', async () => {
@@ -794,6 +812,48 @@ Updated chunk content for the same page.
     expect(after).toHaveLength(1);
     expect(after[0]?.chunk_source).toBe('compiled_truth');
     expect(after[0]?.chunk_text).toBe('Compiler infrastructure overview.');
+  });
+
+  test('stale-only embedding accepts shared boolean normalization forms', async () => {
+    const fake = createFakeProvider();
+    setEmbeddingProviderForTests(fake.provider);
+    const capture = captureConsole();
+
+    try {
+      await engine.putPage('concepts/stale-bool', {
+        type: 'concept',
+        title: 'Stale Bool',
+        compiled_truth: 'already embedded\nneeds embedding',
+        timeline: '',
+        frontmatter: {},
+      });
+      await engine.upsertChunks('concepts/stale-bool', [
+        {
+          chunk_index: 0,
+          chunk_text: 'already embedded',
+          chunk_source: 'compiled_truth',
+          embedding: new Float32Array([9, 9, 9]),
+          model: 'seed-model',
+          token_count: 3,
+        },
+        {
+          chunk_index: 1,
+          chunk_text: 'needs embedding',
+          chunk_source: 'compiled_truth',
+        },
+      ]);
+
+      await runEmbed(engine, ['--stale=true']);
+    } finally {
+      capture.restore();
+    }
+
+    expect(capture.exitSpy).not.toHaveBeenCalled();
+    expect(fake.batches).toEqual([['already embedded\nneeds embedding']]);
+    const after = await engine.getChunks('concepts/stale-bool');
+    expect(after).toHaveLength(1);
+    expect(after[0]?.embedded_at).toBeInstanceOf(Date);
+    expect(after[0]?.model).toBe('test-local-v1');
   });
 
   test('unchanged content does not trigger re-embedding', async () => {

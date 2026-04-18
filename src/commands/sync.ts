@@ -3,6 +3,7 @@ import { execFileSync } from 'child_process';
 import { join, relative } from 'path';
 import type { BrainEngine } from '../core/engine.ts';
 import { importFile } from '../core/import-file.ts';
+import { formatResult as formatOperationResult } from '../core/operations.ts';
 import { buildSyncManifest, isSyncable, pathToSlug } from '../core/sync.ts';
 import type { SyncManifest } from '../core/sync.ts';
 
@@ -295,7 +296,7 @@ export async function runSync(engine: BrainEngine, args: string[]) {
 
   if (!watch) {
     const result = await performSync(engine, opts);
-    printSyncResult(result);
+    process.stdout.write(formatOperationResult('sync_brain', result));
     return;
   }
 
@@ -321,23 +322,5 @@ export async function runSync(engine: BrainEngine, args: string[]) {
       }
     }
     await new Promise(r => setTimeout(r, interval * 1000));
-  }
-}
-
-function printSyncResult(result: SyncResult) {
-  switch (result.status) {
-    case 'up_to_date':
-      console.log('Already up to date.');
-      break;
-    case 'synced':
-      console.log(`Synced ${result.fromCommit?.slice(0, 8)}..${result.toCommit.slice(0, 8)}:`);
-      console.log(`  +${result.added} added, ~${result.modified} modified, -${result.deleted} deleted, R${result.renamed} renamed`);
-      console.log(`  ${result.chunksCreated} chunks created`);
-      break;
-    case 'first_sync':
-      console.log(`First sync complete. Checkpoint: ${result.toCommit.slice(0, 8)}`);
-      break;
-    case 'dry_run':
-      break; // already printed in performSync
   }
 }

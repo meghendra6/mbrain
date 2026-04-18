@@ -1,6 +1,7 @@
 import type { BrainEngine } from './engine.ts';
 import { buildFrontmatterSearchText } from './markdown.ts';
 import { ensurePageChunks } from './page-chunks.ts';
+import { buildPageCentroid } from './services/page-embedding.ts';
 import { slugifyPath } from './sync.ts';
 import type { Page } from './types.ts';
 
@@ -121,6 +122,15 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 7,
+    name: 'page_embedding_upgrade',
+    sql: '',
+    handler: async (engine) => {
+      await ensurePageEmbeddingColumn(engine);
+      await backfillMissingPageEmbeddings(engine);
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS.length > 0
@@ -173,6 +183,68 @@ async function backfillSearchText(engine: BrainEngine, pageId: number, searchTex
   }
 
   throw new Error('search_text backfill requires a SQL-capable engine');
+}
+
+async function ensurePageEmbeddingColumn(engine: BrainEngine): Promise<void> {
+  const candidate = engine as BrainEngine & {
+    sql?: (TemplateStringsArray | any);
+    db?: { query: (query: string, values?: unknown[]) => Promise<unknown> };
+  };
+
+  if ('sql' in candidate && candidate.sql) {
+    await candidate.sql`ALTER TABLE pages ADD COLUMN IF NOT EXISTS page_embedding vector(768)`;
+    return;
+  }
+
+  if ('db' in candidate && candidate.db) {
+    await candidate.db.query(
+      'ALTER TABLE pages ADD COLUMN IF NOT EXISTS page_embedding vector(768)'
+    );
+  }
+}
+
+async function backfillMissingPageEmbeddings(engine: BrainEngine): Promise<void> {
+  const pageEmbeddings = await engine.getPageEmbeddings();
+  let backfilled = 0;
+
+  for (const page of pageEmbeddings) {
+    if (page.embedding) {
+      continue;
+    }
+
+    const chunks = await engine.getChunksWithEmbeddings(page.slug);
+    const centroid = buildPageCentroid(chunks.map(chunk => normalizeEmbeddingValue(chunk.embedding)));
+    if (!centroid) {
+      continue;
+    }
+
+    await engine.updatePageEmbedding(page.slug, centroid);
+    backfilled++;
+  }
+
+  if (backfilled > 0) {
+    console.log(`  Backfilled ${backfilled} page embedding centroid(s)`);
+  }
+}
+
+function normalizeEmbeddingValue(value: unknown): Float32Array | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Float32Array) return value;
+  if (Array.isArray(value)) return new Float32Array(value.map((entry) => Number(entry)));
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const body = trimmed.startsWith('[') && trimmed.endsWith(']')
+      ? trimmed.slice(1, -1)
+      : trimmed;
+    if (body.length === 0) return new Float32Array(0);
+
+    const parts = body.split(',').map((entry) => Number(entry.trim()));
+    if (parts.some((entry) => Number.isNaN(entry))) return null;
+    return new Float32Array(parts);
+  }
+
+  return null;
 }
 
 async function listAllPages(engine: BrainEngine, batchSize = 1000): Promise<Page[]> {

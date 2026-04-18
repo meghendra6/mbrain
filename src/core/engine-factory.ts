@@ -1,4 +1,5 @@
 import type { BrainEngine } from './engine.ts';
+import { closeConnectionOwners, registerConnectionOwner } from './db.ts';
 import { PostgresEngine } from './postgres-engine.ts';
 import { SQLiteEngine } from './sqlite-engine.ts';
 import { MBrainError, type EngineConfig } from './types.ts';
@@ -6,6 +7,7 @@ import type {
   MBrainConfig,
 } from './config.ts';
 import { toEngineConfig, validateResolvedConfig } from './config.ts';
+import { getEngineCapabilities } from './engine-capabilities.ts';
 
 export { resolveConfig, toEngineConfig } from './config.ts';
 
@@ -61,17 +63,26 @@ export async function createConnectedEngine(
   options?: { poolSize?: number },
 ): Promise<BrainEngine> {
   validateResolvedConfig(config);
+  const engineConfig = toEngineConfig(config, options);
+
+  if (config.engine !== 'postgres' && !options?.poolSize) {
+    await closeConnectionOwners();
+  }
+
   const engine = config.engine === 'pglite'
-    ? await createEngine(toEngineConfig(config, options))
+    ? await createEngine(engineConfig)
     : createEngineFromConfig(config);
-  await engine.connect(toEngineConfig(config, options));
+  await engine.connect(engineConfig);
+  if (config.engine === 'postgres' && !options?.poolSize && engine instanceof PostgresEngine) {
+    registerConnectionOwner(engine);
+  }
   return engine;
 }
 
 export function supportsParallelWorkers(config: MBrainConfig): boolean {
-  return config.engine === 'postgres';
+  return getEngineCapabilities(config).parallelWorkers;
 }
 
 export function supportsRawPostgresAccess(config: MBrainConfig): boolean {
-  return config.engine === 'postgres';
+  return getEngineCapabilities(config).rawPostgresAccess;
 }

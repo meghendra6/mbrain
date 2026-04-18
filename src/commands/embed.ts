@@ -1,12 +1,32 @@
 import type { BrainEngine } from '../core/engine.ts';
 import { embedChunks, getEmbeddingProvider } from '../core/embedding.ts';
+import { formatOpHelp, parseOpArgs } from '../core/operations.ts';
+import type { Operation } from '../core/operations.ts';
 import { ensurePageChunks } from '../core/page-chunks.ts';
 import type { Chunk, ChunkInput } from '../core/types.ts';
 
+const EMBED_COMMAND: Operation = {
+  name: 'embed',
+  description: 'Generate or refresh embeddings for one page, all pages, or only stale chunks.',
+  params: {
+    slug: { type: 'string', description: 'Page slug to embed' },
+    all: { type: 'boolean', description: 'Embed every page' },
+    stale: { type: 'boolean', description: 'Only embed missing or stale chunks' },
+  },
+  handler: async () => undefined,
+  cliHints: { name: 'embed', positional: ['slug'] },
+};
+
 export async function runEmbed(engine: BrainEngine, args: string[]) {
-  const slug = args.find(a => !a.startsWith('--'));
-  const staleOnly = args.includes('--stale');
-  const rebuildAll = args.includes('--all');
+  if (args.includes('--help') || args.includes('-h')) {
+    process.stdout.write(formatOpHelp(EMBED_COMMAND));
+    return;
+  }
+
+  const params = parseOpArgs(EMBED_COMMAND, args);
+  const slug = params.slug as string | undefined;
+  const staleOnly = params.stale === true;
+  const rebuildAll = params.all === true;
   const provider = getEmbeddingProvider();
 
   if (!provider.capability.available) {

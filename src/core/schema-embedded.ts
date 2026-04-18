@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS pages (
   timeline      TEXT    NOT NULL DEFAULT '',
   search_text   TEXT    NOT NULL DEFAULT '',
   frontmatter   JSONB   NOT NULL DEFAULT '{}',
+  page_embedding vector(768),
   content_hash  TEXT,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()

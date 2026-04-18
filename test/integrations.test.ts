@@ -160,17 +160,17 @@ describe('CLI integration', () => {
     cliSource = readFileSync(new URL('../src/cli.ts', import.meta.url), 'utf-8');
   });
 
-  test('CLI_ONLY set contains integrations', () => {
-    expect(cliSource).toContain("'integrations'");
+  test('DIRECT_NO_ENGINE_COMMANDS contains integrations', () => {
+    const directNoEngineBlock = cliSource.match(/const DIRECT_NO_ENGINE_COMMANDS: Record<string, CliNoEngineLoader> = \{(.*?)\n\};/s)?.[1] ?? '';
+    expect(directNoEngineBlock).toContain('integrations');
   });
 
-  test('handleCliOnly routes integrations before connectEngine', () => {
-    // integrations case must appear before "All remaining CLI-only commands need a DB"
-    const integrationsIdx = cliSource.indexOf("command === 'integrations'");
-    const dbComment = cliSource.indexOf('All remaining CLI-only commands need a DB');
-    expect(integrationsIdx).toBeGreaterThan(0);
-    expect(dbComment).toBeGreaterThan(0);
-    expect(integrationsIdx).toBeLessThan(dbComment);
+  test('handleDirectCommand routes integrations before operation dispatch', () => {
+    const directDispatchIdx = cliSource.indexOf('if (await handleDirectCommand(command, subArgs)) {');
+    const opDispatchIdx = cliSource.indexOf('const op = cliOps.get(command);');
+    expect(directDispatchIdx).toBeGreaterThan(0);
+    expect(opDispatchIdx).toBeGreaterThan(0);
+    expect(directDispatchIdx).toBeLessThan(opDispatchIdx);
   });
 
   test('help text mentions integrations', () => {

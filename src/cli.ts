@@ -1,12 +1,18 @@
 #!/usr/bin/env bun
 
-import { readFileSync } from 'fs';
 import { loadConfig } from './core/config.ts';
 import { createConnectedEngine, DEFAULT_RUNTIME_CONFIG } from './core/engine-factory.ts';
 import type { BrainEngine } from './core/engine.ts';
-import { operations, OperationError } from './core/operations.ts';
+import {
+  operations,
+  OperationError,
+  formatOpHelp,
+  formatOpUsage,
+  formatResult as formatSharedResult,
+  getMissingRequiredParams,
+  parseOpArgs as parseSharedOpArgs,
+} from './core/operations.ts';
 import type { Operation, OperationContext } from './core/operations.ts';
-import { serializeMarkdown } from './core/markdown.ts';
 import { VERSION } from './version.ts';
 
 // Build CLI name -> operation lookup
@@ -18,28 +24,107 @@ for (const op of operations) {
   }
 }
 
-// CLI-only commands that bypass the operation layer
+type CliNoEngineHandler = (args: string[]) => Promise<void> | void;
+type CliEngineHandler = (engine: BrainEngine, args: string[]) => Promise<void> | void;
+type CliNoEngineLoader = () => Promise<CliNoEngineHandler>;
+type CliEngineLoader = () => Promise<CliEngineHandler>;
+
+function noopHandler() {
+  return Promise.resolve(undefined);
+}
+
+const EMBED_CLI_SPEC: Operation = {
+  name: 'embed',
+  description: 'Generate or refresh embeddings for one page, all pages, or only stale chunks.',
+  params: {
+    slug: { type: 'string', description: 'Page slug to embed' },
+    all: { type: 'boolean', description: 'Embed every page' },
+    stale: { type: 'boolean', description: 'Only embed missing or stale chunks' },
+  },
+  handler: noopHandler,
+  cliHints: { name: 'embed', positional: ['slug'] },
+};
+
+const DOCTOR_CLI_SPEC: Operation = {
+  name: 'doctor',
+  description: 'Run health checks against the configured brain and exit non-zero when failures are found.',
+  params: {
+    json: { type: 'boolean', description: 'Emit JSON instead of human-readable output' },
+  },
+  handler: noopHandler,
+  cliHints: { name: 'doctor' },
+};
+
+const SYNC_CLI_SPEC: Operation = {
+  name: 'sync_brain',
+  description: 'Sync git repo to brain (incremental). CLI also supports a watch-mode extension for repeated polling.',
+  params: {
+    repo: { type: 'string', description: 'Path to git repo (optional if configured)' },
+    dry_run: { type: 'boolean', description: 'Preview changes without applying' },
+    full: { type: 'boolean', description: 'Full re-sync (ignore checkpoint)' },
+    no_pull: { type: 'boolean', description: 'Skip git pull' },
+    watch: { type: 'boolean', description: 'Poll for changes continuously until interrupted' },
+    interval: { type: 'number', description: 'Seconds between watch polls (default 60)' },
+  },
+  handler: noopHandler,
+  cliHints: { name: 'sync' },
+};
+
+const CLI_ONLY_SPECS: Partial<Record<string, Operation>> = {
+  embed: EMBED_CLI_SPEC,
+  doctor: DOCTOR_CLI_SPEC,
+};
+
+const DIRECT_NO_ENGINE_COMMANDS: Record<string, CliNoEngineLoader> = {
+  init: async () => (await import('./commands/init.ts')).runInit,
+  integrations: async () => (await import('./commands/integrations.ts')).runIntegrations,
+  publish: async () => (await import('./commands/publish.ts')).runPublish,
+  'check-backlinks': async () => (await import('./commands/backlinks.ts')).runBacklinks,
+  lint: async () => (await import('./commands/lint.ts')).runLint,
+  report: async () => (await import('./commands/report.ts')).runReport,
+};
+
+const CLI_NO_ENGINE_COMMANDS: Record<string, CliNoEngineLoader> = {
+  // `upgrade` replaces the installed package/binary and is process-management only.
+  upgrade: async () => (await import('./commands/upgrade.ts')).runUpgrade,
+  // `post-upgrade` finalizes shell/package-manager side effects after self-update.
+  'post-upgrade': async () => {
+    const { runPostUpgrade } = await import('./commands/upgrade.ts');
+    return () => runPostUpgrade();
+  },
+  // `check-update` queries release metadata without depending on brain state.
+  'check-update': async () => (await import('./commands/check-update.ts')).runCheckUpdate,
+  // `setup-agent` edits user tooling config and installs hooks outside the shared contract.
+  'setup-agent': async () => (await import('./commands/setup-agent.ts')).runSetupAgent,
+};
+
+const DIRECT_ENGINE_COMMANDS: Record<string, CliEngineLoader> = {
+  import: async () => (await import('./commands/import.ts')).runImport,
+  export: async () => (await import('./commands/export.ts')).runExport,
+  files: async () => (await import('./commands/files.ts')).runFiles,
+  embed: async () => (await import('./commands/embed.ts')).runEmbed,
+  call: async () => (await import('./commands/call.ts')).runCall,
+  config: async () => (await import('./commands/config.ts')).runConfig,
+  doctor: async () => (await import('./commands/doctor.ts')).runDoctor,
+  migrate: async () => (await import('./commands/migrate-engine.ts')).runMigrateEngine,
+};
+
 const CLI_ONLY = new Set([
-  'init',
+  'serve',
+  'setup-agent',
   'upgrade',
   'post-upgrade',
   'check-update',
-  'integrations',
-  'publish',
-  'check-backlinks',
-  'lint',
-  'report',
-  'import',
-  'export',
-  'files',
-  'embed',
-  'serve',
-  'call',
-  'config',
-  'doctor',
-  'setup-agent',
-  'migrate',
 ]);
+// Shared-contract commands such as `sync` must stay out of CLI_ONLY so operations.ts remains authoritative.
+
+const CLI_ENGINE_COMMANDS: Record<string, CliEngineLoader> = {
+  // `serve` owns the current stdio process and cannot run through the shared request/response contract.
+  serve: async () => {
+    const { runServe } = await import('./commands/serve.ts');
+    return (engine) => runServe(engine);
+  },
+};
 
 async function main() {
   const args = process.argv.slice(2);
@@ -61,18 +146,38 @@ async function main() {
     return;
   }
 
-  const subArgs = args.slice(1);
+  let subArgs = args.slice(1);
 
   if (subArgs.includes('--help') || subArgs.includes('-h')) {
-    const op = cliOps.get(command);
+    const op = getCliHelpSpec(command);
     if (op) {
-      printOpHelp(op);
+      process.stdout.write(formatOpHelp(op));
+      return;
+    }
+  }
+
+  if (command === 'sync') {
+    const syncCliRouting = resolveSyncCliRouting(subArgs);
+    for (const warning of syncCliRouting.warnings) {
+      console.error(warning);
+    }
+    if (syncCliRouting.error) {
+      console.error(syncCliRouting.error);
+      process.exit(1);
+    }
+    subArgs = syncCliRouting.args;
+    if (syncCliRouting.watch) {
+      await handleSyncCliExtension(subArgs);
       return;
     }
   }
 
   if (CLI_ONLY.has(command)) {
     await handleCliOnly(command, subArgs);
+    return;
+  }
+
+  if (await handleDirectCommand(command, subArgs)) {
     return;
   }
 
@@ -85,16 +190,11 @@ async function main() {
 
   const engine = await connectEngine();
   try {
-    const params = parseOpArgs(op, subArgs);
+    const params = parseSharedOpArgs(op, subArgs);
 
-    for (const [key, def] of Object.entries(op.params)) {
-      if (def.required && params[key] === undefined) {
-        const cliName = op.cliHints?.name || op.name;
-        const positional = op.cliHints?.positional || [];
-        const usage = positional.map(p => `<${p}>`).join(' ');
-        console.error(`Usage: mbrain ${cliName} ${usage}`);
-        process.exit(1);
-      }
+    if (getMissingRequiredParams(op, params).length > 0) {
+      console.error(formatOpUsage(op));
+      process.exit(1);
     }
 
     const ctx = makeContext(engine, params);
@@ -118,96 +218,12 @@ export interface ParseOpArgsOptions {
   warn?: (msg: string) => void;
 }
 
-function splitEquals(raw: string): { token: string; inlineValue?: string } {
-  const eq = raw.indexOf('=');
-  if (eq === -1) return { token: raw };
-  return { token: raw.slice(0, eq), inlineValue: raw.slice(eq + 1) };
-}
-
-function coerceNumber(key: string, raw: string): number {
-  const n = Number(raw);
-  if (Number.isNaN(n)) {
-    throw new Error(`Invalid number for --${key.replace(/_/g, '-')}: "${raw}"`);
-  }
-  return n;
-}
-
 export function parseOpArgs(
   op: Operation,
   args: string[],
   options: ParseOpArgsOptions = {},
 ): Record<string, unknown> {
-  const params: Record<string, unknown> = {};
-  const positional = op.cliHints?.positional || [];
-  const aliases = op.cliHints?.aliases || {};
-  const warn = options.warn ?? ((msg: string) => console.error(`Warning: ${msg}`));
-  let posIdx = 0;
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-
-    if (arg.startsWith('--') && arg.length > 2) {
-      const { token, inlineValue } = splitEquals(arg.slice(2));
-      const key = token.replace(/-/g, '_');
-      const paramDef = op.params[key];
-      if (!paramDef) {
-        warn(`unknown flag --${token} (ignored)`);
-        if (inlineValue === undefined && i + 1 < args.length && !args[i + 1].startsWith('-')) i++;
-        continue;
-      }
-      if (paramDef.type === 'boolean') {
-        params[key] = inlineValue === undefined ? true : inlineValue !== 'false';
-        continue;
-      }
-      let value: string | undefined = inlineValue;
-      if (value === undefined) {
-        if (i + 1 >= args.length) {
-          warn(`--${token} expects a value`);
-          continue;
-        }
-        value = args[++i];
-      }
-      params[key] = paramDef.type === 'number' ? coerceNumber(key, value) : value;
-      continue;
-    }
-
-    if (arg.startsWith('-') && arg.length > 1 && arg !== '--') {
-      const { token, inlineValue } = splitEquals(arg.slice(1));
-      const key = aliases[token];
-      if (!key) {
-        warn(`unknown flag -${token} (ignored)`);
-        if (inlineValue === undefined && i + 1 < args.length && !args[i + 1].startsWith('-')) i++;
-        continue;
-      }
-      const paramDef = op.params[key];
-      if (paramDef?.type === 'boolean') {
-        params[key] = inlineValue === undefined ? true : inlineValue !== 'false';
-        continue;
-      }
-      let value: string | undefined = inlineValue;
-      if (value === undefined) {
-        if (i + 1 >= args.length) {
-          warn(`-${token} expects a value`);
-          continue;
-        }
-        value = args[++i];
-      }
-      params[key] = paramDef?.type === 'number' ? coerceNumber(key, value) : value;
-      continue;
-    }
-
-    if (posIdx < positional.length) {
-      const key = positional[posIdx++];
-      const paramDef = op.params[key];
-      params[key] = paramDef?.type === 'number' ? coerceNumber(key, arg) : arg;
-    }
-  }
-
-  if (op.cliHints?.stdin && !params[op.cliHints.stdin] && !process.stdin.isTTY) {
-    params[op.cliHints.stdin] = readFileSync('/dev/stdin', 'utf-8');
-  }
-
-  return params;
+  return parseSharedOpArgs(op, args, options);
 }
 
 function makeContext(engine: BrainEngine, params: Record<string, unknown>): OperationContext {
@@ -220,198 +236,134 @@ function makeContext(engine: BrainEngine, params: Record<string, unknown>): Oper
 }
 
 export function formatResult(opName: string, result: unknown, params: Record<string, unknown> = {}): string {
-  switch (opName) {
-    case 'get_page': {
-      const r = result as any;
-      if (r.error === 'ambiguous_slug') {
-        return `Ambiguous slug. Did you mean:\n${r.candidates.map((c: string) => `  ${c}`).join('\n')}\n`;
-      }
-      return serializeMarkdown(r.frontmatter || {}, r.compiled_truth || '', r.timeline || '', {
-        type: r.type, title: r.title, tags: r.tags || [],
-      });
-    }
-    case 'list_pages': {
-      const pages = result as any[];
-      if (pages.length === 0) return 'No pages found.\n';
-      const rows = pages.map(p =>
-        `${p.slug}\t${p.type}\t${p.updated_at?.toString().slice(0, 10) || '?'}\t${p.title}`,
-      ).join('\n') + '\n';
-      const requestedLimit = (params.limit as number) ?? 50;
-      if (pages.length >= requestedLimit) {
-        return rows + `\n(result may be truncated at ${requestedLimit}; pass --limit N or -n N to change)\n`;
-      }
-      return rows;
-    }
-    case 'search':
-    case 'query': {
-      const results = result as any[];
-      if (results.length === 0) return 'No results.\n';
-      return results.map(r =>
-        `[${r.score?.toFixed(4) || '?'}] ${r.slug} -- ${r.chunk_text?.slice(0, 100) || ''}${r.stale ? ' (stale)' : ''}`,
-      ).join('\n') + '\n';
-    }
-    case 'get_tags': {
-      const tags = result as string[];
-      return tags.length > 0 ? tags.join(', ') + '\n' : 'No tags.\n';
-    }
-    case 'get_stats': {
-      const s = result as any;
-      const lines = [
-        `Pages:     ${s.page_count}`,
-        `Chunks:    ${s.chunk_count}`,
-        `Embedded:  ${s.embedded_count}`,
-        `Links:     ${s.link_count}`,
-        `Tags:      ${s.tag_count}`,
-        `Timeline:  ${s.timeline_entry_count}`,
-      ];
-      if (s.pages_by_type) {
-        lines.push('', 'By type:');
-        for (const [k, v] of Object.entries(s.pages_by_type)) {
-          lines.push(`  ${k}: ${v}`);
-        }
-      }
-      return lines.join('\n') + '\n';
-    }
-    case 'get_health': {
-      const h = result as any;
-      const score = Math.max(0, 10
-        - (h.missing_embeddings > 0 ? 2 : 0)
-        - (h.stale_pages > 0 ? 1 : 0)
-        - (h.dead_links > 0 ? 1 : 0)
-        - (h.orphan_pages > 0 ? 1 : 0));
-      return [
-        `Health score: ${score}/10`,
-        `Embed coverage: ${(h.embed_coverage * 100).toFixed(1)}%`,
-        `Missing embeddings: ${h.missing_embeddings}`,
-        `Stale pages: ${h.stale_pages}`,
-        `Orphan pages: ${h.orphan_pages}`,
-        `Dead links: ${h.dead_links}`,
-      ].join('\n') + '\n';
-    }
-    case 'get_timeline': {
-      const entries = result as any[];
-      if (entries.length === 0) return 'No timeline entries.\n';
-      return entries.map(e =>
-        `${e.date}  ${e.summary}${e.source ? ` [${e.source}]` : ''}`,
-      ).join('\n') + '\n';
-    }
-    case 'get_versions': {
-      const versions = result as any[];
-      if (versions.length === 0) return 'No versions.\n';
-      return versions.map(v =>
-        `#${v.id}  ${v.snapshot_at?.toString().slice(0, 19) || '?'}  ${v.compiled_truth?.slice(0, 60) || ''}...`,
-      ).join('\n') + '\n';
-    }
-    default:
-      return JSON.stringify(result, null, 2) + '\n';
+  return formatSharedResult(opName, result, params);
+}
+
+function getCliHelpSpec(command: string): Operation | undefined {
+  if (command === 'sync') return SYNC_CLI_SPEC;
+  return cliOps.get(command) || CLI_ONLY_SPECS[command];
+}
+
+function resolveSyncCliRouting(
+  args: string[],
+): { watch: boolean; args: string[]; warnings: string[]; error?: string } {
+  const warnings: string[] = [];
+  const params = parseSharedOpArgs(SYNC_CLI_SPEC, args, {
+    warn: (message) => warnings.push(`Warning: ${message}`),
+  });
+  const watchEnabled = params.watch === true;
+  const intervalProvided = args.some(arg => arg === '--interval' || arg.startsWith('--interval='));
+
+  if (intervalProvided && !watchEnabled) {
+    return { watch: false, args, warnings, error: '--interval requires --watch' };
   }
+
+  if (watchEnabled) {
+    return { watch: true, args: normalizeSyncCliExtensionArgs(params), warnings };
+  }
+
+  return {
+    watch: false,
+    args: args.filter(arg => arg !== '--watch=false'),
+    warnings: [],
+  };
+}
+
+function normalizeSyncCliExtensionArgs(params: Record<string, unknown>): string[] {
+  const args: string[] = [];
+
+  if (typeof params.repo === 'string' && params.repo.length > 0) {
+    args.push('--repo', params.repo);
+  }
+  if (params.dry_run === true) args.push('--dry-run');
+  if (params.full === true) args.push('--full');
+  if (params.no_pull === true) args.push('--no-pull');
+  if (params.watch === true) args.push('--watch');
+  if (typeof params.interval === 'number') args.push('--interval', String(params.interval));
+
+  return args;
 }
 
 async function handleCliOnly(command: string, args: string[]) {
-  if (command === 'init') {
-    const { runInit } = await import('./commands/init.ts');
-    await runInit(args);
-    return;
-  }
-  if (command === 'setup-agent') {
-    const { runSetupAgent } = await import('./commands/setup-agent.ts');
-    await runSetupAgent(args);
-    return;
-  }
-  if (command === 'upgrade') {
-    const { runUpgrade } = await import('./commands/upgrade.ts');
-    await runUpgrade(args);
-    return;
-  }
-  if (command === 'post-upgrade') {
-    const { runPostUpgrade } = await import('./commands/upgrade.ts');
-    runPostUpgrade();
-    return;
-  }
-  if (command === 'check-update') {
-    const { runCheckUpdate } = await import('./commands/check-update.ts');
-    await runCheckUpdate(args);
-    return;
-  }
-  if (command === 'integrations') {
-    const { runIntegrations } = await import('./commands/integrations.ts');
-    await runIntegrations(args);
-    return;
-  }
-  if (command === 'publish') {
-    const { runPublish } = await import('./commands/publish.ts');
-    await runPublish(args);
-    return;
-  }
-  if (command === 'check-backlinks') {
-    const { runBacklinks } = await import('./commands/backlinks.ts');
-    await runBacklinks(args);
-    return;
-  }
-  if (command === 'lint') {
-    const { runLint } = await import('./commands/lint.ts');
-    await runLint(args);
-    return;
-  }
-  if (command === 'report') {
-    const { runReport } = await import('./commands/report.ts');
-    await runReport(args);
+  const noEngineLoader = CLI_NO_ENGINE_COMMANDS[command];
+  if (noEngineLoader) {
+    const runCommand = await noEngineLoader();
+    await runCommand(args);
     return;
   }
 
-  // All remaining CLI-only commands need a DB connection
+  const engineLoader = CLI_ENGINE_COMMANDS[command];
+  if (!engineLoader) {
+    return;
+  }
+
   const engine = await connectEngine();
   try {
-    switch (command) {
-      case 'import': {
-        const { runImport } = await import('./commands/import.ts');
-        await runImport(engine, args);
-        break;
-      }
-      case 'export': {
-        const { runExport } = await import('./commands/export.ts');
-        await runExport(engine, args);
-        break;
-      }
-      case 'files': {
-        const { runFiles } = await import('./commands/files.ts');
-        await runFiles(engine, args);
-        break;
-      }
-      case 'embed': {
-        const { runEmbed } = await import('./commands/embed.ts');
-        await runEmbed(engine, args);
-        break;
-      }
-      case 'serve': {
-        const { runServe } = await import('./commands/serve.ts');
-        await runServe(engine);
-        return;
-      }
-      case 'call': {
-        const { runCall } = await import('./commands/call.ts');
-        await runCall(engine, args);
-        break;
-      }
-      case 'config': {
-        const { runConfig } = await import('./commands/config.ts');
-        await runConfig(engine, args);
-        break;
-      }
-      case 'doctor': {
-        const { runDoctor } = await import('./commands/doctor.ts');
-        await runDoctor(engine, args);
-        break;
-      }
-      case 'migrate': {
-        const { runMigrateEngine } = await import('./commands/migrate-engine.ts');
-        await runMigrateEngine(engine, args);
-        break;
-      }
-    }
+    const runCommand = await engineLoader();
+    await runCommand(engine, normalizeCliOnlyArgs(command, args));
   } finally {
     if (command !== 'serve') await engine.disconnect();
   }
+}
+
+async function handleSyncCliExtension(args: string[]) {
+  const engine = await connectEngine();
+  try {
+    const { runSync } = await import('./commands/sync.ts');
+    await runSync(engine, args);
+  } finally {
+    await engine.disconnect();
+  }
+}
+
+async function handleDirectCommand(command: string, args: string[]): Promise<boolean> {
+  const noEngineLoader = DIRECT_NO_ENGINE_COMMANDS[command];
+  if (noEngineLoader) {
+    const runCommand = await noEngineLoader();
+    await runCommand(args);
+    return true;
+  }
+
+  const engineLoader = DIRECT_ENGINE_COMMANDS[command];
+  if (!engineLoader) {
+    return false;
+  }
+
+  const engine = await connectEngine();
+  try {
+    const runCommand = await engineLoader();
+    const normalizedArgs = CLI_ONLY_SPECS[command] ? normalizeCliOnlyArgs(command, args) : args;
+    await runCommand(engine, normalizedArgs);
+    return true;
+  } finally {
+    await engine.disconnect();
+  }
+}
+
+function normalizeCliOnlyArgs(command: string, args: string[]): string[] {
+  const spec = CLI_ONLY_SPECS[command];
+  if (!spec) return args;
+
+  const params = parseSharedOpArgs(spec, args);
+  const normalized: string[] = [];
+  for (const positional of spec.cliHints?.positional || []) {
+    const value = params[positional];
+    if (typeof value === 'string' && value.length > 0) {
+      normalized.push(value);
+    }
+  }
+  for (const [key, def] of Object.entries(spec.params)) {
+    if (spec.cliHints?.positional?.includes(key)) continue;
+    const value = params[key];
+    if (value === undefined) continue;
+    const flag = `--${key.replace(/_/g, '-')}`;
+    if (def.type === 'boolean') {
+      if (value === true) normalized.push(flag);
+    } else {
+      normalized.push(flag, String(value));
+    }
+  }
+  return normalized;
 }
 
 async function connectEngine(): Promise<BrainEngine> {
@@ -421,23 +373,6 @@ async function connectEngine(): Promise<BrainEngine> {
     process.exit(1);
   }
   return createConnectedEngine(config);
-}
-
-function printOpHelp(op: Operation) {
-  const positional = (op.cliHints?.positional || []).map(p => `<${p}>`).join(' ');
-  const name = op.cliHints?.name || op.name;
-  console.log(`Usage: mbrain ${name} ${positional} [options]\n`);
-  console.log(op.description + '\n');
-  const entries = Object.entries(op.params);
-  if (entries.length > 0) {
-    console.log('Options:');
-    for (const [key, def] of entries) {
-      const isPos = op.cliHints?.positional?.includes(key);
-      const req = def.required ? ' (required)' : '';
-      const prefix = isPos ? `  <${key}>` : `  --${key.replace(/_/g, '-')}`;
-      console.log(`${prefix.padEnd(28)} ${def.description || ''}${req}`);
-    }
-  }
 }
 
 function printHelp() {

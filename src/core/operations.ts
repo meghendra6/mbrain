@@ -8,6 +8,7 @@ import { join } from 'path';
 import type { BrainEngine } from './engine.ts';
 import type { MBrainConfig } from './config.ts';
 import { importFromContent } from './import-file.ts';
+import { serializeMarkdown } from './markdown.ts';
 import { hybridSearch } from './search/hybrid.ts';
 import { expandQuery } from './search/expansion.ts';
 import * as db from './db.ts';
@@ -91,6 +92,251 @@ export interface Operation {
     hidden?: boolean;
     aliases?: Record<string, string>;
   };
+}
+
+export interface ParseOpArgsOptions {
+  warn?: (msg: string) => void;
+  stdin?: {
+    isTTY: boolean;
+    read: () => string;
+  };
+}
+
+function splitEquals(raw: string): { token: string; inlineValue?: string } {
+  const eq = raw.indexOf('=');
+  if (eq === -1) return { token: raw };
+  return { token: raw.slice(0, eq), inlineValue: raw.slice(eq + 1) };
+}
+
+function coerceNumber(key: string, raw: string): number {
+  const n = Number(raw);
+  if (Number.isNaN(n)) {
+    throw new Error(`Invalid number for --${key.replace(/_/g, '-')}: "${raw}"`);
+  }
+  return n;
+}
+
+export function parseOpArgs(
+  op: Pick<Operation, 'params' | 'cliHints'>,
+  args: string[],
+  options: ParseOpArgsOptions = {},
+): Record<string, unknown> {
+  const params: Record<string, unknown> = {};
+  const positional = op.cliHints?.positional || [];
+  const aliases = op.cliHints?.aliases || {};
+  const warn = options.warn ?? ((msg: string) => console.error(`Warning: ${msg}`));
+  const stdin = options.stdin ?? {
+    isTTY: process.stdin.isTTY,
+    read: () => readFileSync('/dev/stdin', 'utf-8'),
+  };
+  let posIdx = 0;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    if (arg.startsWith('--') && arg.length > 2) {
+      const { token, inlineValue } = splitEquals(arg.slice(2));
+      const key = token.replace(/-/g, '_');
+      const paramDef = op.params[key];
+      if (!paramDef) {
+        warn(`unknown flag --${token} (ignored)`);
+        if (inlineValue === undefined && i + 1 < args.length && !args[i + 1].startsWith('-')) i++;
+        continue;
+      }
+      if (paramDef.type === 'boolean') {
+        params[key] = inlineValue === undefined ? true : inlineValue !== 'false';
+        continue;
+      }
+      let value: string | undefined = inlineValue;
+      if (value === undefined) {
+        if (i + 1 >= args.length) {
+          warn(`--${token} expects a value`);
+          continue;
+        }
+        value = args[++i];
+      }
+      params[key] = paramDef.type === 'number' ? coerceNumber(key, value) : value;
+      continue;
+    }
+
+    if (arg.startsWith('-') && arg.length > 1 && arg !== '--') {
+      const { token, inlineValue } = splitEquals(arg.slice(1));
+      const key = aliases[token];
+      if (!key) {
+        warn(`unknown flag -${token} (ignored)`);
+        if (inlineValue === undefined && i + 1 < args.length && !args[i + 1].startsWith('-')) i++;
+        continue;
+      }
+      const paramDef = op.params[key];
+      if (paramDef?.type === 'boolean') {
+        params[key] = inlineValue === undefined ? true : inlineValue !== 'false';
+        continue;
+      }
+      let value: string | undefined = inlineValue;
+      if (value === undefined) {
+        if (i + 1 >= args.length) {
+          warn(`-${token} expects a value`);
+          continue;
+        }
+        value = args[++i];
+      }
+      params[key] = paramDef?.type === 'number' ? coerceNumber(key, value) : value;
+      continue;
+    }
+
+    if (posIdx < positional.length) {
+      const key = positional[posIdx++];
+      const paramDef = op.params[key];
+      params[key] = paramDef?.type === 'number' ? coerceNumber(key, arg) : arg;
+    }
+  }
+
+  if (op.cliHints?.stdin && !params[op.cliHints.stdin] && !stdin.isTTY) {
+    params[op.cliHints.stdin] = stdin.read();
+  }
+
+  return params;
+}
+
+export function getMissingRequiredParams(
+  op: Pick<Operation, 'params'>,
+  params: Record<string, unknown>,
+): string[] {
+  return Object.entries(op.params)
+    .filter(([, def]) => def.required)
+    .filter(([key]) => params[key] === undefined)
+    .map(([key]) => key);
+}
+
+export function formatOpUsage(op: Pick<Operation, 'name' | 'cliHints'>): string {
+  const positional = (op.cliHints?.positional || []).map(p => `<${p}>`).join(' ');
+  const name = op.cliHints?.name || op.name;
+  return `Usage: mbrain ${name}${positional ? ` ${positional}` : ''}`;
+}
+
+export function formatOpHelp(op: Pick<Operation, 'name' | 'description' | 'params' | 'cliHints'>): string {
+  const lines = [`${formatOpUsage(op)} [options]`, '', op.description, ''];
+  const entries = Object.entries(op.params);
+  if (entries.length > 0) {
+    lines.push('Options:');
+    for (const [key, def] of entries) {
+      const isPos = op.cliHints?.positional?.includes(key);
+      const req = def.required ? ' (required)' : '';
+      const prefix = isPos ? `  <${key}>` : `  --${key.replace(/_/g, '-')}`;
+      lines.push(`${prefix.padEnd(28)} ${def.description || ''}${req}`.trimEnd());
+    }
+  }
+  return lines.join('\n') + '\n';
+}
+
+export function formatResult(
+  opName: string,
+  result: unknown,
+  params: Record<string, unknown> = {},
+): string {
+  switch (opName) {
+    case 'get_page': {
+      const r = result as any;
+      if (r.error === 'ambiguous_slug') {
+        return `Ambiguous slug. Did you mean:\n${r.candidates.map((c: string) => `  ${c}`).join('\n')}\n`;
+      }
+      return serializeMarkdown(r.frontmatter || {}, r.compiled_truth || '', r.timeline || '', {
+        type: r.type, title: r.title, tags: r.tags || [],
+      });
+    }
+    case 'list_pages': {
+      const pages = result as any[];
+      if (pages.length === 0) return 'No pages found.\n';
+      const rows = pages.map(p =>
+        `${p.slug}\t${p.type}\t${p.updated_at?.toString().slice(0, 10) || '?'}\t${p.title}`,
+      ).join('\n') + '\n';
+      const requestedLimit = (params.limit as number) ?? 50;
+      if (pages.length >= requestedLimit) {
+        return rows + `\n(result may be truncated at ${requestedLimit}; pass --limit N or -n N to change)\n`;
+      }
+      return rows;
+    }
+    case 'search':
+    case 'query': {
+      const results = result as any[];
+      if (results.length === 0) return 'No results.\n';
+      return results.map(r =>
+        `[${r.score?.toFixed(4) || '?'}] ${r.slug} -- ${r.chunk_text?.slice(0, 100) || ''}${r.stale ? ' (stale)' : ''}`,
+      ).join('\n') + '\n';
+    }
+    case 'get_tags': {
+      const tags = result as string[];
+      return tags.length > 0 ? tags.join(', ') + '\n' : 'No tags.\n';
+    }
+    case 'get_stats': {
+      const s = result as any;
+      const lines = [
+        `Pages:     ${s.page_count}`,
+        `Chunks:    ${s.chunk_count}`,
+        `Embedded:  ${s.embedded_count}`,
+        `Links:     ${s.link_count}`,
+        `Tags:      ${s.tag_count}`,
+        `Timeline:  ${s.timeline_entry_count}`,
+      ];
+      if (s.pages_by_type) {
+        lines.push('', 'By type:');
+        for (const [k, v] of Object.entries(s.pages_by_type)) {
+          lines.push(`  ${k}: ${v}`);
+        }
+      }
+      return lines.join('\n') + '\n';
+    }
+    case 'get_health': {
+      const h = result as any;
+      const score = Math.max(0, 10
+        - (h.missing_embeddings > 0 ? 2 : 0)
+        - (h.stale_pages > 0 ? 1 : 0)
+        - (h.dead_links > 0 ? 1 : 0)
+        - (h.orphan_pages > 0 ? 1 : 0));
+      return [
+        `Health score: ${score}/10`,
+        `Embed coverage: ${(h.embed_coverage * 100).toFixed(1)}%`,
+        `Missing embeddings: ${h.missing_embeddings}`,
+        `Stale pages: ${h.stale_pages}`,
+        `Orphan pages: ${h.orphan_pages}`,
+        `Dead links: ${h.dead_links}`,
+      ].join('\n') + '\n';
+    }
+    case 'get_timeline': {
+      const entries = result as any[];
+      if (entries.length === 0) return 'No timeline entries.\n';
+      return entries.map(e =>
+        `${e.date}  ${e.summary}${e.source ? ` [${e.source}]` : ''}`,
+      ).join('\n') + '\n';
+    }
+    case 'get_versions': {
+      const versions = result as any[];
+      if (versions.length === 0) return 'No versions.\n';
+      return versions.map(v =>
+        `#${v.id}  ${v.snapshot_at?.toString().slice(0, 19) || '?'}  ${v.compiled_truth?.slice(0, 60) || ''}...`,
+      ).join('\n') + '\n';
+    }
+    case 'sync_brain': {
+      const sync = result as any;
+      switch (sync.status) {
+        case 'up_to_date':
+          return 'Already up to date.\n';
+        case 'synced':
+          return [
+            `Synced ${sync.fromCommit?.slice(0, 8)}..${sync.toCommit.slice(0, 8)}:`,
+            `  +${sync.added} added, ~${sync.modified} modified, -${sync.deleted} deleted, R${sync.renamed} renamed`,
+            `  ${sync.chunksCreated} chunks created`,
+          ].join('\n') + '\n';
+        case 'first_sync':
+          return `First sync complete. Checkpoint: ${sync.toCommit.slice(0, 8)}\n`;
+        case 'dry_run':
+          return '';
+      }
+      return JSON.stringify(result, null, 2) + '\n';
+    }
+    default:
+      return JSON.stringify(result, null, 2) + '\n';
+  }
 }
 
 const runtimeImport = new Function('specifier', 'return import(specifier)') as (

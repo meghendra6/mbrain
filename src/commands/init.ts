@@ -7,7 +7,7 @@ import {
   saveConfig,
   type MBrainConfig,
 } from '../core/config.ts';
-import { createEngine, createEngineFromConfig, toEngineConfig } from '../core/engine-factory.ts';
+import { createConnectedEngine, createEngine, createEngineFromConfig, toEngineConfig } from '../core/engine-factory.ts';
 import * as db from '../core/db.ts';
 
 export async function runInit(args: string[]) {
@@ -178,10 +178,45 @@ async function initPostgres(opts: { databaseUrl: string; jsonOutput: boolean; ap
     query_rewrite_provider: 'none',
     ...(opts.apiKey ? { openai_api_key: opts.apiKey } : {}),
   };
-  const engine = createEngineFromConfig(engineConfig);
-
   try {
-    await engine.connect(toEngineConfig(engineConfig));
+    const engine = await createConnectedEngine(engineConfig);
+    try {
+      const conn = db.getConnection();
+      const ext = await conn`SELECT extname FROM pg_extension WHERE extname = 'vector'`;
+      if (ext.length === 0) {
+        console.log('pgvector extension not found. Attempting to create...');
+        try {
+          await conn`CREATE EXTENSION IF NOT EXISTS vector`;
+          console.log('pgvector extension created successfully.');
+        } catch {
+          console.error('Could not auto-create pgvector extension. Run this on your Postgres database:');
+          console.error('  CREATE EXTENSION vector;');
+          console.error("  Use psql, your provider's query console, or Supabase SQL Editor if applicable.");
+          await engine.disconnect();
+          process.exit(1);
+        }
+      }
+    } catch {
+      // Non-fatal: proceed without pgvector if the capability check itself fails.
+    }
+
+    console.log('Running schema migration...');
+    await engine.initSchema();
+
+    saveConfig(engineConfig);
+    console.log('Config saved to ~/.mbrain/config.json');
+
+    const stats = await engine.getStats();
+    await engine.disconnect();
+
+    if (opts.jsonOutput) {
+      console.log(JSON.stringify({ status: 'success', engine: 'postgres', pages: stats.page_count }));
+    } else {
+      console.log(`\nBrain ready. ${stats.page_count} pages.`);
+      console.log('Next: mbrain import <dir> to migrate your markdown.');
+      console.log('Then: mbrain setup-agent to configure Claude Code / Codex.');
+      console.log('Full reference: docs/MBRAIN_SKILLPACK.md');
+    }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     if (databaseUrl.includes('supabase.co') && (msg.includes('ECONNREFUSED') || msg.includes('ETIMEDOUT'))) {
@@ -189,45 +224,6 @@ async function initPostgres(opts: { databaseUrl: string; jsonOutput: boolean; ap
       console.error('Use the Session pooler connection string instead (port 6543).');
     }
     throw e;
-  }
-
-  // db.getConnection() returns the singleton created by PostgresEngine.connect().
-  try {
-    const conn = db.getConnection();
-    const ext = await conn`SELECT extname FROM pg_extension WHERE extname = 'vector'`;
-    if (ext.length === 0) {
-      console.log('pgvector extension not found. Attempting to create...');
-      try {
-        await conn`CREATE EXTENSION IF NOT EXISTS vector`;
-        console.log('pgvector extension created successfully.');
-      } catch {
-        console.error('Could not auto-create pgvector extension. Run this on your Postgres database:');
-        console.error('  CREATE EXTENSION vector;');
-        console.error("  Use psql, your provider's query console, or Supabase SQL Editor if applicable.");
-        await engine.disconnect();
-        process.exit(1);
-      }
-    }
-  } catch {
-    // Non-fatal: proceed without pgvector if the capability check itself fails.
-  }
-
-  console.log('Running schema migration...');
-  await engine.initSchema();
-
-  saveConfig(engineConfig);
-  console.log('Config saved to ~/.mbrain/config.json');
-
-  const stats = await engine.getStats();
-  await engine.disconnect();
-
-  if (opts.jsonOutput) {
-    console.log(JSON.stringify({ status: 'success', engine: 'postgres', pages: stats.page_count }));
-  } else {
-    console.log(`\nBrain ready. ${stats.page_count} pages.`);
-    console.log('Next: mbrain import <dir> to migrate your markdown.');
-    console.log('Then: mbrain setup-agent to configure Claude Code / Codex.');
-    console.log('Full reference: docs/MBRAIN_SKILLPACK.md');
   }
 }
 
