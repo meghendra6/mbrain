@@ -19,7 +19,7 @@ import type {
   IngestLogEntry, IngestLogInput,
   EngineConfig,
 } from './types.ts';
-import { GBrainError } from './types.ts';
+import { MBrainError } from './types.ts';
 import { buildFrontmatterSearchText, expandTechnicalAliases } from './markdown.ts';
 import { contentHash, importContentHash } from './utils.ts';
 
@@ -188,10 +188,10 @@ export class SQLiteEngine implements BrainEngine {
   async connect(config: EngineConfig): Promise<void> {
     const databasePath = config.database_path;
     if (!databasePath) {
-      throw new GBrainError(
+      throw new MBrainError(
         'No database path',
         'database_path is missing',
-        'Set database_path in ~/.gbrain/config.json before using engine="sqlite"',
+        'Set database_path in ~/.mbrain/config.json before using engine="sqlite"',
       );
     }
 
@@ -238,7 +238,7 @@ export class SQLiteEngine implements BrainEngine {
     // Rebuild FTS index after schema migration. On a fresh database at baseline
     // version (no migrations needed), the FTS triggers maintain the index for all
     // subsequent CRUD — no rebuild is required. If FTS corruption is ever suspected,
-    // re-running `gbrain init --local` triggers a migration version bump and rebuild.
+    // re-running `mbrain init --local` triggers a migration version bump and rebuild.
     if (migrated) {
       db.exec(`INSERT INTO pages_fts(pages_fts) VALUES ('rebuild')`);
     }
@@ -247,7 +247,7 @@ export class SQLiteEngine implements BrainEngine {
   async transaction<T>(fn: (engine: BrainEngine) => Promise<T>): Promise<T> {
     const db = this.database;
     const depth = this.transactionDepth;
-    const savepoint = `gbrain_sp_${depth}`;
+    const savepoint = `mbrain_sp_${depth}`;
     this.transactionDepth += 1;
 
     try {

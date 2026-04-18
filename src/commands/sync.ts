@@ -40,12 +40,12 @@ export async function performSync(engine: BrainEngine, opts: SyncOpts): Promise<
   // Resolve repo path
   const repoPath = opts.repoPath || await engine.getConfig('sync.repo_path');
   if (!repoPath) {
-    throw new Error('No repo path specified. Use --repo or run gbrain init with --repo first.');
+    throw new Error('No repo path specified. Use --repo or run mbrain init with --repo first.');
   }
 
   // Validate git repo
   if (!existsSync(join(repoPath, '.git'))) {
-    throw new Error(`Not a git repository: ${repoPath}. GBrain sync requires a git-initialized repo.`);
+    throw new Error(`Not a git repository: ${repoPath}. MBrain sync requires a git-initialized repo.`);
   }
 
   // Git pull (unless --no-pull)
@@ -245,7 +245,7 @@ export async function performSync(engine: BrainEngine, opts: SyncOpts): Promise<
   });
 
   if (chunksCreated > 0) {
-    console.log(`Text imported. Run 'gbrain embed --stale' to backfill missing embeddings.`);
+    console.log(`Text imported. Run 'mbrain embed --stale' to backfill missing embeddings.`);
   }
 
   return {

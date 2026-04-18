@@ -1,4 +1,4 @@
--- GBrain Postgres + pgvector schema
+-- MBrain Postgres + pgvector schema
 
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -249,7 +249,7 @@ CREATE TRIGGER trg_timeline_search_vector
 -- ============================================================
 -- Row Level Security: block anon access, postgres role bypasses
 -- ============================================================
--- The postgres role (used by gbrain via pooler) has BYPASSRLS.
+-- The postgres role (used by mbrain via pooler) has BYPASSRLS.
 -- Enabling RLS with no policies means the anon key can't read anything.
 -- Only enable if the current role actually has BYPASSRLS privilege,
 -- otherwise we'd lock ourselves out.

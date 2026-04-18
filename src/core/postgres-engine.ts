@@ -14,7 +14,7 @@ import type {
   IngestLogEntry, IngestLogInput,
   EngineConfig,
 } from './types.ts';
-import { GBrainError } from './types.ts';
+import { MBrainError } from './types.ts';
 import * as db from './db.ts';
 import { buildFrontmatterSearchText } from './markdown.ts';
 import { ensurePageChunks } from './page-chunks.ts';
@@ -34,7 +34,7 @@ export class PostgresEngine implements BrainEngine {
     if (config.poolSize) {
       // Instance-level connection for worker isolation
       const url = config.database_url;
-      if (!url) throw new GBrainError('No database URL', 'database_url is missing', 'Provide --url');
+      if (!url) throw new MBrainError('No database URL', 'database_url is missing', 'Provide --url');
       this._sql = postgres(url, {
         max: config.poolSize,
         idle_timeout: 20,

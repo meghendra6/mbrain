@@ -24,8 +24,8 @@
 - Create: `skills/codemap-ingest/templates/concept-codemap-page.md`
 - Modify: `skills/manifest.json`
 - Modify: `skills/query/SKILL.md`
-- Modify: `docs/GBRAIN_AGENT_RULES.md`
-- Modify: `docs/GBRAIN_SKILLPACK.md`
+- Modify: `docs/MBRAIN_AGENT_RULES.md`
+- Modify: `docs/MBRAIN_SKILLPACK.md`
 - Modify: `docs/guides/brain-agent-loop.md`
 - Modify: `docs/guides/brain-first-lookup.md`
 - Modify: `docs/guides/entity-detection.md`
@@ -279,8 +279,8 @@ git commit -m "feat: add codemap ingest skill and templates"
 
 **Files:**
 - Modify: `skills/query/SKILL.md`
-- Modify: `docs/GBRAIN_AGENT_RULES.md`
-- Modify: `docs/GBRAIN_SKILLPACK.md`
+- Modify: `docs/MBRAIN_AGENT_RULES.md`
+- Modify: `docs/MBRAIN_SKILLPACK.md`
 - Modify: `docs/guides/brain-agent-loop.md`
 - Modify: `docs/guides/brain-first-lookup.md`
 - Modify: `docs/guides/entity-detection.md`
@@ -299,7 +299,7 @@ Insert a new section covering:
 
 When the user asks how a mechanism works across systems:
 
-1. `gbrain search "<concept>"`
+1. `mbrain search "<concept>"`
 2. If a concept page has `codemap`, read compiled truth first.
 3. Use the listed pointers for targeted repo navigation.
 4. If a central pointer is older than 30 days, verify and update it.
@@ -308,7 +308,7 @@ When the user asks how a mechanism works across systems:
 
 - [ ] **Step 2: Extend the agent rules**
 
-Update `docs/GBRAIN_AGENT_RULES.md` so Section 3 explicitly includes:
+Update `docs/MBRAIN_AGENT_RULES.md` so Section 3 explicitly includes:
 - technical concept mentions
 - system/repo mentions
 - cross-system questions
@@ -369,7 +369,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skills/query/SKILL.md docs/GBRAIN_AGENT_RULES.md docs/GBRAIN_SKILLPACK.md docs/guides/brain-agent-loop.md docs/guides/brain-first-lookup.md docs/guides/entity-detection.md docs/guides/repo-architecture.md
+git add skills/query/SKILL.md docs/MBRAIN_AGENT_RULES.md docs/MBRAIN_SKILLPACK.md docs/guides/brain-agent-loop.md docs/guides/brain-first-lookup.md docs/guides/entity-detection.md docs/guides/repo-architecture.md
 git commit -m "docs: add technical brain-first knowledge map guidance"
 ```
 
@@ -402,13 +402,13 @@ Expected:
 
 ```bash
 source ~/.zshrc 2>/dev/null || true
-docker run -d --name gbrain-test-pg \
+docker run -d --name mbrain-test-pg \
   -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=gbrain_test \
+  -e POSTGRES_DB=mbrain_test \
   -p 5435:5432 pgvector/pgvector:pg16
-docker exec gbrain-test-pg pg_isready -U postgres
-DATABASE_URL=postgresql://postgres:postgres@localhost:5435/gbrain_test bun run test:e2e
-docker stop gbrain-test-pg && docker rm gbrain-test-pg
+docker exec mbrain-test-pg pg_isready -U postgres
+DATABASE_URL=postgresql://postgres:postgres@localhost:5435/mbrain_test bun run test:e2e
+docker stop mbrain-test-pg && docker rm mbrain-test-pg
 ```
 
 Expected:

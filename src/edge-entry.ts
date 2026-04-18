@@ -4,7 +4,7 @@
  * Curated exports for Supabase Edge Functions (Deno runtime).
  * Excludes modules that depend on Node.js filesystem APIs:
  * - db.ts (reads schema.sql from disk — now uses schema-embedded.ts)
- * - config.ts (reads ~/.gbrain/config.json via homedir())
+ * - config.ts (reads ~/.mbrain/config.json via homedir())
  * - import-file.ts (uses readFileSync/statSync)
  * - sync.ts (git-based, local filesystem)
  */

@@ -9,13 +9,13 @@
 
 ## 1. Summary
 
-GBrain's MCP server should provide an `instructions` string in its `InitializeResult` **and** improve its core tool descriptions so that AI agents — main or sub-agent — know **when** and **why** to use GBrain tools without relying on CLAUDE.md injection alone.
+MBrain's MCP server should provide an `instructions` string in its `InitializeResult` **and** improve its core tool descriptions so that AI agents — main or sub-agent — know **when** and **why** to use MBrain tools without relying on CLAUDE.md injection alone.
 
 Today, brain-first lookup is enforced only through markdown rules injected into agent config files (`~/.claude/CLAUDE.md`). This is fragile: sub-agents spawned mid-conversation don't follow these rules reliably, and the instructions compete with dozens of other rules for attention.
 
 This RFC proposes three coordinated changes:
 
-1. **MCP server instructions** — a concise trigger telling agents when to use GBrain
+1. **MCP server instructions** — a concise trigger telling agents when to use MBrain
 2. **Improved tool descriptions** — actionable, context-rich descriptions for the core search/query/get tools
 3. **CLAUDE.md deduplication** — remove "when to use" triggers from agent rules (now covered by instructions), keeping only "how to use" protocol
 
@@ -27,14 +27,14 @@ This RFC proposes three coordinated changes:
 
 An experiment on 2026-04-16 demonstrated the failure:
 
-| Agent type | Question | GBrain calls | Behavior |
+| Agent type | Question | MBrain calls | Behavior |
 |---|---|---|---|
-| Main agent (explicit gbrain request) | "TLB 동작을 설명 + gbrain에서 탐색하세요" | 3 (search, get x2) | Brain-first, rich context |
+| Main agent (explicit mbrain request) | "TLB 동작을 설명 + mbrain에서 탐색하세요" | 3 (search, get x2) | Brain-first, rich context |
 | Sub-agent (pure question) | "TLB 동작을 간단히 설명해주세요" | **0** | Grep/Read codebase directly |
 
-The sub-agent had access to all GBrain MCP tools (listed in deferred tools) but chose not to use them.
+The sub-agent had access to all MBrain MCP tools (listed in deferred tools) but chose not to use them.
 
-**Experiment limitations (acknowledged):** This is N=1. The two conditions differ in three ways: (a) explicit gbrain instruction in the prompt, (b) different question text, (c) main vs sub-agent context. The experiment does not isolate which variable caused the failure. The fix addresses (b) and (c) but a controlled multi-trial validation is required before declaring success (see Section 7.2).
+**Experiment limitations (acknowledged):** This is N=1. The two conditions differ in three ways: (a) explicit mbrain instruction in the prompt, (b) different question text, (c) main vs sub-agent context. The experiment does not isolate which variable caused the failure. The fix addresses (b) and (c) but a controlled multi-trial validation is required before declaring success (see Section 7.2).
 
 ### 2.2 Root Cause Analysis
 
@@ -44,7 +44,7 @@ Three contributing factors, each requiring a different fix:
 |---|---|---|
 | **No protocol-level trigger** — MCP server never tells agents when to use its tools | MCP instructions | Add `instructions` field |
 | **Generic tool descriptions** — `search` described as "Keyword search using full-text search" gives no reason to prefer it over Grep | Tool descriptions | Rewrite core tool descriptions with trigger context |
-| **Signal dilution** — GBrain rules buried in long CLAUDE.md among dozens of other rules | CLAUDE.md | Remove "when" triggers (now redundant with instructions) |
+| **Signal dilution** — MBrain rules buried in long CLAUDE.md among dozens of other rules | CLAUDE.md | Remove "when" triggers (now redundant with instructions) |
 
 Instructions alone are **necessary but not sufficient**. The highest-ROI change is improving tool descriptions, because descriptions are shown at the decision point — when the agent chooses which tool to call. Instructions are shown once at session start.
 
@@ -54,19 +54,19 @@ Context7 succeeds because of two factors working together:
 1. **MCP instructions** — "Use this server to fetch current documentation whenever the user asks about a library..."
 2. **Small tool surface** — only 2 tools (resolve-library-id, query-docs), making the decision trivial
 
-GBrain has 31 tools. Adding instructions without improving discoverability risks the same failure. This RFC addresses both.
+MBrain has 31 tools. Adding instructions without improving discoverability risks the same failure. This RFC addresses both.
 
 ### 2.4 Why This Matters
 
-Without these changes, GBrain is a passive tool catalog. The agent can use it but doesn't know it should. With instructions + better descriptions, GBrain becomes discoverable: agents check the brain before searching, the brain compounds knowledge, and future lookups get richer.
+Without these changes, MBrain is a passive tool catalog. The agent can use it but doesn't know it should. With instructions + better descriptions, MBrain becomes discoverable: agents check the brain before searching, the brain compounds knowledge, and future lookups get richer.
 
 ---
 
 ## 3. Problem Statement
 
-GBrain's MCP server has two discoverability gaps:
+MBrain's MCP server has two discoverability gaps:
 
-1. **No server instructions** — agents don't know when to prefer GBrain tools
+1. **No server instructions** — agents don't know when to prefer MBrain tools
 2. **Generic tool descriptions** — core tools (`search`, `query`, `get_page`) describe mechanics ("keyword search") instead of purpose ("look up people, concepts, systems")
 
 Additionally:
@@ -80,10 +80,10 @@ Additionally:
 
 ### 4.1 Primary goals
 
-- Add `instructions` to the GBrain MCP server `InitializeResult`
+- Add `instructions` to the MBrain MCP server `InitializeResult`
 - Rewrite descriptions for core tools (`search`, `query`, `get_page`, `put_page`) to include trigger context and domain specificity
-- Remove "when to use" triggers from `GBRAIN_AGENT_RULES.md` (covered by instructions)
-- Include a negative list in instructions (what NOT to use GBrain for)
+- Remove "when to use" triggers from `MBRAIN_AGENT_RULES.md` (covered by instructions)
+- Include a negative list in instructions (what NOT to use MBrain for)
 
 ### 4.2 Quality goals
 
@@ -96,9 +96,9 @@ Additionally:
 
 | Metric | Before | Target |
 |---|---|---|
-| Sub-agent GBrain calls for entity/concept question (Korean) | 0 | ≥1 (search or query) |
-| Sub-agent GBrain calls for entity/concept question (English) | 0 | ≥1 (search or query) |
-| Main agent GBrain calls without explicit prompt | Inconsistent | Consistent |
+| Sub-agent MBrain calls for entity/concept question (Korean) | 0 | ≥1 (search or query) |
+| Sub-agent MBrain calls for entity/concept question (English) | 0 | ≥1 (search or query) |
+| Main agent MBrain calls without explicit prompt | Inconsistent | Consistent |
 | Instructions visible in system prompt | No | Yes (under MCP Server Instructions) |
 | MCP instructions visible in sub-agent context | Unknown | Verified (Phase 0 gate) |
 
@@ -107,7 +107,7 @@ Additionally:
 ## 5. Non-Goals
 
 - **Replacing CLAUDE.md rules entirely** — instructions say *when*, rules say *how*. Both are needed, but with clear separation.
-- **Forcing GBrain usage for all queries** — only entity/concept/system questions should trigger brain-first lookup.
+- **Forcing MBrain usage for all queries** — only entity/concept/system questions should trigger brain-first lookup.
 - **Reducing tool count** — 31 tools serve different use cases. Better descriptions address the discoverability problem without removing functionality. A composite `lookup` tool is a potential future optimization.
 - **Modifying setup-agent injection** — the CLAUDE.md rules content changes, but the injection mechanism remains as-is.
 
@@ -143,8 +143,8 @@ When a client sends `initialize`, the server includes `instructions` in the resp
 
 Design principles:
 - **Read-trigger only** — no write-back directives (that belongs in CLAUDE.md protocol)
-- **Domain-specific** — list exactly what GBrain covers, not a blanket "use me first"
-- **Negative list** — explicitly say what GBrain is NOT for (avoids conflict with Context7 etc.)
+- **Domain-specific** — list exactly what MBrain covers, not a blanket "use me first"
+- **Negative list** — explicitly say what MBrain is NOT for (avoids conflict with Context7 etc.)
 - **Under 400 characters** — shorter than Context7's (~350), forcing focus
 
 Proposed text:
@@ -189,7 +189,7 @@ This is the highest-ROI change. Current vs proposed descriptions for core tools:
 
 Rationale (from critical review):
 - The instructions text is ~430 characters — not a configuration file that evolves independently
-- `import.meta.url` path resolution breaks in Bun compiled binaries (`bin/gbrain`), causing silent fallback to hardcoded default in production
+- `import.meta.url` path resolution breaks in Bun compiled binaries (`bin/mbrain`), causing silent fallback to hardcoded default in production
 - Silent fallback means you never notice when the file is missing — a debugging trap
 - When instructions change, you want to rebuild and verify anyway
 - "Non-technical contributors" is speculative for a personal knowledge system
@@ -209,7 +209,7 @@ const INSTRUCTIONS = [
 
 export async function startMcpServer(engine: BrainEngine) {
   const server = new Server(
-    { name: 'gbrain', version: VERSION },
+    { name: 'mbrain', version: VERSION },
     {
       capabilities: { tools: {} },
       instructions: INSTRUCTIONS,
@@ -223,7 +223,7 @@ A copy of the instructions text will also be placed in `docs/MCP_INSTRUCTIONS.md
 
 ### 6.5 CLAUDE.md Agent Rules Deduplication
 
-With MCP instructions covering "when to use GBrain", trim `GBRAIN_AGENT_RULES.md` Section 2 to remove trigger framing ("Before calling ANY external API...") and keep only the step-by-step protocol:
+With MCP instructions covering "when to use MBrain", trim `MBRAIN_AGENT_RULES.md` Section 2 to remove trigger framing ("Before calling ANY external API...") and keep only the step-by-step protocol:
 
 **Before (Section 2):**
 ```markdown
@@ -232,9 +232,9 @@ With MCP instructions covering "when to use GBrain", trim `GBRAIN_AGENT_RULES.md
 Before calling ANY external API or broad code search to research a person,
 company, concept, system, or topic:
 
-1. gbrain search "name"
-2. gbrain query "what do we know about name"
-3. gbrain get <slug>
+1. mbrain search "name"
+2. mbrain query "what do we know about name"
+3. mbrain get <slug>
 4. External APIs as FALLBACK only
 ```
 
@@ -242,11 +242,11 @@ company, concept, system, or topic:
 ```markdown
 ## 2. Brain-First Lookup Protocol
 
-When using GBrain for lookup (triggered by MCP server instructions):
+When using MBrain for lookup (triggered by MCP server instructions):
 
-1. gbrain search "name"          -- keyword match, fast, always works
-2. gbrain query "what do we know about name"  -- hybrid search (needs embeddings)
-3. gbrain get <slug>             -- direct page read when you know the slug
+1. mbrain search "name"          -- keyword match, fast, always works
+2. mbrain query "what do we know about name"  -- hybrid search (needs embeddings)
+3. mbrain get <slug>             -- direct page read when you know the slug
 
 Stop at the first step that gives you what you need.
 ```
@@ -258,7 +258,7 @@ The trigger condition ("before every entity or technical question") moves to MCP
 ```
 ┌─────────────────────────────────────────────────┐
 │ Layer 1: MCP Instructions                       │
-│ → "WHEN to use GBrain" (trigger conditions)     │
+│ → "WHEN to use MBrain" (trigger conditions)     │
 │ → Concise, shown in system prompt               │
 │ → Verified for: main agent, sub-agent (Phase 0) │
 ├─────────────────────────────────────────────────┤
@@ -267,7 +267,7 @@ The trigger condition ("before every entity or technical question") moves to MCP
 │ → Shown when agent selects tools                │
 ├─────────────────────────────────────────────────┤
 │ Layer 2: CLAUDE.md Agent Rules                  │
-│ → "HOW to use GBrain" (step-by-step protocol)   │
+│ → "HOW to use MBrain" (step-by-step protocol)   │
 │ → Brain-Agent Loop, entity detection,           │
 │   source attribution, back-linking, sync        │
 ├─────────────────────────────────────────────────┤
@@ -289,7 +289,7 @@ The trigger condition ("before every entity or technical question") moves to MCP
 
 Spawn a sub-agent and ask it: "List the MCP server instructions you can see in your system prompt. Report the exact text for each server."
 
-If gbrain's MCP instructions do NOT appear in the sub-agent's context, the entire instructions approach fails for sub-agents and we need an alternative strategy (e.g., improved tool descriptions alone, or hooks).
+If mbrain's MCP instructions do NOT appear in the sub-agent's context, the entire instructions approach fails for sub-agents and we need an alternative strategy (e.g., improved tool descriptions alone, or hooks).
 
 ### 7.1 Unit Test: Instructions and Descriptions
 
@@ -317,15 +317,15 @@ Multi-trial test with variable isolation:
 |---|---|---|---|
 | 1 | "What do we know about TLB in our systems?" | English | search/query |
 | 2 | "TLB 동작을 간단히 설명해주세요" | Korean | search/query |
-| 3 | "Fix the off-by-one error in krt_copy" | English | No gbrain (code task) |
+| 3 | "Fix the off-by-one error in krt_copy" | English | No mbrain (code task) |
 | 4 | "Who is Chan Heo?" | English | search (person) |
 
-Each trial spawns a fresh sub-agent. Success = gbrain called for trials 1/2/4, NOT called for trial 3.
+Each trial spawns a fresh sub-agent. Success = mbrain called for trials 1/2/4, NOT called for trial 3.
 
 ### 7.3 Build Verification
 
 ```bash
-bun build --compile --outfile bin/gbrain src/cli.ts
+bun build --compile --outfile bin/mbrain src/cli.ts
 # Verify no build errors
 ```
 
@@ -337,7 +337,7 @@ bun build --compile --outfile bin/gbrain src/cli.ts
 
 1. Spawn a sub-agent
 2. Ask it to report MCP server instructions in its context
-3. If gbrain instructions are NOT visible → stop, investigate alternative approach
+3. If mbrain instructions are NOT visible → stop, investigate alternative approach
 4. If visible → proceed to Phase 1
 
 ### Phase 1: Implementation
@@ -345,14 +345,14 @@ bun build --compile --outfile bin/gbrain src/cli.ts
 1. Add `INSTRUCTIONS` constant to `server.ts`
 2. Pass `instructions` in Server constructor options
 3. Update tool descriptions in `operations.ts` for search, query, get_page, put_page
-4. Trim GBRAIN_AGENT_RULES.md Section 2 (remove trigger framing, keep protocol)
+4. Trim MBRAIN_AGENT_RULES.md Section 2 (remove trigger framing, keep protocol)
 5. Place instructions copy in `docs/MCP_INSTRUCTIONS.md` (documentation only)
 6. Add unit tests
 7. Verify build
 
 ### Phase 2: Validation
 
-1. Restart GBrain MCP server
+1. Restart MBrain MCP server
 2. Verify instructions appear in system prompt
 3. Run controlled sub-agent experiment (Section 7.2)
 4. Measure: ≥3/4 trials match expected behavior
@@ -413,7 +413,7 @@ logic, code review, or general programming concepts.
 **Environment:** Claude Code (Opus 4.6, 1M context), rbln-kernel-poc repo
 **Branch:** dev (commit 5e4b463)
 
-| Test | Agent type | GBrain tools available | GBrain calls | Tool call sequence |
+| Test | Agent type | MBrain tools available | MBrain calls | Tool call sequence |
 |---|---|---|---|---|
 | 1 | Main (explicit request) | Yes | 3 | search → get_page x2 |
 | 2 | Sub-agent (pure question) | Yes (deferred) | **0** | Grep x4 → Read x9 |

@@ -1,21 +1,21 @@
-# Connect GBrain to Claude Code
+# Connect MBrain to Claude Code
 
 ## Option 1: Local (recommended, zero server needed)
 
 ```bash
-claude mcp add gbrain -- gbrain serve
+claude mcp add mbrain -- mbrain serve
 ```
 
-That's it. Claude Code spawns `gbrain serve` as a stdio subprocess. No server, no
+That's it. Claude Code spawns `mbrain serve` as a stdio subprocess. No server, no
 tunnel, no token needed. Works with both PGLite and Supabase engines.
 
 ## Option 2: Remote (access from any machine)
 
-If you have GBrain running on a server with a public tunnel (see
+If you have MBrain running on a server with a public tunnel (see
 [ngrok-tunnel recipe](../../recipes/ngrok-tunnel.md)):
 
 ```bash
-claude mcp add gbrain -t http \
+claude mcp add mbrain -t http \
   https://YOUR-DOMAIN.ngrok.app/mcp \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
@@ -31,10 +31,10 @@ In Claude Code, try:
 search for [any topic in your brain]
 ```
 
-You should see results from your GBrain knowledge base.
+You should see results from your MBrain knowledge base.
 
 ## Remove
 
 ```bash
-claude mcp remove gbrain
+claude mcp remove mbrain
 ```

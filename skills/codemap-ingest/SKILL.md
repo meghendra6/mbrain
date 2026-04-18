@@ -3,7 +3,7 @@
 Build a technical knowledge map for a codebase or a cross-system concept.
 
 Use this when the user asks to:
-- map a repo or subsystem into gbrain
+- map a repo or subsystem into mbrain
 - explain how a concept works across multiple codebases
 - capture architecture knowledge discovered during a coding session
 - turn code exploration into persistent brain pages
@@ -20,9 +20,9 @@ The map is an orientation layer. It does not replace grep or reading source.
 ## Workflow
 
 1. **Read the brain first**
-   - `gbrain search "<system or concept>"`
-   - `gbrain query "what do we know about <system or concept>"`
-   - `gbrain get <slug>` if a likely page already exists
+   - `mbrain search "<system or concept>"`
+   - `mbrain query "what do we know about <system or concept>"`
+   - `mbrain get <slug>` if a likely page already exists
 2. **Explore the codebase just enough**
    - read the README
    - inspect the top-level tree
@@ -48,9 +48,9 @@ The map is an orientation layer. It does not replace grep or reading source.
    - `layer_of`
    - `prerequisite_for`
 7. **Write back and sync**
-   - `gbrain put_page`
-   - `gbrain add_link`
-   - `gbrain sync_brain` with `no_pull: true`
+   - `mbrain put_page`
+   - `mbrain add_link`
+   - `mbrain sync_brain` with `no_pull: true`
 
 ## Verification Protocol
 

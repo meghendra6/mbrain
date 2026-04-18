@@ -5,7 +5,7 @@ import {
   createLocalConfigDefaults,
   defaultPGLiteDatabasePath,
   saveConfig,
-  type GBrainConfig,
+  type MBrainConfig,
 } from '../core/config.ts';
 import { createEngine, createEngineFromConfig, toEngineConfig } from '../core/engine-factory.ts';
 import * as db from '../core/db.ts';
@@ -40,8 +40,8 @@ export async function runInit(args: string[]) {
         console.log(`Found ~${fileCount} .md files. For a brain this size, Supabase gives faster`);
         console.log('search and remote access ($25/mo). PGLite works too but search will be slower at scale.');
         console.log('');
-        console.log('  gbrain init --supabase   Set up with Supabase (recommended for large brains)');
-        console.log('  gbrain init --pglite     Use local PGLite anyway');
+        console.log('  mbrain init --supabase   Set up with Supabase (recommended for large brains)');
+        console.log('  mbrain init --pglite     Use local PGLite anyway');
         console.log('');
       }
     }
@@ -53,11 +53,11 @@ export async function runInit(args: string[]) {
   if (manualUrl) {
     databaseUrl = manualUrl;
   } else if (isNonInteractive) {
-    const envUrl = process.env.GBRAIN_DATABASE_URL || process.env.DATABASE_URL;
+    const envUrl = process.env.MBRAIN_DATABASE_URL || process.env.DATABASE_URL;
     if (envUrl) {
       databaseUrl = envUrl;
     } else {
-      console.error('--non-interactive requires --url <connection_string> or GBRAIN_DATABASE_URL / DATABASE_URL');
+      console.error('--non-interactive requires --url <connection_string> or MBRAIN_DATABASE_URL / DATABASE_URL');
       process.exit(1);
     }
   } else {
@@ -68,7 +68,7 @@ export async function runInit(args: string[]) {
 }
 
 function printInitHelp() {
-  console.log(`Usage: gbrain init [options]
+  console.log(`Usage: mbrain init [options]
 
 Create a brain. Defaults to local PGLite; pass a flag to pick a different engine.
 
@@ -77,16 +77,16 @@ OPTIONS
   --pglite                  Local PGLite (embedded Postgres; default)
   --supabase                Managed Supabase Postgres (interactive wizard)
   --url <conn>              Existing Postgres connection string (postgres:// or postgresql://)
-  --non-interactive         Fail instead of prompting; use with --url or GBRAIN_DATABASE_URL
+  --non-interactive         Fail instead of prompting; use with --url or MBRAIN_DATABASE_URL
   --path <path>             Override the SQLite/PGLite database path
   --key <openai_api_key>    Save an OpenAI API key in the config
   --json                    Emit machine-readable status output
   -h, --help                Show this help and exit
 
 Examples
-  gbrain init --local
-  gbrain init --pglite --path ~/brains/work.pglite
-  gbrain init --url postgresql://user:pass@host:5432/db --non-interactive
+  mbrain init --local
+  mbrain init --pglite --path ~/brains/work.pglite
+  mbrain init --url postgresql://user:pass@host:5432/db --non-interactive
 `);
 }
 
@@ -103,7 +103,7 @@ async function initSQLite(opts: { jsonOutput: boolean; apiKey: string | null; cu
   await engine.initSchema();
 
   saveConfig(engineConfig);
-  console.log('Config saved to ~/.gbrain/config.json');
+  console.log('Config saved to ~/.mbrain/config.json');
 
   const stats = await engine.getStats();
   await engine.disconnect();
@@ -119,8 +119,8 @@ async function initSQLite(opts: { jsonOutput: boolean; apiKey: string | null; cu
   } else {
     console.log(`\nLocal brain ready. ${stats.page_count} pages.`);
     console.log(`SQLite DB: ${engineConfig.database_path}`);
-    console.log('Next: gbrain import <dir> to index your markdown locally.');
-    console.log('Then: gbrain setup-agent to configure Claude Code / Codex.');
+    console.log('Next: mbrain import <dir> to index your markdown locally.');
+    console.log('Then: mbrain setup-agent to configure Claude Code / Codex.');
   }
 }
 
@@ -132,7 +132,7 @@ async function initPGLite(opts: { jsonOutput: boolean; apiKey: string | null; cu
   await engine.connect({ database_path: dbPath, engine: 'pglite' });
   await engine.initSchema();
 
-  const config: GBrainConfig = {
+  const config: MBrainConfig = {
     engine: 'pglite',
     database_path: dbPath,
     offline: false,
@@ -150,9 +150,9 @@ async function initPGLite(opts: { jsonOutput: boolean; apiKey: string | null; cu
   } else {
     console.log(`\nBrain ready at ${dbPath}`);
     console.log(`${stats.page_count} pages. Engine: PGLite (local Postgres).`);
-    console.log('Next: gbrain import <dir>');
+    console.log('Next: mbrain import <dir>');
     console.log('');
-    console.log('When you outgrow local: gbrain migrate --to supabase');
+    console.log('When you outgrow local: mbrain migrate --to supabase');
   }
 }
 
@@ -170,7 +170,7 @@ async function initPostgres(opts: { databaseUrl: string; jsonOutput: boolean; ap
   }
 
   console.log('Connecting to database...');
-  const engineConfig: GBrainConfig = {
+  const engineConfig: MBrainConfig = {
     engine: 'postgres',
     database_url: databaseUrl,
     offline: false,
@@ -216,7 +216,7 @@ async function initPostgres(opts: { databaseUrl: string; jsonOutput: boolean; ap
   await engine.initSchema();
 
   saveConfig(engineConfig);
-  console.log('Config saved to ~/.gbrain/config.json');
+  console.log('Config saved to ~/.mbrain/config.json');
 
   const stats = await engine.getStats();
   await engine.disconnect();
@@ -225,9 +225,9 @@ async function initPostgres(opts: { databaseUrl: string; jsonOutput: boolean; ap
     console.log(JSON.stringify({ status: 'success', engine: 'postgres', pages: stats.page_count }));
   } else {
     console.log(`\nBrain ready. ${stats.page_count} pages.`);
-    console.log('Next: gbrain import <dir> to migrate your markdown.');
-    console.log('Then: gbrain setup-agent to configure Claude Code / Codex.');
-    console.log('Full reference: docs/GBRAIN_SKILLPACK.md');
+    console.log('Next: mbrain import <dir> to migrate your markdown.');
+    console.log('Then: mbrain setup-agent to configure Claude Code / Codex.');
+    console.log('Full reference: docs/MBRAIN_SKILLPACK.md');
   }
 }
 
@@ -237,7 +237,7 @@ async function postgresWizard(): Promise<string> {
     console.log('Supabase CLI detected (optional managed Postgres helper).');
     console.log('If you want a managed Postgres example, you can run:');
     console.log('  bunx supabase login && bunx supabase projects create');
-    console.log('Then pass any working connection string with: gbrain init --url <connection_string>');
+    console.log('Then pass any working connection string with: mbrain init --url <connection_string>');
   } catch {
     console.log('No Supabase CLI detected (optional).');
     console.log('That is fine — any reachable Postgres connection string works.');

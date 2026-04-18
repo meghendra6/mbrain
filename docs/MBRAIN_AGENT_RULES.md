@@ -1,8 +1,8 @@
-<!-- gbrain-agent-rules-version: 0.5.3 -->
-<!-- source: https://raw.githubusercontent.com/garrytan/gbrain/master/docs/GBRAIN_AGENT_RULES.md -->
-# GBrain Agent Rules
+<!-- mbrain-agent-rules-version: 0.5.3 -->
+<!-- source: https://raw.githubusercontent.com/meghendra6/mbrain/master/docs/MBRAIN_AGENT_RULES.md -->
+# MBrain Agent Rules
 
-These are the behavioral rules your AI agent must follow to operate gbrain as a
+These are the behavioral rules your AI agent must follow to operate mbrain as a
 compounding knowledge system. Without these rules the MCP tools are available but
 the brain-agent loop does not run -- knowledge stops compounding.
 
@@ -19,10 +19,10 @@ Every conversation must follow this cycle:
 ```
 Signal arrives (message, meeting, email, link)
   → Detect entities (people, companies, concepts, technical systems)
-  → READ brain first (gbrain search / query / get)
+  → READ brain first (mbrain search / query / get)
   → Respond with brain context
-  → WRITE new info back to brain (gbrain put_page)
-  → Sync index (gbrain sync_brain)
+  → WRITE new info back to brain (mbrain put_page)
+  → Sync index (mbrain sync_brain)
   → Next signal: agent is smarter than last time
 ```
 
@@ -37,12 +37,12 @@ Signal arrives (message, meeting, email, link)
 
 ## 2. Brain-First Lookup Protocol
 
-When using GBrain for lookup (triggered by the MCP server instructions):
+When using MBrain for lookup (triggered by the MCP server instructions):
 
 ```
-1. gbrain search "name"          -- keyword match, fast, always works
-2. gbrain query "what do we know about name"  -- hybrid search (needs embeddings)
-3. gbrain get <slug>             -- direct page read when you know the slug
+1. mbrain search "name"          -- keyword match, fast, always works
+2. mbrain query "what do we know about name"  -- hybrid search (needs embeddings)
+3. mbrain get <slug>             -- direct page read when you know the slug
 ```
 
 Stop at the first step that gives you what you need. External APIs and web
@@ -70,7 +70,7 @@ The user's own ideas, observations, theses, frameworks. Capture their EXACT phra
 
 People, companies, concepts. For each:
 
-1. Check if brain page exists (`gbrain search "name"`)
+1. Check if brain page exists (`mbrain search "name"`)
 2. No page and notable → create it
 3. Thin page → enrich in background
 4. Rich page → load silently for context
@@ -139,11 +139,11 @@ An unlinked mention is a broken brain. The graph must be bidirectional.
 After creating or updating any brain page, sync immediately:
 
 ```
-gbrain sync_brain (with no_pull: true, no_embed: true)
+mbrain sync_brain (with no_pull: true, no_embed: true)
 ```
 
 This indexes new/changed pages without pulling from git or regenerating embeddings.
-Embeddings refresh later in batch (`gbrain embed --stale`).
+Embeddings refresh later in batch (`mbrain embed --stale`).
 
 ---
 
@@ -159,14 +159,14 @@ Never rewritten, never deleted.
 
 ---
 
-## 8. What gbrain stores vs. what agent memory stores
+## 8. What mbrain stores vs. what agent memory stores
 
 | Layer | What it stores | When to use |
 |-------|---------------|-------------|
-| **gbrain** | World knowledge: people, companies, deals, meetings, concepts | "Who is Pedro?", "What happened at the board meeting?" |
+| **mbrain** | World knowledge: people, companies, deals, meetings, concepts | "Who is Pedro?", "What happened at the board meeting?" |
 | **agent memory** | Operational state: preferences, decisions, session context | "How does the user like formatting?", "What did we decide?" |
 
-Check both. gbrain for facts about the world. Agent memory for how to behave.
+Check both. mbrain for facts about the world. Agent memory for how to behave.
 
 ---
 

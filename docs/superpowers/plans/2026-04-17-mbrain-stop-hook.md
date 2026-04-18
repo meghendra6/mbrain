@@ -1,14 +1,14 @@
-# GBrain Stop Hook Implementation Plan
+# MBrain Stop Hook Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Install a Stop hook in `~/.claude/` that forces the Claude Code agent to write back session-derived knowledge to gbrain at the end of each relevant session, or explicitly justify skipping.
+**Goal:** Install a Stop hook in `~/.claude/` that forces the Claude Code agent to write back session-derived knowledge to mbrain at the end of each relevant session, or explicitly justify skipping.
 
-**Architecture:** Single bash Stop hook entrypoint (`stop-gbrain-check.sh`) with a small sourced library (`lib/gbrain-relevance.sh`) for the relevance gate. No LLM calls in the hook; all brain writes are performed by the agent itself during a block-induced extra turn. Re-entry is guarded by Claude Code's native `stop_hook_active` stdin field (cleaner than the flag-file approach noted in the spec — still deterministic, no leftover state). Tests are plain bash assertion scripts (bats not installed; avoids a new dependency).
+**Architecture:** Single bash Stop hook entrypoint (`stop-mbrain-check.sh`) with a small sourced library (`lib/mbrain-relevance.sh`) for the relevance gate. No LLM calls in the hook; all brain writes are performed by the agent itself during a block-induced extra turn. Re-entry is guarded by Claude Code's native `stop_hook_active` stdin field (cleaner than the flag-file approach noted in the spec — still deterministic, no leftover state). Tests are plain bash assertion scripts (bats not installed; avoids a new dependency).
 
-**Tech Stack:** bash 5, jq 1.6, existing `gbrain` CLI, Claude Code hooks protocol.
+**Tech Stack:** bash 5, jq 1.6, existing `mbrain` CLI, Claude Code hooks protocol.
 
-**Spec:** `~/.claude/docs/superpowers/specs/2026-04-17-gbrain-stop-hook-design.md`
+**Spec:** `~/.claude/docs/superpowers/specs/2026-04-17-mbrain-stop-hook-design.md`
 
 **Design refinement vs. spec:** The spec described a flag-file-based re-entry guard. Claude Code's Stop-hook stdin JSON includes a `stop_hook_active` boolean that exists exactly for this purpose — no filesystem state needed. We use that. Skip-dir and kill-switch logic from the spec are unchanged. We omit the "recent brain search hit" and "agent-memory lookup" relevance rules in v1 (both were speculative; the 3 simple rules + fail-open default satisfy the spec's goal). Tests use bash assertion scripts instead of bats since bats is not installed.
 
@@ -19,21 +19,21 @@
 ```
 ~/.claude/
 ├── scripts/hooks/
-│   ├── stop-gbrain-check.sh              # NEW: hook entrypoint
+│   ├── stop-mbrain-check.sh              # NEW: hook entrypoint
 │   ├── lib/
-│   │   └── gbrain-relevance.sh           # NEW: relevance gate lib
+│   │   └── mbrain-relevance.sh           # NEW: relevance gate lib
 │   └── test/
 │       ├── _assert.sh                    # NEW: tiny test helper
-│       ├── test_gbrain_relevance.sh      # NEW: unit tests for lib
-│       ├── test_stop_gbrain_check.sh     # NEW: unit tests for hook
+│       ├── test_mbrain_relevance.sh      # NEW: unit tests for lib
+│       ├── test_stop_mbrain_check.sh     # NEW: unit tests for hook
 │       └── e2e_smoke.sh                  # NEW: end-to-end smoke test
 ├── hooks/hooks.json                      # MODIFY: register Stop hook
-├── gbrain-skip-dirs                      # NEW: optional opt-out list
+├── mbrain-skip-dirs                      # NEW: optional opt-out list
 └── logs/
-    └── gbrain-stop-hook.log              # runtime artifact (auto-created)
+    └── mbrain-stop-hook.log              # runtime artifact (auto-created)
 ```
 
-Each file has a single responsibility: `lib/gbrain-relevance.sh` decides relevance (no I/O beyond reading the skip-dir file), `stop-gbrain-check.sh` orchestrates hook protocol (stdin → decision JSON + logging), `test/*.sh` validate behavior with no external dependencies beyond bash + jq.
+Each file has a single responsibility: `lib/mbrain-relevance.sh` decides relevance (no I/O beyond reading the skip-dir file), `stop-mbrain-check.sh` orchestrates hook protocol (stdin → decision JSON + logging), `test/*.sh` validate behavior with no external dependencies beyond bash + jq.
 
 ---
 
@@ -135,32 +135,32 @@ EXIT=0
 ```bash
 cd ~/.claude
 git add scripts/hooks/test/_assert.sh scripts/hooks/test/smoke_test.sh
-git commit -m "chore(hooks): add test helper for gbrain stop hook"
+git commit -m "chore(hooks): add test helper for mbrain stop hook"
 ```
 
 ---
 
-### Task 2: Relevance lib — kill switch (`GBRAIN_STOP_HOOK=0`)
+### Task 2: Relevance lib — kill switch (`MBRAIN_STOP_HOOK=0`)
 
 **Files:**
-- Create: `~/.claude/scripts/hooks/lib/gbrain-relevance.sh`
-- Create: `~/.claude/scripts/hooks/test/test_gbrain_relevance.sh`
+- Create: `~/.claude/scripts/hooks/lib/mbrain-relevance.sh`
+- Create: `~/.claude/scripts/hooks/test/test_mbrain_relevance.sh`
 
 - [ ] **Step 1: Write the failing test**
 
-Create `~/.claude/scripts/hooks/test/test_gbrain_relevance.sh`:
+Create `~/.claude/scripts/hooks/test/test_mbrain_relevance.sh`:
 
 ```bash
 #!/bin/bash
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/_assert.sh"
-source "$HERE/../lib/gbrain-relevance.sh"
+source "$HERE/../lib/mbrain-relevance.sh"
 
 # --- kill switch --------------------------------------------------------
 test_kill_switch_explicit_zero() {
-  ( GBRAIN_STOP_HOOK=0 PWD="/tmp/whatever" gbrain_is_relevant )
-  assert_eq "$?" 1 "GBRAIN_STOP_HOOK=0 -> not relevant (rc=1)"
+  ( MBRAIN_STOP_HOOK=0 PWD="/tmp/whatever" mbrain_is_relevant )
+  assert_eq "$?" 1 "MBRAIN_STOP_HOOK=0 -> not relevant (rc=1)"
 }
 
 test_kill_switch_explicit_zero
@@ -171,29 +171,29 @@ assert_summary
 - [ ] **Step 2: Run to confirm it fails**
 
 ```bash
-chmod +x ~/.claude/scripts/hooks/test/test_gbrain_relevance.sh
-bash ~/.claude/scripts/hooks/test/test_gbrain_relevance.sh
+chmod +x ~/.claude/scripts/hooks/test/test_mbrain_relevance.sh
+bash ~/.claude/scripts/hooks/test/test_mbrain_relevance.sh
 ```
 
 Expected: either `source` error (file does not exist) or FAIL line.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `~/.claude/scripts/hooks/lib/gbrain-relevance.sh`:
+Create `~/.claude/scripts/hooks/lib/mbrain-relevance.sh`:
 
 ```bash
-# gbrain-relevance.sh
+# mbrain-relevance.sh
 #
-# Exposes: gbrain_is_relevant
+# Exposes: mbrain_is_relevant
 #   rc=0 -> relevant (the Stop hook should block and prompt the agent)
 #   rc=1 -> not relevant (the Stop hook should pass through without blocking)
 #
-# Inputs: $PWD, env vars, optional ~/.claude/gbrain-skip-dirs
+# Inputs: $PWD, env vars, optional ~/.claude/mbrain-skip-dirs
 # No stdout output on the happy path; stderr only for loud errors.
 
-gbrain_is_relevant() {
+mbrain_is_relevant() {
   # Rule 1: explicit kill switch.
-  if [ "${GBRAIN_STOP_HOOK:-1}" = "0" ]; then
+  if [ "${MBRAIN_STOP_HOOK:-1}" = "0" ]; then
     return 1
   fi
 
@@ -205,12 +205,12 @@ gbrain_is_relevant() {
 - [ ] **Step 4: Run to verify it passes**
 
 ```bash
-bash ~/.claude/scripts/hooks/test/test_gbrain_relevance.sh
+bash ~/.claude/scripts/hooks/test/test_mbrain_relevance.sh
 ```
 
 Expected:
 ```
-PASS GBRAIN_STOP_HOOK=0 -> not relevant (rc=1)
+PASS MBRAIN_STOP_HOOK=0 -> not relevant (rc=1)
 
 ---
 Passed: 1  Failed: 0
@@ -220,8 +220,8 @@ Passed: 1  Failed: 0
 
 ```bash
 cd ~/.claude
-git add scripts/hooks/lib/gbrain-relevance.sh scripts/hooks/test/test_gbrain_relevance.sh
-git commit -m "feat(hooks): add gbrain relevance gate with kill switch"
+git add scripts/hooks/lib/mbrain-relevance.sh scripts/hooks/test/test_mbrain_relevance.sh
+git commit -m "feat(hooks): add mbrain relevance gate with kill switch"
 ```
 
 ---
@@ -229,13 +229,13 @@ git commit -m "feat(hooks): add gbrain relevance gate with kill switch"
 ### Task 3: Relevance lib — skip-dirs file
 
 **Files:**
-- Modify: `~/.claude/scripts/hooks/lib/gbrain-relevance.sh`
-- Modify: `~/.claude/scripts/hooks/test/test_gbrain_relevance.sh`
-- Create: `~/.claude/gbrain-skip-dirs` (empty sentinel file shipped with example comments)
+- Modify: `~/.claude/scripts/hooks/lib/mbrain-relevance.sh`
+- Modify: `~/.claude/scripts/hooks/test/test_mbrain_relevance.sh`
+- Create: `~/.claude/mbrain-skip-dirs` (empty sentinel file shipped with example comments)
 
 - [ ] **Step 1: Add failing tests for skip-dir behavior**
 
-Append to `~/.claude/scripts/hooks/test/test_gbrain_relevance.sh` (before `assert_summary`):
+Append to `~/.claude/scripts/hooks/test/test_mbrain_relevance.sh` (before `assert_summary`):
 
 ```bash
 # --- skip dirs ----------------------------------------------------------
@@ -245,7 +245,7 @@ test_skip_dirs_exact_match() {
   local skipfile="$tmpdir/skip"
   printf '%s\n' "$tmpdir" > "$skipfile"
 
-  ( PWD="$tmpdir" GBRAIN_SKIP_DIRS_FILE="$skipfile" gbrain_is_relevant )
+  ( PWD="$tmpdir" MBRAIN_SKIP_DIRS_FILE="$skipfile" mbrain_is_relevant )
   assert_eq "$?" 1 "skip-dirs exact match -> not relevant"
 
   rm -rf "$tmpdir"
@@ -257,7 +257,7 @@ test_skip_dirs_commented_line_ignored() {
   local skipfile="$tmpdir/skip"
   printf '# %s\n' "$tmpdir" > "$skipfile"   # leading # means comment
 
-  ( PWD="$tmpdir" GBRAIN_SKIP_DIRS_FILE="$skipfile" gbrain_is_relevant )
+  ( PWD="$tmpdir" MBRAIN_SKIP_DIRS_FILE="$skipfile" mbrain_is_relevant )
   assert_eq "$?" 0 "commented skip line -> relevant (fail-open)"
 
   rm -rf "$tmpdir"
@@ -269,14 +269,14 @@ test_skip_dirs_empty_file() {
   local skipfile="$tmpdir/skip"
   : > "$skipfile"
 
-  ( PWD="$tmpdir" GBRAIN_SKIP_DIRS_FILE="$skipfile" gbrain_is_relevant )
+  ( PWD="$tmpdir" MBRAIN_SKIP_DIRS_FILE="$skipfile" mbrain_is_relevant )
   assert_eq "$?" 0 "empty skip file -> relevant (fail-open)"
 
   rm -rf "$tmpdir"
 }
 
 test_skip_dirs_missing_file() {
-  ( PWD="/tmp" GBRAIN_SKIP_DIRS_FILE="/nonexistent/skip" gbrain_is_relevant )
+  ( PWD="/tmp" MBRAIN_SKIP_DIRS_FILE="/nonexistent/skip" mbrain_is_relevant )
   assert_eq "$?" 0 "missing skip file -> relevant (fail-open)"
 }
 
@@ -289,30 +289,30 @@ test_skip_dirs_missing_file
 - [ ] **Step 2: Run to confirm the new tests fail**
 
 ```bash
-bash ~/.claude/scripts/hooks/test/test_gbrain_relevance.sh
+bash ~/.claude/scripts/hooks/test/test_mbrain_relevance.sh
 ```
 
 Expected: kill-switch test still passes; new skip-dir tests either pass accidentally (the function returns 0 by default) or fail on the "exact match -> not relevant" test specifically.
 
 - [ ] **Step 3: Implement skip-dirs logic**
 
-Replace `~/.claude/scripts/hooks/lib/gbrain-relevance.sh` with:
+Replace `~/.claude/scripts/hooks/lib/mbrain-relevance.sh` with:
 
 ```bash
-# gbrain-relevance.sh
+# mbrain-relevance.sh
 #
-# Exposes: gbrain_is_relevant
+# Exposes: mbrain_is_relevant
 #   rc=0 -> relevant
 #   rc=1 -> not relevant
 #
 # Inputs: $PWD, env vars, optional skip-dirs file
-#   GBRAIN_STOP_HOOK       : "0" = kill switch
-#   GBRAIN_SKIP_DIRS_FILE  : path to skip-dirs file (default: ~/.claude/gbrain-skip-dirs)
+#   MBRAIN_STOP_HOOK       : "0" = kill switch
+#   MBRAIN_SKIP_DIRS_FILE  : path to skip-dirs file (default: ~/.claude/mbrain-skip-dirs)
 #
 # Skip-dirs file format: one absolute path per line. Blank lines and lines
 # starting with '#' are ignored. Exact match only (no wildcards in v1).
 
-_gbrain_skip_dir_match() {
+_mbrain_skip_dir_match() {
   local cwd="$1"
   local file="$2"
   [ -f "$file" ] || return 1
@@ -332,15 +332,15 @@ _gbrain_skip_dir_match() {
   return 1
 }
 
-gbrain_is_relevant() {
+mbrain_is_relevant() {
   # Rule 1: explicit kill switch.
-  if [ "${GBRAIN_STOP_HOOK:-1}" = "0" ]; then
+  if [ "${MBRAIN_STOP_HOOK:-1}" = "0" ]; then
     return 1
   fi
 
   # Rule 2: CWD in skip-dirs file.
-  local skipfile="${GBRAIN_SKIP_DIRS_FILE:-$HOME/.claude/gbrain-skip-dirs}"
-  if _gbrain_skip_dir_match "${PWD:-$(pwd)}" "$skipfile"; then
+  local skipfile="${MBRAIN_SKIP_DIRS_FILE:-$HOME/.claude/mbrain-skip-dirs}"
+  if _mbrain_skip_dir_match "${PWD:-$(pwd)}" "$skipfile"; then
     return 1
   fi
 
@@ -351,13 +351,13 @@ gbrain_is_relevant() {
 
 - [ ] **Step 4: Create the shipped skip-dirs template**
 
-Create `~/.claude/gbrain-skip-dirs`:
+Create `~/.claude/mbrain-skip-dirs`:
 
 ```
-# gbrain Stop-hook skip list (v1: exact absolute paths, one per line)
+# mbrain Stop-hook skip list (v1: exact absolute paths, one per line)
 #
 # Add directories where you don't want the Stop hook to ask the agent to
-# write to gbrain — e.g., scratch / throwaway work.
+# write to mbrain — e.g., scratch / throwaway work.
 #
 # Example:
 # /tmp/throwaway-experiment
@@ -367,12 +367,12 @@ Create `~/.claude/gbrain-skip-dirs`:
 - [ ] **Step 5: Run all tests and verify pass**
 
 ```bash
-bash ~/.claude/scripts/hooks/test/test_gbrain_relevance.sh
+bash ~/.claude/scripts/hooks/test/test_mbrain_relevance.sh
 ```
 
 Expected:
 ```
-PASS GBRAIN_STOP_HOOK=0 -> not relevant (rc=1)
+PASS MBRAIN_STOP_HOOK=0 -> not relevant (rc=1)
 PASS skip-dirs exact match -> not relevant
 PASS commented skip line -> relevant (fail-open)
 PASS empty skip file -> relevant (fail-open)
@@ -386,61 +386,61 @@ Passed: 5  Failed: 0
 
 ```bash
 cd ~/.claude
-git add scripts/hooks/lib/gbrain-relevance.sh scripts/hooks/test/test_gbrain_relevance.sh gbrain-skip-dirs
-git commit -m "feat(hooks): add skip-dirs rule to gbrain relevance gate"
+git add scripts/hooks/lib/mbrain-relevance.sh scripts/hooks/test/test_mbrain_relevance.sh mbrain-skip-dirs
+git commit -m "feat(hooks): add skip-dirs rule to mbrain relevance gate"
 ```
 
 ---
 
-### Task 4: Relevance lib — missing `gbrain` CLI (fail-closed exception)
+### Task 4: Relevance lib — missing `mbrain` CLI (fail-closed exception)
 
 **Files:**
-- Modify: `~/.claude/scripts/hooks/lib/gbrain-relevance.sh`
-- Modify: `~/.claude/scripts/hooks/test/test_gbrain_relevance.sh`
+- Modify: `~/.claude/scripts/hooks/lib/mbrain-relevance.sh`
+- Modify: `~/.claude/scripts/hooks/test/test_mbrain_relevance.sh`
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `~/.claude/scripts/hooks/test/test_gbrain_relevance.sh` (before `assert_summary`):
+Append to `~/.claude/scripts/hooks/test/test_mbrain_relevance.sh` (before `assert_summary`):
 
 ```bash
-# --- gbrain CLI availability ------------------------------------------
-test_gbrain_cli_missing() {
-  # Strip PATH so `command -v gbrain` fails.
-  ( PATH="/nonexistent" PWD="/tmp" gbrain_is_relevant )
-  assert_eq "$?" 1 "gbrain CLI not on PATH -> not relevant (documented exception)"
+# --- mbrain CLI availability ------------------------------------------
+test_mbrain_cli_missing() {
+  # Strip PATH so `command -v mbrain` fails.
+  ( PATH="/nonexistent" PWD="/tmp" mbrain_is_relevant )
+  assert_eq "$?" 1 "mbrain CLI not on PATH -> not relevant (documented exception)"
 }
 
-test_gbrain_cli_missing
+test_mbrain_cli_missing
 ```
 
 - [ ] **Step 2: Run to confirm it fails**
 
 ```bash
-bash ~/.claude/scripts/hooks/test/test_gbrain_relevance.sh
+bash ~/.claude/scripts/hooks/test/test_mbrain_relevance.sh
 ```
 
 Expected: the new test FAILs (current impl returns 0).
 
 - [ ] **Step 3: Implement the check**
 
-In `~/.claude/scripts/hooks/lib/gbrain-relevance.sh`, extend `gbrain_is_relevant` so the full function reads:
+In `~/.claude/scripts/hooks/lib/mbrain-relevance.sh`, extend `mbrain_is_relevant` so the full function reads:
 
 ```bash
-gbrain_is_relevant() {
+mbrain_is_relevant() {
   # Rule 1: explicit kill switch.
-  if [ "${GBRAIN_STOP_HOOK:-1}" = "0" ]; then
+  if [ "${MBRAIN_STOP_HOOK:-1}" = "0" ]; then
     return 1
   fi
 
   # Rule 2: CWD in skip-dirs file.
-  local skipfile="${GBRAIN_SKIP_DIRS_FILE:-$HOME/.claude/gbrain-skip-dirs}"
-  if _gbrain_skip_dir_match "${PWD:-$(pwd)}" "$skipfile"; then
+  local skipfile="${MBRAIN_SKIP_DIRS_FILE:-$HOME/.claude/mbrain-skip-dirs}"
+  if _mbrain_skip_dir_match "${PWD:-$(pwd)}" "$skipfile"; then
     return 1
   fi
 
-  # Rule 3: gbrain CLI missing -> documented exception, fail-closed.
+  # Rule 3: mbrain CLI missing -> documented exception, fail-closed.
   # We don't ask the agent to write to a brain the user hasn't installed.
-  if ! command -v gbrain >/dev/null 2>&1; then
+  if ! command -v mbrain >/dev/null 2>&1; then
     return 1
   fi
 
@@ -452,7 +452,7 @@ gbrain_is_relevant() {
 - [ ] **Step 4: Run all tests**
 
 ```bash
-bash ~/.claude/scripts/hooks/test/test_gbrain_relevance.sh
+bash ~/.claude/scripts/hooks/test/test_mbrain_relevance.sh
 ```
 
 Expected: 6 PASS, 0 FAIL.
@@ -461,8 +461,8 @@ Expected: 6 PASS, 0 FAIL.
 
 ```bash
 cd ~/.claude
-git add scripts/hooks/lib/gbrain-relevance.sh scripts/hooks/test/test_gbrain_relevance.sh
-git commit -m "feat(hooks): skip gbrain prompt when CLI is missing"
+git add scripts/hooks/lib/mbrain-relevance.sh scripts/hooks/test/test_mbrain_relevance.sh
+git commit -m "feat(hooks): skip mbrain prompt when CLI is missing"
 ```
 
 ---
@@ -470,13 +470,13 @@ git commit -m "feat(hooks): skip gbrain prompt when CLI is missing"
 ### Task 5: Relevance lib — fail-open default test pin
 
 **Files:**
-- Modify: `~/.claude/scripts/hooks/test/test_gbrain_relevance.sh`
+- Modify: `~/.claude/scripts/hooks/test/test_mbrain_relevance.sh`
 
 (This task has no production code change — it pins the default behavior with an explicit regression test so future edits don't accidentally flip the default to fail-closed.)
 
 - [ ] **Step 1: Add the fail-open test**
 
-Append to `~/.claude/scripts/hooks/test/test_gbrain_relevance.sh` (before `assert_summary`):
+Append to `~/.claude/scripts/hooks/test/test_mbrain_relevance.sh` (before `assert_summary`):
 
 ```bash
 # --- default fail-open -------------------------------------------------
@@ -484,9 +484,9 @@ test_default_fail_open() {
   local tmpdir
   tmpdir="$(mktemp -d)"
   ( PWD="$tmpdir" \
-    GBRAIN_SKIP_DIRS_FILE="/nonexistent" \
+    MBRAIN_SKIP_DIRS_FILE="/nonexistent" \
     PATH="$PATH" \
-    gbrain_is_relevant )
+    mbrain_is_relevant )
   assert_eq "$?" 0 "no disqualifying signal -> relevant (fail-open default)"
   rm -rf "$tmpdir"
 }
@@ -497,7 +497,7 @@ test_default_fail_open
 - [ ] **Step 2: Run**
 
 ```bash
-bash ~/.claude/scripts/hooks/test/test_gbrain_relevance.sh
+bash ~/.claude/scripts/hooks/test/test_mbrain_relevance.sh
 ```
 
 Expected: 7 PASS, 0 FAIL. (No impl change needed; current impl already satisfies this.)
@@ -506,8 +506,8 @@ Expected: 7 PASS, 0 FAIL. (No impl change needed; current impl already satisfies
 
 ```bash
 cd ~/.claude
-git add scripts/hooks/test/test_gbrain_relevance.sh
-git commit -m "test(hooks): pin fail-open default for gbrain relevance gate"
+git add scripts/hooks/test/test_mbrain_relevance.sh
+git commit -m "test(hooks): pin fail-open default for mbrain relevance gate"
 ```
 
 ---
@@ -515,14 +515,14 @@ git commit -m "test(hooks): pin fail-open default for gbrain relevance gate"
 ### Task 6: Hook entrypoint — `stop_hook_active` re-entry guard
 
 **Files:**
-- Create: `~/.claude/scripts/hooks/stop-gbrain-check.sh`
-- Create: `~/.claude/scripts/hooks/test/test_stop_gbrain_check.sh`
+- Create: `~/.claude/scripts/hooks/stop-mbrain-check.sh`
+- Create: `~/.claude/scripts/hooks/test/test_stop_mbrain_check.sh`
 
 **Protocol reference:** Claude Code Stop hooks receive a JSON payload on stdin with at minimum `session_id`, `transcript_path`, and `stop_hook_active` fields. When `stop_hook_active` is `true`, the hook must NOT emit another block (Claude Code is already in a block-driven continuation and would loop). The hook should pass stdin through to stdout so downstream hooks in the chain see the same input.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `~/.claude/scripts/hooks/test/test_stop_gbrain_check.sh`:
+Create `~/.claude/scripts/hooks/test/test_stop_mbrain_check.sh`:
 
 ```bash
 #!/bin/bash
@@ -530,7 +530,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/_assert.sh"
 
-HOOK="$HERE/../stop-gbrain-check.sh"
+HOOK="$HERE/../stop-mbrain-check.sh"
 
 run_hook() {
   # $1 = stdin JSON, remaining args = env var assignments "KEY=VAL"
@@ -568,23 +568,23 @@ assert_summary
 - [ ] **Step 2: Run to confirm it fails**
 
 ```bash
-chmod +x ~/.claude/scripts/hooks/test/test_stop_gbrain_check.sh
-bash ~/.claude/scripts/hooks/test/test_stop_gbrain_check.sh
+chmod +x ~/.claude/scripts/hooks/test/test_stop_mbrain_check.sh
+bash ~/.claude/scripts/hooks/test/test_stop_mbrain_check.sh
 ```
 
 Expected: the hook file does not exist → source/exec error.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `~/.claude/scripts/hooks/stop-gbrain-check.sh`:
+Create `~/.claude/scripts/hooks/stop-mbrain-check.sh`:
 
 ```bash
 #!/bin/bash
-# stop-gbrain-check.sh
+# stop-mbrain-check.sh
 #
 # Claude Code Stop hook. Reads the Stop-hook JSON from stdin and decides
 # whether to (a) pass through silently or (b) emit a `decision: block` to
-# force the agent to check gbrain for session knowledge that should be
+# force the agent to check mbrain for session knowledge that should be
 # written back.
 #
 # Contract:
@@ -593,13 +593,13 @@ Create `~/.claude/scripts/hooks/stop-gbrain-check.sh`:
 #     in the Stop chain see the same payload.
 #   - On block path, emit ONE JSON object to stdout.
 #
-# See: ~/.claude/docs/superpowers/specs/2026-04-17-gbrain-stop-hook-design.md
+# See: ~/.claude/docs/superpowers/specs/2026-04-17-mbrain-stop-hook-design.md
 
 set -u  # not -e: we explicitly manage non-zero propagation.
 
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/gbrain-relevance.sh
-source "$HOOK_DIR/lib/gbrain-relevance.sh"
+# shellcheck source=lib/mbrain-relevance.sh
+source "$HOOK_DIR/lib/mbrain-relevance.sh"
 
 # Read stdin once.
 RAW_INPUT="$(cat)"
@@ -626,8 +626,8 @@ exit 0
 - [ ] **Step 4: Run to verify it passes**
 
 ```bash
-chmod +x ~/.claude/scripts/hooks/stop-gbrain-check.sh
-bash ~/.claude/scripts/hooks/test/test_stop_gbrain_check.sh
+chmod +x ~/.claude/scripts/hooks/stop-mbrain-check.sh
+bash ~/.claude/scripts/hooks/test/test_stop_mbrain_check.sh
 ```
 
 Expected:
@@ -644,8 +644,8 @@ Passed: 3  Failed: 0
 
 ```bash
 cd ~/.claude
-git add scripts/hooks/stop-gbrain-check.sh scripts/hooks/test/test_stop_gbrain_check.sh
-git commit -m "feat(hooks): add gbrain stop-hook skeleton with re-entry guard"
+git add scripts/hooks/stop-mbrain-check.sh scripts/hooks/test/test_stop_mbrain_check.sh
+git commit -m "feat(hooks): add mbrain stop-hook skeleton with re-entry guard"
 ```
 
 ---
@@ -653,18 +653,18 @@ git commit -m "feat(hooks): add gbrain stop-hook skeleton with re-entry guard"
 ### Task 7: Hook entrypoint — relevance gate + block emission
 
 **Files:**
-- Modify: `~/.claude/scripts/hooks/stop-gbrain-check.sh`
-- Modify: `~/.claude/scripts/hooks/test/test_stop_gbrain_check.sh`
+- Modify: `~/.claude/scripts/hooks/stop-mbrain-check.sh`
+- Modify: `~/.claude/scripts/hooks/test/test_stop_mbrain_check.sh`
 
 - [ ] **Step 1: Add failing tests for gate + block**
 
-Append to `~/.claude/scripts/hooks/test/test_stop_gbrain_check.sh` (before `assert_summary`):
+Append to `~/.claude/scripts/hooks/test/test_stop_mbrain_check.sh` (before `assert_summary`):
 
 ```bash
 # --- not relevant -> pass through --------------------------------------
 test_not_relevant_passes_through() {
   local out
-  out="$(run_hook '{"session_id":"s2","stop_hook_active":false}' "GBRAIN_STOP_HOOK=0")"
+  out="$(run_hook '{"session_id":"s2","stop_hook_active":false}' "MBRAIN_STOP_HOOK=0")"
   local rc=$?
   assert_eq "$rc" 0 "kill-switch set -> rc 0"
   assert_contains "$out" '"session_id":"s2"' "kill-switch set -> stdin piped through"
@@ -683,13 +683,13 @@ test_not_relevant_passes_through() {
 # --- relevant -> emit block --------------------------------------------
 test_relevant_emits_block() {
   local out
-  # Use real gbrain on PATH, no skip-dir match, no kill switch.
+  # Use real mbrain on PATH, no skip-dir match, no kill switch.
   out="$(run_hook '{"session_id":"s3","stop_hook_active":false}')"
   local rc=$?
   assert_eq "$rc" 0 "relevant -> rc 0"
   assert_contains "$out" '"decision":"block"' "relevant -> block decision in stdout"
-  assert_contains "$out" "GBRAIN_AGENT_RULES" "block reason references GBRAIN_AGENT_RULES"
-  assert_contains "$out" "GBRAIN-PASS" "block reason documents the PASS escape hatch"
+  assert_contains "$out" "MBRAIN_AGENT_RULES" "block reason references MBRAIN_AGENT_RULES"
+  assert_contains "$out" "MBRAIN-PASS" "block reason documents the PASS escape hatch"
 }
 
 test_not_relevant_passes_through
@@ -699,27 +699,27 @@ test_relevant_emits_block
 - [ ] **Step 2: Run to confirm the new tests fail**
 
 ```bash
-bash ~/.claude/scripts/hooks/test/test_stop_gbrain_check.sh
+bash ~/.claude/scripts/hooks/test/test_stop_mbrain_check.sh
 ```
 
 Expected: re-entry tests still pass; new tests FAIL (hook always pass-through today).
 
 - [ ] **Step 3: Implement relevance gate + block emission**
 
-Replace `~/.claude/scripts/hooks/stop-gbrain-check.sh` with:
+Replace `~/.claude/scripts/hooks/stop-mbrain-check.sh` with:
 
 ```bash
 #!/bin/bash
-# stop-gbrain-check.sh
+# stop-mbrain-check.sh
 #
 # Claude Code Stop hook. See task 6 header for contract.
-# Spec: ~/.claude/docs/superpowers/specs/2026-04-17-gbrain-stop-hook-design.md
+# Spec: ~/.claude/docs/superpowers/specs/2026-04-17-mbrain-stop-hook-design.md
 
 set -u
 
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/gbrain-relevance.sh
-source "$HOOK_DIR/lib/gbrain-relevance.sh"
+# shellcheck source=lib/mbrain-relevance.sh
+source "$HOOK_DIR/lib/mbrain-relevance.sh"
 
 RAW_INPUT="$(cat)"
 
@@ -736,7 +736,7 @@ if [ "$STOP_ACTIVE" = "true" ]; then
 fi
 
 # --- relevance gate ---------------------------------------------------
-if ! gbrain_is_relevant; then
+if ! mbrain_is_relevant; then
   printf '%s' "$RAW_INPUT"
   exit 0
 fi
@@ -745,7 +745,7 @@ fi
 # This reason is the prompt the agent sees when Claude Code converts our
 # block decision into a continuation turn. Keep it tight, actionable,
 # and rule-referenced.
-REASON='gbrain write check: before ending this session, review the conversation for entities (people, companies, concepts, technical systems) worth recording — per GBRAIN_AGENT_RULES.md §3. For each notable entity: gbrain search <slug> to find or create the page, append compiled truth + timeline entry with source attribution, add back-links (iron law), then gbrain sync_brain with no_pull=true and no_embed=true. If nothing in this session warrants a brain write (read-only question, trivial chore, already-written knowledge), respond with exactly: GBRAIN-PASS: <short reason>. Do not ask the user for permission — decide and act.'
+REASON='mbrain write check: before ending this session, review the conversation for entities (people, companies, concepts, technical systems) worth recording — per MBRAIN_AGENT_RULES.md §3. For each notable entity: mbrain search <slug> to find or create the page, append compiled truth + timeline entry with source attribution, add back-links (iron law), then mbrain sync_brain with no_pull=true and no_embed=true. If nothing in this session warrants a brain write (read-only question, trivial chore, already-written knowledge), respond with exactly: MBRAIN-PASS: <short reason>. Do not ask the user for permission — decide and act.'
 
 # jq assembles a safe JSON object with the reason string escaped properly.
 printf '%s' "$RAW_INPUT" | jq -c \
@@ -758,7 +758,7 @@ exit 0
 - [ ] **Step 4: Run all hook tests**
 
 ```bash
-bash ~/.claude/scripts/hooks/test/test_stop_gbrain_check.sh
+bash ~/.claude/scripts/hooks/test/test_stop_mbrain_check.sh
 ```
 
 Expected:
@@ -771,7 +771,7 @@ PASS kill-switch set -> stdin piped through
 PASS kill-switch set did not emit block
 PASS relevant -> rc 0
 PASS relevant -> block decision in stdout
-PASS block reason references GBRAIN_AGENT_RULES
+PASS block reason references MBRAIN_AGENT_RULES
 PASS block reason documents the PASS escape hatch
 
 ---
@@ -782,8 +782,8 @@ Passed: 10  Failed: 0
 
 ```bash
 cd ~/.claude
-git add scripts/hooks/stop-gbrain-check.sh scripts/hooks/test/test_stop_gbrain_check.sh
-git commit -m "feat(hooks): gate gbrain stop-hook on relevance and emit block decision"
+git add scripts/hooks/stop-mbrain-check.sh scripts/hooks/test/test_stop_mbrain_check.sh
+git commit -m "feat(hooks): gate mbrain stop-hook on relevance and emit block decision"
 ```
 
 ---
@@ -791,12 +791,12 @@ git commit -m "feat(hooks): gate gbrain stop-hook on relevance and emit block de
 ### Task 8: Hook entrypoint — logging
 
 **Files:**
-- Modify: `~/.claude/scripts/hooks/stop-gbrain-check.sh`
-- Modify: `~/.claude/scripts/hooks/test/test_stop_gbrain_check.sh`
+- Modify: `~/.claude/scripts/hooks/stop-mbrain-check.sh`
+- Modify: `~/.claude/scripts/hooks/test/test_stop_mbrain_check.sh`
 
 - [ ] **Step 1: Add failing test for log line**
 
-Append to `~/.claude/scripts/hooks/test/test_stop_gbrain_check.sh` (before `assert_summary`):
+Append to `~/.claude/scripts/hooks/test/test_stop_mbrain_check.sh` (before `assert_summary`):
 
 ```bash
 # --- logging ----------------------------------------------------------
@@ -806,7 +806,7 @@ test_logs_block_decision() {
   logfile="$logdir/hook.log"
 
   local out
-  out="$(env -i HOME="$HOME" PATH="$PATH" GBRAIN_STOP_HOOK_LOG="$logfile" \
+  out="$(env -i HOME="$HOME" PATH="$PATH" MBRAIN_STOP_HOOK_LOG="$logfile" \
          bash "$HOOK" <<<'{"session_id":"s-log-1","stop_hook_active":false}')"
 
   assert_contains "$(cat "$logfile")" "s-log-1" "log contains session id"
@@ -820,7 +820,7 @@ test_logs_skip_decision() {
   logdir="$(mktemp -d)"
   logfile="$logdir/hook.log"
 
-  env -i HOME="$HOME" PATH="$PATH" GBRAIN_STOP_HOOK=0 GBRAIN_STOP_HOOK_LOG="$logfile" \
+  env -i HOME="$HOME" PATH="$PATH" MBRAIN_STOP_HOOK=0 MBRAIN_STOP_HOOK_LOG="$logfile" \
     bash "$HOOK" <<<'{"session_id":"s-log-2","stop_hook_active":false}' >/dev/null
 
   assert_contains "$(cat "$logfile")" "s-log-2" "log contains session id (skip path)"
@@ -836,26 +836,26 @@ test_logs_skip_decision
 - [ ] **Step 2: Run to confirm failure**
 
 ```bash
-bash ~/.claude/scripts/hooks/test/test_stop_gbrain_check.sh
+bash ~/.claude/scripts/hooks/test/test_stop_mbrain_check.sh
 ```
 
 Expected: existing 10 pass, 4 new assertions FAIL (no log file written).
 
 - [ ] **Step 3: Implement logging**
 
-Replace `~/.claude/scripts/hooks/stop-gbrain-check.sh` with:
+Replace `~/.claude/scripts/hooks/stop-mbrain-check.sh` with:
 
 ```bash
 #!/bin/bash
-# stop-gbrain-check.sh — see task 6 header.
+# stop-mbrain-check.sh — see task 6 header.
 
 set -u
 
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/gbrain-relevance.sh
-source "$HOOK_DIR/lib/gbrain-relevance.sh"
+# shellcheck source=lib/mbrain-relevance.sh
+source "$HOOK_DIR/lib/mbrain-relevance.sh"
 
-LOG_FILE="${GBRAIN_STOP_HOOK_LOG:-$HOME/.claude/logs/gbrain-stop-hook.log}"
+LOG_FILE="${MBRAIN_STOP_HOOK_LOG:-$HOME/.claude/logs/mbrain-stop-hook.log}"
 
 log_line() {
   local decision="$1"
@@ -893,14 +893,14 @@ if [ "$STOP_ACTIVE" = "true" ]; then
 fi
 
 # --- relevance gate ---------------------------------------------------
-if ! gbrain_is_relevant; then
+if ! mbrain_is_relevant; then
   log_line "skip" "$SESSION_ID" "relevance-gate"
   printf '%s' "$RAW_INPUT"
   exit 0
 fi
 
 # --- block emission ---------------------------------------------------
-REASON='gbrain write check: before ending this session, review the conversation for entities (people, companies, concepts, technical systems) worth recording — per GBRAIN_AGENT_RULES.md §3. For each notable entity: gbrain search <slug> to find or create the page, append compiled truth + timeline entry with source attribution, add back-links (iron law), then gbrain sync_brain with no_pull=true and no_embed=true. If nothing in this session warrants a brain write (read-only question, trivial chore, already-written knowledge), respond with exactly: GBRAIN-PASS: <short reason>. Do not ask the user for permission — decide and act.'
+REASON='mbrain write check: before ending this session, review the conversation for entities (people, companies, concepts, technical systems) worth recording — per MBRAIN_AGENT_RULES.md §3. For each notable entity: mbrain search <slug> to find or create the page, append compiled truth + timeline entry with source attribution, add back-links (iron law), then mbrain sync_brain with no_pull=true and no_embed=true. If nothing in this session warrants a brain write (read-only question, trivial chore, already-written knowledge), respond with exactly: MBRAIN-PASS: <short reason>. Do not ask the user for permission — decide and act.'
 
 log_line "block" "$SESSION_ID" "gate-passed"
 
@@ -914,8 +914,8 @@ exit 0
 - [ ] **Step 4: Run all tests**
 
 ```bash
-bash ~/.claude/scripts/hooks/test/test_stop_gbrain_check.sh
-bash ~/.claude/scripts/hooks/test/test_gbrain_relevance.sh
+bash ~/.claude/scripts/hooks/test/test_stop_mbrain_check.sh
+bash ~/.claude/scripts/hooks/test/test_mbrain_relevance.sh
 ```
 
 Expected: 14 PASS in hook tests, 7 PASS in relevance tests, 0 FAIL total.
@@ -924,8 +924,8 @@ Expected: 14 PASS in hook tests, 7 PASS in relevance tests, 0 FAIL total.
 
 ```bash
 cd ~/.claude
-git add scripts/hooks/stop-gbrain-check.sh scripts/hooks/test/test_stop_gbrain_check.sh
-git commit -m "feat(hooks): log gbrain stop-hook decisions to ~/.claude/logs"
+git add scripts/hooks/stop-mbrain-check.sh scripts/hooks/test/test_stop_mbrain_check.sh
+git commit -m "feat(hooks): log mbrain stop-hook decisions to ~/.claude/logs"
 ```
 
 ---
@@ -952,11 +952,11 @@ jq '.hooks.Stop += [{
   "matcher": "*",
   "hooks": [{
     "type": "command",
-    "command": "bash \"$HOME/.claude/scripts/hooks/stop-gbrain-check.sh\"",
+    "command": "bash \"$HOME/.claude/scripts/hooks/stop-mbrain-check.sh\"",
     "timeout": 5
   }],
-  "description": "Ask agent to write session knowledge back to gbrain (blocks once, provides GBRAIN-PASS escape hatch).",
-  "id": "stop:gbrain-check"
+  "description": "Ask agent to write session knowledge back to mbrain (blocks once, provides MBRAIN-PASS escape hatch).",
+  "id": "stop:mbrain-check"
 }]' ~/.claude/hooks/hooks.json > ~/.claude/hooks/hooks.json.tmp \
   && mv ~/.claude/hooks/hooks.json.tmp ~/.claude/hooks/hooks.json
 ```
@@ -971,7 +971,7 @@ jq '.hooks.Stop[-1].id' ~/.claude/hooks/hooks.json
 Expected:
 ```
 7
-"stop:gbrain-check"
+"stop:mbrain-check"
 ```
 
 - [ ] **Step 4: Smoke test the registered hook via stdin**
@@ -979,15 +979,15 @@ Expected:
 ```bash
 # Simulate a real Stop-hook payload:
 printf '{"session_id":"smoke-1","stop_hook_active":false,"transcript_path":"/tmp/fake.jsonl"}' \
-  | bash ~/.claude/scripts/hooks/stop-gbrain-check.sh
+  | bash ~/.claude/scripts/hooks/stop-mbrain-check.sh
 ```
 
 Expected: one JSON line on stdout containing `"decision":"block"` and the reason string.
 
 ```bash
 # Kill switch bypass:
-GBRAIN_STOP_HOOK=0 printf '{"session_id":"smoke-2","stop_hook_active":false}' \
-  | bash ~/.claude/scripts/hooks/stop-gbrain-check.sh
+MBRAIN_STOP_HOOK=0 printf '{"session_id":"smoke-2","stop_hook_active":false}' \
+  | bash ~/.claude/scripts/hooks/stop-mbrain-check.sh
 ```
 
 Expected: stdin echoed to stdout unchanged, no block.
@@ -997,7 +997,7 @@ Expected: stdin echoed to stdout unchanged, no block.
 ```bash
 cd ~/.claude
 git add hooks/hooks.json
-git commit -m "feat(hooks): register stop:gbrain-check in Stop chain"
+git commit -m "feat(hooks): register stop:mbrain-check in Stop chain"
 ```
 
 ---
@@ -1013,7 +1013,7 @@ Create `~/.claude/scripts/hooks/test/e2e_smoke.sh`:
 
 ```bash
 #!/bin/bash
-# Exercises the registered gbrain Stop hook end-to-end by simulating the
+# Exercises the registered mbrain Stop hook end-to-end by simulating the
 # exact stdin payload Claude Code sends. Does NOT require Claude Code
 # itself to be running — we invoke the hook directly.
 
@@ -1021,7 +1021,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/_assert.sh"
 
-HOOK="$HOME/.claude/scripts/hooks/stop-gbrain-check.sh"
+HOOK="$HOME/.claude/scripts/hooks/stop-mbrain-check.sh"
 
 # Scenario 1: normal end-of-session -> block expected
 scenario_block() {
@@ -1029,7 +1029,7 @@ scenario_block() {
   local out
   out="$(printf '%s' "$payload" | bash "$HOOK")"
   assert_contains "$out" '"decision":"block"' "E2E: normal session emits block"
-  assert_contains "$out" "GBRAIN-PASS" "E2E: block reason mentions PASS escape"
+  assert_contains "$out" "MBRAIN-PASS" "E2E: block reason mentions PASS escape"
 }
 
 # Scenario 2: re-entry (Claude Code already in continuation) -> pass-through
@@ -1054,7 +1054,7 @@ scenario_reentry() {
 scenario_kill_switch() {
   local payload='{"session_id":"e2e-kill","stop_hook_active":false}'
   local out
-  out="$(GBRAIN_STOP_HOOK=0 printf '%s' "$payload" | GBRAIN_STOP_HOOK=0 bash "$HOOK")"
+  out="$(MBRAIN_STOP_HOOK=0 printf '%s' "$payload" | MBRAIN_STOP_HOOK=0 bash "$HOOK")"
   assert_contains "$out" '"session_id":"e2e-kill"' "E2E: kill switch pipes stdin"
   case "$out" in
     *'"decision":"block"'*)
@@ -1077,8 +1077,8 @@ scenario_skip_dir() {
 
   local payload='{"session_id":"e2e-skipdir","stop_hook_active":false}'
   local out
-  out="$(cd "$tmpdir" && GBRAIN_SKIP_DIRS_FILE="$skipfile" printf '%s' "$payload" \
-         | GBRAIN_SKIP_DIRS_FILE="$skipfile" bash "$HOOK")"
+  out="$(cd "$tmpdir" && MBRAIN_SKIP_DIRS_FILE="$skipfile" printf '%s' "$payload" \
+         | MBRAIN_SKIP_DIRS_FILE="$skipfile" bash "$HOOK")"
 
   case "$out" in
     *'"decision":"block"'*)
@@ -1100,8 +1100,8 @@ scenario_log_written() {
   logdir="$(mktemp -d)"
   logfile="$logdir/hook.log"
 
-  GBRAIN_STOP_HOOK_LOG="$logfile" printf '%s' '{"session_id":"e2e-log","stop_hook_active":false}' \
-    | GBRAIN_STOP_HOOK_LOG="$logfile" bash "$HOOK" >/dev/null
+  MBRAIN_STOP_HOOK_LOG="$logfile" printf '%s' '{"session_id":"e2e-log","stop_hook_active":false}' \
+    | MBRAIN_STOP_HOOK_LOG="$logfile" bash "$HOOK" >/dev/null
 
   assert_contains "$(cat "$logfile" 2>/dev/null)" "e2e-log" "E2E: log records session id"
   assert_contains "$(cat "$logfile" 2>/dev/null)" "block"   "E2E: log records block decision"
@@ -1143,7 +1143,7 @@ Expected: every test file prints its PASS lines and exits 0.
 ```bash
 cd ~/.claude
 git add scripts/hooks/test/e2e_smoke.sh
-git commit -m "test(hooks): add gbrain stop-hook e2e smoke script"
+git commit -m "test(hooks): add mbrain stop-hook e2e smoke script"
 ```
 
 ---
@@ -1159,46 +1159,46 @@ This task is a checklist — do not skip it even though there is no code. The sp
 In a fresh Claude Code session, pick a real task that touches a tracked project entity (any domain — whatever you're actively working on). Let the session run normally. When you end it, observe:
 
 - The Stop hook fires, agent does one extra turn.
-- The agent either (a) writes to the relevant brain page(s) and runs `gbrain sync_brain`, OR (b) emits `GBRAIN-PASS: <reason>`.
-- `~/.claude/logs/gbrain-stop-hook.log` gains a new line with decision `block`.
+- The agent either (a) writes to the relevant brain page(s) and runs `mbrain sync_brain`, OR (b) emits `MBRAIN-PASS: <reason>`.
+- `~/.claude/logs/mbrain-stop-hook.log` gains a new line with decision `block`.
 
 ```bash
-tail -5 ~/.claude/logs/gbrain-stop-hook.log
+tail -5 ~/.claude/logs/mbrain-stop-hook.log
 ```
 
 - [ ] **Step 2: Read-only session**
 
 Start a fresh session, ask a trivial question ("what does `ls -la` do?"), end it. Observe:
 
-- Agent's extra turn outputs `GBRAIN-PASS: read-only question` (or similar).
+- Agent's extra turn outputs `MBRAIN-PASS: read-only question` (or similar).
 - Log line shows decision `block` but no new brain pages created.
 
 ```bash
-gbrain get-stats | head -10   # sanity: page count unchanged
+mbrain get-stats | head -10   # sanity: page count unchanged
 ```
 
 - [ ] **Step 3: Opt-out via skip-dirs**
 
 ```bash
 pwd   # note this path
-echo "$(pwd)" >> ~/.claude/gbrain-skip-dirs
+echo "$(pwd)" >> ~/.claude/mbrain-skip-dirs
 ```
 
 Start a session in that directory, end it immediately. Observe:
 
 - Hook logs `skip` decision, no block.
-- Agent ends normally without a gbrain-write extra turn.
+- Agent ends normally without a mbrain-write extra turn.
 
 Then remove the opt-out:
 
 ```bash
-# edit ~/.claude/gbrain-skip-dirs to remove the added line
+# edit ~/.claude/mbrain-skip-dirs to remove the added line
 ```
 
 - [ ] **Step 4: Kill switch**
 
 ```bash
-GBRAIN_STOP_HOOK=0 claude   # whatever the normal start command is
+MBRAIN_STOP_HOOK=0 claude   # whatever the normal start command is
 ```
 
 End the session. Observe: hook logs `skip` with reason `relevance-gate`, no block.
@@ -1208,10 +1208,10 @@ End the session. Observe: hook logs `skip` with reason `relevance-gate`, no bloc
 Leave the hook running for ~2 weeks. Then review:
 
 ```bash
-awk '{print $3}' ~/.claude/logs/gbrain-stop-hook.log | sort | uniq -c
+awk '{print $3}' ~/.claude/logs/mbrain-stop-hook.log | sort | uniq -c
 ```
 
-Expected distribution: roughly 30–70% `block`, the rest `skip` / `reentry`. If everything is `block` the gate is too loose; if everything is `skip` it's too tight. Tune `~/.claude/gbrain-skip-dirs` accordingly. (Tightening the gate is out of scope for this plan — it's follow-up work.)
+Expected distribution: roughly 30–70% `block`, the rest `skip` / `reentry`. If everything is `block` the gate is too loose; if everything is `skip` it's too tight. Tune `~/.claude/mbrain-skip-dirs` accordingly. (Tightening the gate is out of scope for this plan — it's follow-up work.)
 
 - [ ] **Step 6: Document completion**
 
@@ -1236,9 +1236,9 @@ Ran the checklist against the spec:
 2. **Placeholder scan:** no TBD / TODO / "implement later" / "similar to task N" language. Every code step contains the actual code to write. Every command has expected output.
 
 3. **Type / identifier consistency:**
-   - Function name `gbrain_is_relevant` is defined in Task 2 and referenced unchanged in Tasks 3, 4, 5, 7, 8.
-   - Env var names (`GBRAIN_STOP_HOOK`, `GBRAIN_SKIP_DIRS_FILE`, `GBRAIN_STOP_HOOK_LOG`) are introduced once and used consistently.
-   - Hook id `stop:gbrain-check` matches between Task 9 registration and the description.
+   - Function name `mbrain_is_relevant` is defined in Task 2 and referenced unchanged in Tasks 3, 4, 5, 7, 8.
+   - Env var names (`MBRAIN_STOP_HOOK`, `MBRAIN_SKIP_DIRS_FILE`, `MBRAIN_STOP_HOOK_LOG`) are introduced once and used consistently.
+   - Hook id `stop:mbrain-check` matches between Task 9 registration and the description.
    - `RAW_INPUT`, `STOP_ACTIVE`, `SESSION_ID`, `LOG_FILE`, `REASON` shell variables are internally consistent across the final impl in Task 8.
    - Helper function `log_line` in Task 8 is only defined once (in the replaced file) — no duplicate definition with Task 7.
 

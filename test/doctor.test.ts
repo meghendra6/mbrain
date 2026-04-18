@@ -8,7 +8,7 @@ const originalEnv = { ...process.env };
 let tempHome = '';
 
 beforeEach(() => {
-  tempHome = mkdtempSync(join(tmpdir(), 'gbrain-doctor-'));
+  tempHome = mkdtempSync(join(tmpdir(), 'mbrain-doctor-'));
   process.env.HOME = tempHome;
 });
 
@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 function writeConfig(config: Record<string, unknown>) {
-  const dir = join(tempHome, '.gbrain');
+  const dir = join(tempHome, '.mbrain');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'config.json'), JSON.stringify(config, null, 2));
 }

@@ -9,10 +9,10 @@ Answer questions using the brain's knowledge with 3-layer search and synthesis.
    - Semantic query for conceptual questions
    - Structured queries (list by type, backlinks) for relational questions
 2. **Execute searches:**
-   - Keyword search gbrain for FTS matches (search)
-   - Hybrid search gbrain for semantic+keyword with expansion (query)
-   - List pages in gbrain by type or check backlinks for structural queries
-3. **Read top results.** Read the top 3-5 pages from gbrain to get full context.
+   - Keyword search mbrain for FTS matches (search)
+   - Hybrid search mbrain for semantic+keyword with expansion (query)
+   - List pages in mbrain by type or check backlinks for structural queries
+3. **Read top results.** Read the top 3-5 pages from mbrain to get full context.
 4. **Synthesize answer** with citations. Every claim traces back to a specific page slug.
 5. **Flag gaps.** If the brain doesn't have info, say "the brain doesn't have information on X" rather than hallucinating.
 
@@ -22,8 +22,8 @@ When the user asks about architecture, mechanisms, implementation details, or
 cross-system technical concepts:
 
 1. Search brain first:
-   - `gbrain search "<concept or system name>"`
-   - `gbrain query "what do we know about <concept or system name>"`
+   - `mbrain search "<concept or system name>"`
+   - `mbrain query "what do we know about <concept or system name>"`
 2. If a concept page has `codemap`:
    - read compiled truth for orientation
    - use the listed pointers for targeted code navigation
@@ -52,9 +52,9 @@ that tells the agent which files are worth reading.
 Search returns **chunks**, not full pages. Read the excerpts first before deciding
 whether to load a full page.
 
-- `gbrain search` / `gbrain query` return ranked chunks with context snippets.
+- `mbrain search` / `mbrain query` return ranked chunks with context snippets.
   These are often enough to answer the question directly.
-- Only use `gbrain get <slug>` to load the full page when a chunk confirms the
+- Only use `mbrain get <slug>` to load the full page when a chunk confirms the
   page is relevant and you need more context (e.g., compiled truth, timeline).
 - **"Tell me about X"** -- get the full page (the user wants the complete picture).
 - **"Did anyone mention Y?"** -- search results are enough (the user wants a yes/no with evidence).
@@ -82,18 +82,18 @@ When referencing brain pages in your answer, propagate inline citations:
 ## Search Quality Awareness
 
 If search results seem off (wrong results, missing known pages, irrelevant hits):
-- Run `gbrain doctor --json` to check index health
+- Run `mbrain doctor --json` to check index health
 - Check embedding coverage -- partial embeddings degrade hybrid search
-- Compare keyword search (`gbrain search`) vs hybrid search (`gbrain query`)
+- Compare keyword search (`mbrain search`) vs hybrid search (`mbrain query`)
   for the same query to isolate whether the issue is embedding-related
 - Report search quality issues in the maintain workflow (see maintain skill)
 
 ## Tools Used
 
-- Keyword search gbrain (search)
-- Hybrid search gbrain (query)
-- Read a page from gbrain (get_page)
-- List pages in gbrain with filters (list_pages)
-- Check backlinks in gbrain (get_backlinks)
-- Traverse the link graph in gbrain (traverse_graph)
-- View timeline entries in gbrain (get_timeline)
+- Keyword search mbrain (search)
+- Hybrid search mbrain (query)
+- Read a page from mbrain (get_page)
+- List pages in mbrain with filters (list_pages)
+- Check backlinks in mbrain (get_backlinks)
+- Traverse the link graph in mbrain (traverse_graph)
+- View timeline entries in mbrain (get_timeline)

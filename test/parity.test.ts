@@ -109,7 +109,7 @@ describe('operations contract parity', () => {
 // Behavioral correctness tests — real SQLiteEngine operations
 // ─────────────────────────────────────────────────────────────────
 
-const PARITY_TMP = mkdtempSync(join(tmpdir(), 'gbrain-parity-'));
+const PARITY_TMP = mkdtempSync(join(tmpdir(), 'mbrain-parity-'));
 
 describe('SQLiteEngine behavioral correctness', () => {
   let engine: InstanceType<typeof SQLiteEngine>;

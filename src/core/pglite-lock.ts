@@ -1,7 +1,7 @@
 import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
 
-const LOCK_DIR_NAME = '.gbrain-lock';
+const LOCK_DIR_NAME = '.mbrain-lock';
 const LOCK_FILE = 'lock';
 export interface LockHandle {
   lockDir: string;
@@ -75,11 +75,11 @@ export async function acquireLock(dataDir: string | undefined, opts?: { timeoutM
         try {
           const lockData = JSON.parse(readFileSync(lockPath, 'utf-8'));
           throw new Error(
-            `GBrain: Timed out waiting for PGLite lock. Process ${lockData.pid} has held it since ${new Date(lockData.acquired_at).toISOString()} (command: ${lockData.command}). If that process is dead, remove ${lockDir} and try again.`,
+            `MBrain: Timed out waiting for PGLite lock. Process ${lockData.pid} has held it since ${new Date(lockData.acquired_at).toISOString()} (command: ${lockData.command}). If that process is dead, remove ${lockDir} and try again.`,
           );
         } catch (error) {
-          if (error instanceof Error && error.message.startsWith('GBrain: Timed out')) throw error;
-          throw new Error(`GBrain: Timed out waiting for PGLite lock. Remove ${lockDir} and try again.`);
+          if (error instanceof Error && error.message.startsWith('MBrain: Timed out')) throw error;
+          throw new Error(`MBrain: Timed out waiting for PGLite lock. Remove ${lockDir} and try again.`);
         }
       }
 
@@ -87,7 +87,7 @@ export async function acquireLock(dataDir: string | undefined, opts?: { timeoutM
     }
   }
 
-  throw new Error('GBrain: Timed out waiting for PGLite lock.');
+  throw new Error('MBrain: Timed out waiting for PGLite lock.');
 }
 
 export async function releaseLock(lock: LockHandle): Promise<void> {

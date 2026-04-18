@@ -1,10 +1,10 @@
-# Local / Offline GBrain Implementation Plan
+# Local / Offline MBrain Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Deliver a fully local/offline GBrain that uses SQLite, local model runtimes, and local MCP integration for Codex and Claude Code with no paid cloud dependencies.
+**Goal:** Deliver a fully local/offline MBrain that uses SQLite, local model runtimes, and local MCP integration for Codex and Claude Code with no paid cloud dependencies.
 
-**Architecture:** Replace direct Postgres assumptions with a backend factory, implement a real SQLite `BrainEngine`, move embeddings behind a local provider abstraction, preserve hybrid search via local vector retrieval plus FTS5, and expose the same conceptual CLI/MCP surface through `gbrain serve`.
+**Architecture:** Replace direct Postgres assumptions with a backend factory, implement a real SQLite `BrainEngine`, move embeddings behind a local provider abstraction, preserve hybrid search via local vector retrieval plus FTS5, and expose the same conceptual CLI/MCP surface through `mbrain serve`.
 
 **Tech Stack:** Bun, TypeScript, bun:sqlite, SQLite FTS5, local model runtime (Ollama-compatible endpoint), MCP stdio, existing operation contract.
 
@@ -12,8 +12,8 @@
 
 ## Local contract decisions
 
-- Canonical bootstrap UX: `gbrain init --local`
-- v1 local mode uses explicit config keys in `~/.gbrain/config.json`; no separate named profile loader is introduced
+- Canonical bootstrap UX: `mbrain init --local`
+- v1 local mode uses explicit config keys in `~/.mbrain/config.json`; no separate named profile loader is introduced
 - `embedding_provider` values: `none | local`
 - `query_rewrite_provider` values: `none | heuristic | local_llm`
 - `files` / storage-backed commands are **disabled in the first local milestone** unless later tasks add SQLite-compatible metadata + storage support
@@ -112,7 +112,7 @@ Add config semantics for:
 
 Compatibility requirements:
 - existing Postgres users with old config files continue to work unchanged
-- env-only `DATABASE_URL` / `GBRAIN_DATABASE_URL` setups still resolve to Postgres
+- env-only `DATABASE_URL` / `MBRAIN_DATABASE_URL` setups still resolve to Postgres
 - `init` messaging stops assuming `--supabase` is the only recovery path
 - Task 1 only needs backend-neutral init plumbing; full `--local` defaults/UX land in Task 5
 
@@ -382,7 +382,7 @@ Commit scope:
 Include:
 
 ```bash
-codex mcp add gbrain -- gbrain serve
+codex mcp add mbrain -- mbrain serve
 ```
 
 - [ ] **Step 2: Document local MCP setup for Claude Code**
@@ -408,7 +408,7 @@ bun test
 If SQLite/local integration tests require dedicated commands, document and run them here too.
 
 Also verify:
-- a local `gbrain serve` stdio session can list tools
+- a local `mbrain serve` stdio session can list tools
 - one simple MCP tool call succeeds against SQLite config
 
 - [ ] **Step 5: Commit**

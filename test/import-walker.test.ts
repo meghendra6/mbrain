@@ -9,8 +9,8 @@ describe('collectMarkdownFiles', () => {
   let outside: string;
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'gbrain-import-root-'));
-    outside = mkdtempSync(join(tmpdir(), 'gbrain-import-outside-'));
+    root = mkdtempSync(join(tmpdir(), 'mbrain-import-root-'));
+    outside = mkdtempSync(join(tmpdir(), 'mbrain-import-outside-'));
   });
 
   afterEach(() => {
@@ -55,7 +55,7 @@ describe('collectMarkdownFiles', () => {
 
   test('rejects a symlinked import root', () => {
     writeFileSync(join(outside, 'external.md'), '# external\n');
-    const linkedRoot = join(tmpdir(), `gbrain-import-root-link-${Date.now()}`);
+    const linkedRoot = join(tmpdir(), `mbrain-import-root-link-${Date.now()}`);
     symlinkSync(outside, linkedRoot);
 
     try {

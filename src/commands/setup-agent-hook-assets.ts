@@ -1,16 +1,16 @@
-export const CLAUDE_GBRAIN_SKIP_DIRS = `# gbrain Stop-hook skip list (one absolute path per line)
+export const CLAUDE_MBRAIN_SKIP_DIRS = `# mbrain Stop-hook skip list (one absolute path per line)
 #
 # Add directories where you do not want Claude Code to prompt for
-# a gbrain writeback check at session end.
+# a mbrain writeback check at session end.
 #
 # Example:
 # /tmp/throwaway-experiment
 # /home/me/scratch
 `;
 
-export const CLAUDE_GBRAIN_RELEVANCE_LIB = `# gbrain-relevance.sh
+export const CLAUDE_MBRAIN_RELEVANCE_LIB = `# mbrain-relevance.sh
 
-_gbrain_normalize_dir() {
+_mbrain_normalize_dir() {
   local dir="$1"
   if [ -d "$dir" ]; then
     (
@@ -22,12 +22,12 @@ _gbrain_normalize_dir() {
   printf '%s\n' "$dir"
 }
 
-_gbrain_skip_dir_match() {
+_mbrain_skip_dir_match() {
   local cwd="$1"
   local file="$2"
   [ -f "$file" ] || return 1
   local normalized_cwd
-  normalized_cwd="$(_gbrain_normalize_dir "$cwd")"
+  normalized_cwd="$(_mbrain_normalize_dir "$cwd")"
 
   while IFS= read -r line || [ -n "$line" ]; do
     line="\${line#"\${line%%[![:space:]]*}"}"
@@ -37,7 +37,7 @@ _gbrain_skip_dir_match() {
     if [ "$line" = "$cwd" ]; then
       return 0
     fi
-    if [ "$(_gbrain_normalize_dir "$line")" = "$normalized_cwd" ]; then
+    if [ "$(_mbrain_normalize_dir "$line")" = "$normalized_cwd" ]; then
       return 0
     fi
   done < "$file"
@@ -45,18 +45,18 @@ _gbrain_skip_dir_match() {
   return 1
 }
 
-gbrain_is_relevant() {
-  if [ "\${GBRAIN_STOP_HOOK:-1}" = "0" ]; then
+mbrain_is_relevant() {
+  if [ "\${MBRAIN_STOP_HOOK:-1}" = "0" ]; then
     return 1
   fi
 
   local cwd="$(pwd)"
-  local skipfile="\${GBRAIN_SKIP_DIRS_FILE:-$HOME/.claude/gbrain-skip-dirs}"
-  if _gbrain_skip_dir_match "$cwd" "$skipfile"; then
+  local skipfile="\${MBRAIN_SKIP_DIRS_FILE:-$HOME/.claude/mbrain-skip-dirs}"
+  if _mbrain_skip_dir_match "$cwd" "$skipfile"; then
     return 1
   fi
 
-  if ! command -v gbrain >/dev/null 2>&1; then
+  if ! command -v mbrain >/dev/null 2>&1; then
     return 1
   fi
 
@@ -64,13 +64,13 @@ gbrain_is_relevant() {
 }
 `;
 
-export const CLAUDE_GBRAIN_STOP_HOOK = `#!/bin/bash
+export const CLAUDE_MBRAIN_STOP_HOOK = `#!/bin/bash
 set -u
 
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOG_FILE="\${GBRAIN_STOP_HOOK_LOG:-$HOME/.claude/logs/gbrain-stop-hook.log}"
-# shellcheck source=lib/gbrain-relevance.sh
-source "$HOOK_DIR/lib/gbrain-relevance.sh"
+LOG_FILE="\${MBRAIN_STOP_HOOK_LOG:-$HOME/.claude/logs/mbrain-stop-hook.log}"
+# shellcheck source=lib/mbrain-relevance.sh
+source "$HOOK_DIR/lib/mbrain-relevance.sh"
 
 log_line() {
   local decision="$1"
@@ -97,13 +97,13 @@ if [ "$STOP_ACTIVE" = "true" ]; then
   exit 0
 fi
 
-if ! gbrain_is_relevant; then
+if ! mbrain_is_relevant; then
   log_line "skip" "$SESSION_ID" "relevance-gate"
   printf '%s' "$RAW_INPUT"
   exit 0
 fi
 
-REASON='gbrain write check: before ending this session, review the conversation for entities (people, companies, concepts, technical systems) worth recording — per GBRAIN_AGENT_RULES.md §3. For each notable entity: gbrain search <slug> to find or create the page, append compiled truth + timeline entry with source attribution, add back-links (iron law), then gbrain sync_brain with no_pull=true and no_embed=true. If nothing in this session warrants a brain write (read-only question, trivial chore, already-written knowledge), respond with exactly: GBRAIN-PASS: <short reason>. Do not ask the user for permission — decide and act.'
+REASON='mbrain write check: before ending this session, review the conversation for entities (people, companies, concepts, technical systems) worth recording — per MBRAIN_AGENT_RULES.md §3. For each notable entity: mbrain search <slug> to find or create the page, append compiled truth + timeline entry with source attribution, add back-links (iron law), then mbrain sync_brain with no_pull=true and no_embed=true. If nothing in this session warrants a brain write (read-only question, trivial chore, already-written knowledge), respond with exactly: MBRAIN-PASS: <short reason>. Do not ask the user for permission — decide and act.'
 
 log_line "block" "$SESSION_ID" "gate-passed"
 

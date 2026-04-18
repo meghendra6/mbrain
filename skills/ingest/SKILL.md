@@ -25,11 +25,11 @@ Every fact written to a brain page must carry an inline `[Source: ...]` citation
 
 1. **Parse the source.** Extract people, companies, dates, and events from the input.
 2. **For each entity mentioned:**
-   - Read the entity's page from gbrain to check if it exists
+   - Read the entity's page from mbrain to check if it exists
    - If exists: update compiled_truth (rewrite State section with new info, don't append)
-   - If new: check notability gate, then store the page in gbrain with the appropriate type and slug
-3. **Append to timeline.** Add a timeline entry in gbrain for each event, with date, summary, and source citation.
-4. **Create cross-reference links.** Link entities in gbrain for every entity pair mentioned together, using the appropriate relationship type.
+   - If new: check notability gate, then store the page in mbrain with the appropriate type and slug
+3. **Append to timeline.** Add a timeline entry in mbrain for each event, with date, summary, and source citation.
+4. **Create cross-reference links.** Link entities in mbrain for every entity pair mentioned together, using the appropriate relationship type.
 5. **Back-link all entities.** Update EVERY mentioned entity's page with a back-link to this page (Iron Law).
 6. **Timeline merge.** The same event appears on ALL mentioned entities' timelines. If Alice met Bob at Acme Corp, the event goes on Alice's page, Bob's page, and Acme Corp's page.
 
@@ -43,15 +43,15 @@ the signal detection loop that makes the brain compound over time.
 1. **Scan the message** for entity mentions: people, companies, concepts, original
    thinking. Fire on every message (no exceptions unless purely operational).
 2. **For each entity detected:**
-   - `gbrain search "name"` -- does a page already exist?
-   - **If yes:** load context with `gbrain get <slug>`. Use the compiled truth to
+   - `mbrain search "name"` -- does a page already exist?
+   - **If yes:** load context with `mbrain get <slug>`. Use the compiled truth to
      inform your response. Update the page if the message contains new information.
    - **If no:** assess notability (see `skills/_brain-filing-rules.md`). If the entity
-     is worth tracking, create a new page with `gbrain put <type/slug>` and populate
+     is worth tracking, create a new page with `mbrain put <type/slug>` and populate
      with what you know.
-3. **After creating or updating pages:** sync to gbrain:
+3. **After creating or updating pages:** sync to mbrain:
    ```bash
-   gbrain sync --no-pull --no-embed
+   mbrain sync --no-pull --no-embed
    ```
 4. **Don't block the conversation.** Entity detection and enrichment should happen
    alongside the response, not before it. The user shouldn't wait for brain writes
@@ -200,7 +200,7 @@ uploaded: 2026-04-11T...
 size_bytes: 524288000
 ```
 
-Use `put_raw_data` in gbrain to store raw API responses and metadata.
+Use `put_raw_data` in mbrain to store raw API responses and metadata.
 
 ## Test Before Bulk
 
@@ -229,11 +229,11 @@ up 100 bad pages is enormous.
 
 ## Tools Used
 
-- Read a page from gbrain (get_page)
-- Store/update a page in gbrain (put_page)
-- Add a timeline entry in gbrain (add_timeline_entry)
-- Link entities in gbrain (add_link)
+- Read a page from mbrain (get_page)
+- Store/update a page in mbrain (put_page)
+- Add a timeline entry in mbrain (add_timeline_entry)
+- Link entities in mbrain (add_link)
 - List tags for a page (get_tags)
-- Tag a page in gbrain (add_tag)
-- Store raw data in gbrain (put_raw_data)
-- Check backlinks in gbrain (get_backlinks)
+- Tag a page in mbrain (add_tag)
+- Store raw data in mbrain (put_raw_data)
+- Check backlinks in mbrain (get_backlinks)

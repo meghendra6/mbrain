@@ -1,4 +1,4 @@
-# GBrain
+# MBrain
 
 The memex Vannevar Bush imagined, built for people who think for a living.
 
@@ -15,13 +15,13 @@ I was setting up my [OpenClaw](https://openclaw.ai) agent and started a markdown
 - **500+ media pages** (video transcripts, books, articles)
 - Company profiles, food guides, travel logs
 
-This is what I actually use day to day. The agent runs while I sleep... literally. The dream cycle scans every conversation from the day, enriches missing entities, fixes broken citations, and consolidates memory. I wake up and the brain is smarter than when I went to sleep. OpenClaw ships this as DREAMS.md. Hermes Agent can do the same with a nightly cron job (see the [SKILLPACK](docs/GBRAIN_SKILLPACK.md#the-dream-cycle) for setup).
+This is what I actually use day to day. The agent runs while I sleep... literally. The dream cycle scans every conversation from the day, enriches missing entities, fixes broken citations, and consolidates memory. I wake up and the brain is smarter than when I went to sleep. OpenClaw ships this as DREAMS.md. Hermes Agent can do the same with a nightly cron job (see the [SKILLPACK](docs/MBRAIN_SKILLPACK.md#the-dream-cycle) for setup).
 
-**You don't need Postgres to start.** The knowledge model is just markdown files in a git repo. The [skills](docs/GBRAIN_SKILLPACK.md) and [schema](docs/GBRAIN_RECOMMENDED_SCHEMA.md) work with any AI agent that can read and write files. Start there.
+**You don't need Postgres to start.** The knowledge model is just markdown files in a git repo. The [skills](docs/MBRAIN_SKILLPACK.md) and [schema](docs/MBRAIN_RECOMMENDED_SCHEMA.md) work with any AI agent that can read and write files. Start there.
 
-**You also don't need cloud services anymore.** `gbrain init --local` now boots a full local/offline brain on SQLite, `gbrain serve` exposes the same MCP tools over stdio, and Codex or Claude Code can attach to it without Supabase, OpenAI, or Anthropic in the loop. Local embeddings are optional and backfill-driven: import/sync stay usable immediately, and semantic retrieval comes online once you configure a local runtime and run `gbrain embed --stale`. The default local model is `nomic-embed-text`, and GBrain applies `search_document:` / `search_query:` prefixes internally for retrieval. Detailed guides: [English](docs/local-offline.md) / [한국어](docs/local-offline.ko.md).
+**You also don't need cloud services anymore.** `mbrain init --local` now boots a full local/offline brain on SQLite, `mbrain serve` exposes the same MCP tools over stdio, and Codex or Claude Code can attach to it without Supabase, OpenAI, or Anthropic in the loop. Local embeddings are optional and backfill-driven: import/sync stay usable immediately, and semantic retrieval comes online once you configure a local runtime and run `mbrain embed --stale`. The default local model is `nomic-embed-text`, and MBrain applies `search_document:` / `search_query:` prefixes internally for retrieval. Detailed guides: [English](docs/local-offline.md) / [한국어](docs/local-offline.ko.md).
 
-I added Postgres + pgvector later because at 1,000 to 10,000 long markdown docs, `grep` stops working. You need real chunking, real retrieval, real search. GBrain now supports both that managed path and a local/offline SQLite path, optimized for OpenClaw and smart agents.
+I added Postgres + pgvector later because at 1,000 to 10,000 long markdown docs, `grep` stops working. You need real chunking, real retrieval, real search. MBrain now supports both that managed path and a local/offline SQLite path, optimized for OpenClaw and smart agents.
 
 ### Ask it anything
 
@@ -40,29 +40,29 @@ I added Postgres + pgvector later because at 1,000 to 10,000 long markdown docs,
 > "Prep me for my meeting with Jordan in 30 minutes"
 > — pulls dossier, shared history, recent activity, open threads
 
-Your markdown repo is the source of truth. GBrain makes it searchable. Your AI agent makes it live.
+Your markdown repo is the source of truth. MBrain makes it searchable. Your AI agent makes it live.
 
 ## Why Postgres still matters
 
 At 500 files, `grep` is fine. At 3,000 people pages, 5,800 Apple Notes, and 13 years of calendar data, `grep` falls apart. You need keyword search for exact names, vector search for semantic meaning, and something that fuses both. You need an index that updates incrementally when one file changes, not a full directory walk. You need your agent to find "everyone who was at the board dinner last March" in milliseconds, not 30 seconds of grepping.
 
-GBrain gives you hybrid search that combines keyword and vector approaches, plus a knowledge model that treats every page like an intelligence assessment: compiled truth on top (your current best understanding, rewritten when evidence changes), append-only timeline on the bottom (the evidence trail that never gets edited).
+MBrain gives you hybrid search that combines keyword and vector approaches, plus a knowledge model that treats every page like an intelligence assessment: compiled truth on top (your current best understanding, rewritten when evidence changes), append-only timeline on the bottom (the evidence trail that never gets edited).
 
 AI agents maintain the brain. You ingest a document and the agent updates every entity mentioned, creates cross-reference links, and appends timeline entries. MCP clients query it. The intelligence lives in fat markdown skills, not application code.
 
 ## The Compounding Thesis
 
-Most tools help you find things. GBrain makes you smarter over time.
+Most tools help you find things. MBrain makes you smarter over time.
 
 The core loop:
 
 ```
 Signal arrives (meeting, email, tweet, link)
   → Agent detects entities (people, companies, ideas, systems, technical concepts)
-  → READ: check the brain first (gbrain search, gbrain get)
+  → READ: check the brain first (mbrain search, mbrain get)
   → Respond with full context
   → WRITE: update brain pages with new information
-  → Sync: gbrain indexes changes for next query
+  → Sync: mbrain indexes changes for next query
 ```
 
 Every cycle through this loop adds knowledge. The agent enriches a person page after a meeting. Next time that person comes up, the agent already has context — their role, your history, what they care about, what you discussed last time. You never start from zero.
@@ -75,7 +75,7 @@ Never do anything twice. If you look someone up once, that lookup lives in the b
 
 ```
 ┌──────────────────┐    ┌───────────────┐    ┌──────────────────┐
-│   Brain Repo     │    │    GBrain     │    │    AI Agent      │
+│   Brain Repo     │    │    MBrain     │    │    AI Agent      │
 │   (git)          │    │  (retrieval)  │    │  (read/write)    │
 │                  │    │               │    │                  │
 │  markdown files  │───>│  Postgres +   │<──>│  skills define   │
@@ -89,13 +89,13 @@ Never do anything twice. If you look someone up once, that lookup lives in the b
 └──────────────────┘    └───────────────┘    └──────────────────┘
 ```
 
-The repo is the system of record. GBrain is the retrieval layer. The agent reads and writes through both. Human always wins — you can edit any markdown file directly and `gbrain sync` picks up the changes. In managed mode that retrieval layer is Postgres + pgvector; in local/offline mode it is SQLite plus the same CLI/MCP contract.
+The repo is the system of record. MBrain is the retrieval layer. The agent reads and writes through both. Human always wins — you can edit any markdown file directly and `mbrain sync` picks up the changes. In managed mode that retrieval layer is Postgres + pgvector; in local/offline mode it is SQLite plus the same CLI/MCP contract.
 
 ## What a Production Agent Looks Like
 
-The numbers above aren't theoretical. They come from a real deployment documented in [GBRAIN_SKILLPACK.md](docs/GBRAIN_SKILLPACK.md) — a reference architecture for how a production AI agent uses gbrain as its knowledge backbone.
+The numbers above aren't theoretical. They come from a real deployment documented in [MBRAIN_SKILLPACK.md](docs/MBRAIN_SKILLPACK.md) — a reference architecture for how a production AI agent uses mbrain as its knowledge backbone.
 
-**Read the skillpack.** It's the most important doc in this repo. It tells your agent HOW to use gbrain, not just what commands exist:
+**Read the skillpack.** It's the most important doc in this repo. It tells your agent HOW to use mbrain, not just what commands exist:
 
 - **The brain-agent loop** — the read-write cycle that makes knowledge compound
 - **Entity detection** — spawn on every message, capture people/companies/original ideas
@@ -107,9 +107,9 @@ The numbers above aren't theoretical. They come from a real deployment documente
 
 Without the skillpack, your agent has tools but no playbook. With it, the agent knows when to read, when to write, how to enrich, and how to keep the brain alive autonomously. It's a pattern book, not a tutorial. "Here's what works, here's why."
 
-## How gbrain fits with OpenClaw/Hermes
+## How mbrain fits with OpenClaw/Hermes
 
-GBrain is world knowledge — people, companies, deals, meetings, concepts, your original thinking. It's the long-term memory of what you know about the world.
+MBrain is world knowledge — people, companies, deals, meetings, concepts, your original thinking. It's the long-term memory of what you know about the world.
 
 [OpenClaw](https://openclaw.ai) agent memory (`memory_search`) is operational state — preferences, decisions, session context, how the agent should behave.
 
@@ -117,20 +117,20 @@ They're complementary:
 
 | Layer | What it stores | How to query |
 |-------|---------------|-------------|
-| **gbrain** | People, companies, meetings, ideas, media | `gbrain search`, `gbrain query`, `gbrain get` |
+| **mbrain** | People, companies, meetings, ideas, media | `mbrain search`, `mbrain query`, `mbrain get` |
 | **Agent memory** | Preferences, decisions, operational config | `memory_search` |
 | **Session context** | Current conversation | (automatic) |
 
-All three should be checked. GBrain for facts about the world. Memory for agent config. Session for immediate context. Install via `openclaw skills install gbrain`.
+All three should be checked. MBrain for facts about the world. Memory for agent config. Session for immediate context. Install via `openclaw skills install mbrain`.
 
 ## Try it: your files, searchable in 90 seconds
 
-GBrain doesn't ship with demo data. It finds YOUR markdown and makes it searchable.
+MBrain doesn't ship with demo data. It finds YOUR markdown and makes it searchable.
 
-**Act 1: Discovery.** GBrain scans your machine for markdown repos.
+**Act 1: Discovery.** MBrain scans your machine for markdown repos.
 
 ```
-=== GBrain Environment Discovery ===
+=== MBrain Environment Discovery ===
 
   ~/git/brain (2.3GB, 342 .md files, 87 binary files)
     Type: Plain markdown (ready for import)
@@ -144,10 +144,10 @@ GBrain doesn't ship with demo data. It finds YOUR markdown and makes it searchab
 **Act 2: Import (managed/Postgres example).** Your files move from the repo into Supabase.
 
 ```bash
-gbrain import ~/git/brain/
+mbrain import ~/git/brain/
 # Imported 342 files into Supabase (1,847 chunks). Embedding in background...
 
-gbrain stats
+mbrain stats
 # Pages: 342, Chunks: 1,847, Embedded: 0 (embedding...), Links: 0
 ```
 
@@ -155,15 +155,15 @@ gbrain stats
 
 ```bash
 # The agent reads your corpus and picks a relevant query
-gbrain query "what do we know about competitive dynamics?"
+mbrain query "what do we know about competitive dynamics?"
 # 3 results, scored by hybrid search (vector + keyword + RRF fusion)
 
 # 30 seconds later, embeddings finish:
-gbrain stats
+mbrain stats
 # Pages: 342, Chunks: 1,847, Embedded: 1,847, Links: 0
 
 # Now semantic search is live too
-gbrain query "what are our biggest risks right now?"
+mbrain query "what are our biggest risks right now?"
 # Finds pages about moats, board prep, and strategy -- by meaning, not keywords
 ```
 
@@ -175,9 +175,9 @@ Your file count will be different. Your queries will be different. The agent pic
 
 ### Prerequisites
 
-**Local/offline (SQLite, no cloud)** is now a first-class path: run `gbrain init --local` to create `~/.gbrain/brain.db`, keep your repo on disk, and expose the same tools over `gbrain serve`. Keyword search works immediately. Semantic embeddings are optional, backfill-driven, and only require a local Ollama-compatible runtime when you want them. Step-by-step guides: [English](docs/local-offline.md) / [한국어](docs/local-offline.ko.md).
+**Local/offline (SQLite, no cloud)** is now a first-class path: run `mbrain init --local` to create `~/.mbrain/brain.db`, keep your repo on disk, and expose the same tools over `mbrain serve`. Keyword search works immediately. Semantic embeddings are optional, backfill-driven, and only require a local Ollama-compatible runtime when you want them. Step-by-step guides: [English](docs/local-offline.md) / [한국어](docs/local-offline.ko.md).
 
-**Managed Postgres** still matters when you want pgvector at scale, remote MCP deployment, or cloud file/storage workflows. For that path, GBrain needs three things:
+**Managed Postgres** still matters when you want pgvector at scale, remote MCP deployment, or cloud file/storage workflows. For that path, MBrain needs three things:
 
 | Dependency | What it's for | How to get it |
 |------------|--------------|---------------|
@@ -191,9 +191,9 @@ Set the Anthropic API key as an environment variable:
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-The Supabase connection URL is configured during `gbrain init`. Anthropic reads
+The Supabase connection URL is configured during `mbrain init`. Anthropic reads
 its key from the environment automatically. Embeddings come from the local
-provider (`OLLAMA_HOST` or `GBRAIN_LOCAL_EMBEDDING_URL`) and default to
+provider (`OLLAMA_HOST` or `MBRAIN_LOCAL_EMBEDDING_URL`) and default to
 `nomic-embed-text`.
 
 Without a local embedding runtime, search still works (keyword only, no vector search). Without an Anthropic key, search still works (no multi-query expansion, no LLM chunking).
@@ -203,46 +203,46 @@ Without a local embedding runtime, search still works (keyword only, no vector s
 To install, paste this into [OpenClaw](https://openclaw.ai) or [Hermes Agent](https://github.com/NousResearch/hermes-agent) and we'll work with you to do the rest:
 
 ```
-Set up gbrain (https://github.com/meghendra6/gbrain) as my
+Set up mbrain (https://github.com/meghendra6/mbrain) as my
 knowledge brain.
 
 1. Make sure bun is installed:
    curl -fsSL https://bun.com/install | bash
-   Then run: bun add github:meghendra6/gbrain
+   Then run: bun add github:meghendra6/mbrain
 
-2. Run: gbrain init --supabase
+2. Run: mbrain init --supabase
    (follow the wizard to connect my Supabase database)
 
 3. Scan ~/git/ and ~/Documents/ for markdown repos,
-   pick the best one, and run: gbrain import <path>
+   pick the best one, and run: mbrain import <path>
 
 4. Run a query against the imported data to prove search works
 
-5. Read docs/GBRAIN_RECOMMENDED_SCHEMA.md and offer to
+5. Read docs/MBRAIN_RECOMMENDED_SCHEMA.md and offer to
    restructure my knowledge base
 
-6. Read docs/GBRAIN_SKILLPACK.md and update all your skills
+6. Read docs/MBRAIN_SKILLPACK.md and update all your skills
    with the production agent patterns: brain-agent loop,
    entity detection, source attribution, iron law back-linking,
    and the enrichment pipeline
 
-7. Set up a daily cron for `gbrain check-update`.
+7. Set up a daily cron for `mbrain check-update`.
    Notify me on new features only, not patches.
    Never auto-install, just tell me what's new.
 
 8. Set up automatic sync so the vector DB stays current
-   with the brain repo. Read GBRAIN_SKILLPACK.md Section 18
+   with the brain repo. Read MBRAIN_SKILLPACK.md Section 18
    for approaches (cron, --watch, webhook). Pick what fits
    your environment. Always chain:
-   gbrain sync --repo <path> && gbrain embed --stale
+   mbrain sync --repo <path> && mbrain embed --stale
    Verify: push a change, confirm it appears in search.
 
-9. Run the verification runbook (docs/GBRAIN_VERIFY.md)
+9. Run the verification runbook (docs/MBRAIN_VERIFY.md)
    to confirm everything works: schema, sync, embeddings,
    brain-first lookup.
 ```
 
-OpenClaw will install gbrain, walk through Supabase setup, discover your markdown files, import them, and prove search works with a query from your data.
+OpenClaw will install mbrain, walk through Supabase setup, discover your markdown files, import them, and prove search works with a query from your data.
 
 After setup, you talk to your brain through OpenClaw:
 
@@ -253,31 +253,31 @@ Give me a briefing for my meetings tomorrow
 How many pages are in the brain now?
 ```
 
-GBrain keeps your brain current. After setup, `gbrain sync --watch` polls your git repo and imports only what changed. Binary files (images, PDFs, audio) can be moved to cloud storage with `gbrain files mirror` to slim down your git repo.
+MBrain keeps your brain current. After setup, `mbrain sync --watch` polls your git repo and imports only what changed. Binary files (images, PDFs, audio) can be moved to cloud storage with `mbrain files mirror` to slim down your git repo.
 
-> **Supabase settings:** GBrain connects directly to Postgres (not the REST API).
+> **Supabase settings:** MBrain connects directly to Postgres (not the REST API).
 > You need the **Shared Pooler connection string**, not the project URL or anon key.
 > Find it: go to your project, click **Get Connected** next to the project URL,
 > then **Direct Connection String** > **Session Pooler**, and copy the
 > **Shared Pooler** connection string.
 
-### GBrain without OpenClaw
+### MBrain without OpenClaw
 
-GBrain works with any AI agent, any MCP client, or no agent at all. Three paths:
+MBrain works with any AI agent, any MCP client, or no agent at all. Three paths:
 
 #### Standalone CLI
 
-Install globally and use gbrain from the terminal:
+Install globally and use mbrain from the terminal:
 
 ```bash
-bun add -g github:meghendra6/gbrain
-gbrain init --local             # boot a local/offline SQLite brain
-gbrain import ~/git/brain/      # index your markdown into SQLite
-gbrain query "what do we know about competitive dynamics?"
-gbrain embed --stale            # optional: backfill semantic embeddings (defaults to Ollama on 127.0.0.1:11434)
+bun add -g github:meghendra6/mbrain
+mbrain init --local             # boot a local/offline SQLite brain
+mbrain import ~/git/brain/      # index your markdown into SQLite
+mbrain query "what do we know about competitive dynamics?"
+mbrain embed --stale            # optional: backfill semantic embeddings (defaults to Ollama on 127.0.0.1:11434)
 ```
 
-The CLI gives you page CRUD, search, tags, links, timeline, graph traversal, health checks, and MCP serve in both profiles. Cloud file/storage commands remain Postgres-only today and return honest unsupported-capability errors in sqlite/local mode. Run `gbrain --help` for the full list.
+The CLI gives you page CRUD, search, tags, links, timeline, graph traversal, health checks, and MCP serve in both profiles. Cloud file/storage commands remain Postgres-only today and return honest unsupported-capability errors in sqlite/local mode. Run `mbrain --help` for the full list.
 
 If you want a copy-paste, first-day local setup guide, use:
 
@@ -286,19 +286,19 @@ If you want a copy-paste, first-day local setup guide, use:
 
 #### Local MCP server (Codex, Claude Code, Cursor, Windsurf, etc.)
 
-GBrain exposes 30 MCP tools via stdio. Initialize `gbrain init --local` first so `gbrain serve` reads your SQLite/offline config, then attach your MCP client:
+MBrain exposes 30 MCP tools via stdio. Initialize `mbrain init --local` first so `mbrain serve` reads your SQLite/offline config, then attach your MCP client:
 
 **Codex**
 ```bash
-codex mcp add gbrain -- gbrain serve
+codex mcp add mbrain -- mbrain serve
 ```
 
 **Claude Code** (`~/.claude/server.json` shape)
 ```json
 {
   "mcpServers": {
-    "gbrain": {
-      "command": "gbrain",
+    "mbrain": {
+      "command": "mbrain",
       "args": ["serve"]
     }
   }
@@ -308,8 +308,8 @@ codex mcp add gbrain -- gbrain serve
 **Cursor** (Settings > MCP Servers):
 ```json
 {
-  "gbrain": {
-    "command": "gbrain",
+  "mbrain": {
+    "command": "mbrain",
     "args": ["serve"]
   }
 }
@@ -328,7 +328,7 @@ bun run src/commands/auth.ts create "claude-desktop"  # get a token
 ```
 
 Then add to your AI client:
-- **Claude Code:** `claude mcp add gbrain -t http https://YOUR_REF.supabase.co/functions/v1/gbrain-mcp/mcp -H "Authorization: Bearer TOKEN"`
+- **Claude Code:** `claude mcp add mbrain -t http https://YOUR_REF.supabase.co/functions/v1/mbrain-mcp/mcp -H "Authorization: Bearer TOKEN"`
 - **Claude Desktop:** Settings > Integrations > Add (NOT JSON config)
 - **Perplexity Computer:** Settings > Connectors > Add remote MCP
 
@@ -339,12 +339,12 @@ ChatGPT support requires OAuth 2.1 and is coming in v0.7. Self-hosted alternativ
 **The tools are not enough.** Your agent also needs behavioral rules -- the brain-agent loop that makes knowledge compound. The fastest way:
 
 ```bash
-gbrain setup-agent
+mbrain setup-agent
 ```
 
 This auto-detects Claude Code and/or Codex, registers the MCP server, and injects the core agent rules into each client's global config. See [docs/local-offline.md](docs/local-offline.md) Section 9 for details and options.
 
-For manual setup or deeper customization, read [GBRAIN_SKILLPACK.md](docs/GBRAIN_SKILLPACK.md) -- the full reference architecture covering enrichment pipelines, meeting ingestion, cron schedules, and more.
+For manual setup or deeper customization, read [MBRAIN_SKILLPACK.md](docs/MBRAIN_SKILLPACK.md) -- the full reference architecture covering enrichment pipelines, meeting ingestion, cron schedules, and more.
 
 The skill markdown files in `skills/` are standalone instruction sets. Copy them into your agent's context:
 
@@ -360,11 +360,11 @@ The skill markdown files in `skills/` are standalone instruction sets. Copy them
 #### As a TypeScript library
 
 ```bash
-bun add github:meghendra6/gbrain
+bun add github:meghendra6/mbrain
 ```
 
 ```typescript
-import { PostgresEngine } from 'gbrain';
+import { PostgresEngine } from 'mbrain';
 
 const engine = new PostgresEngine();
 await engine.connect({ database_url: process.env.DATABASE_URL });
@@ -387,7 +387,7 @@ await engine.putPage('concepts/superlinear-returns', {
 
 The `BrainEngine` interface is pluggable. See `docs/ENGINES.md` for how to add backends.
 
-GBrain now has two honest runtime profiles:
+MBrain now has two honest runtime profiles:
 - **Local/offline** — SQLite + stdio MCP on your machine, no cloud required
 - **Managed** — Postgres + pgvector + optional remote MCP/file workflows
 
@@ -399,36 +399,36 @@ Upgrade depends on how you installed:
 
 ```bash
 # Installed via bun (standalone or library)
-bun update gbrain
+bun update mbrain
 
 # Installed via ClawHub
-clawhub update gbrain
+clawhub update mbrain
 
 # Compiled binary
-# Download the latest from https://github.com/meghendra6/gbrain/releases
+# Download the latest from https://github.com/meghendra6/mbrain/releases
 ```
 
-After upgrading, re-run the initializer that matches your profile to apply any schema migrations (idempotent, safe to re-run): `gbrain init --local` for SQLite or `gbrain init --supabase` / `gbrain init --url ...` for Postgres.
+After upgrading, re-run the initializer that matches your profile to apply any schema migrations (idempotent, safe to re-run): `mbrain init --local` for SQLite or `mbrain init --supabase` / `mbrain init --url ...` for Postgres.
 
 ## Setup
 
 After installing via CLI or library path, choose the setup profile you want:
 
 ```bash
-# Zero-cloud local/offline setup (SQLite in ~/.gbrain/brain.db)
-gbrain init --local
+# Zero-cloud local/offline setup (SQLite in ~/.mbrain/brain.db)
+mbrain init --local
 
 # Optional custom SQLite path
-gbrain init --local --path ~/brains/personal-brain.db
+mbrain init --local --path ~/brains/personal-brain.db
 
 # Guided managed setup: accepts a Supabase/Postgres connection URL
-gbrain init --supabase
+mbrain init --supabase
 
 # Or connect to any Postgres with pgvector
-gbrain init --url postgresql://user:pass@host:5432/dbname
+mbrain init --url postgresql://user:pass@host:5432/dbname
 ```
 
-`gbrain init --local` boots the SQLite schema, writes the offline profile to `~/.gbrain/config.json`, and leaves you ready to attach Codex or Claude Code over `gbrain serve`.
+`mbrain init --local` boots the SQLite schema, writes the offline profile to `~/.mbrain/config.json`, and leaves you ready to attach Codex or Claude Code over `mbrain serve`.
 
 The managed Postgres wizard:
 1. Checks for Supabase CLI, offers auto-provisioning
@@ -436,7 +436,7 @@ The managed Postgres wizard:
 3. Runs the full schema migration (tables, indexes, triggers, extensions)
 4. Verifies the connection and confirms the database is ready for import
 
-Config is saved to `~/.gbrain/config.json` with 0600 permissions.
+Config is saved to `~/.mbrain/config.json` with 0600 permissions.
 
 OpenClaw users skip this step. The orchestrator runs the wizard for you during install.
 
@@ -444,30 +444,30 @@ OpenClaw users skip this step. The orchestrator runs the wizard for you during i
 
 ```bash
 # Import your markdown wiki (auto-chunks and auto-embeds)
-gbrain import /path/to/brain/
+mbrain import /path/to/brain/
 
 # Backfill embeddings for pages that don't have them
-gbrain embed --stale
+mbrain embed --stale
 ```
 
-Import is idempotent. Re-running it skips unchanged files (compared by SHA-256 content hash). Progress bar shows status. ~30s for text import of 7,000 files, ~10-15 min for embedding. In local/offline mode, import and sync already defer embeddings by default: keyword search works immediately, and `gbrain embed --stale` backfills semantic retrieval later by trying Ollama on `127.0.0.1:11434` first, with `OLLAMA_HOST` or `GBRAIN_LOCAL_EMBEDDING_URL` available as overrides.
+Import is idempotent. Re-running it skips unchanged files (compared by SHA-256 content hash). Progress bar shows status. ~30s for text import of 7,000 files, ~10-15 min for embedding. In local/offline mode, import and sync already defer embeddings by default: keyword search works immediately, and `mbrain embed --stale` backfills semantic retrieval later by trying Ollama on `127.0.0.1:11434` first, with `OLLAMA_HOST` or `MBRAIN_LOCAL_EMBEDDING_URL` available as overrides.
 
 ## File storage and migration
 
 Brain repos accumulate binary files: images, PDFs, audio recordings, raw API responses. A repo with 3,000 markdown pages might have 2GB of binaries making `git clone` painful.
 
-GBrain has a three-stage migration lifecycle that moves binaries to cloud storage while preserving every reference:
+MBrain has a three-stage migration lifecycle that moves binaries to cloud storage while preserving every reference:
 
 ```
 Local files in git repo
   │
-  ▼  gbrain files mirror <dir>
+  ▼  mbrain files mirror <dir>
 Cloud copy exists, local files untouched
   │
-  ▼  gbrain files redirect <dir>
+  ▼  mbrain files redirect <dir>
 Local files replaced with .redirect breadcrumbs (tiny YAML pointers)
   │
-  ▼  gbrain files clean <dir>
+  ▼  mbrain files clean <dir>
 Breadcrumbs removed, cloud is the only copy
 ```
 
@@ -475,32 +475,32 @@ Every stage is reversible until `clean`:
 
 ```bash
 # Stage 1: Copy to cloud (git repo unchanged)
-gbrain files mirror ~/git/brain/attachments/ --dry-run   # preview first
-gbrain files mirror ~/git/brain/attachments/
+mbrain files mirror ~/git/brain/attachments/ --dry-run   # preview first
+mbrain files mirror ~/git/brain/attachments/
 
 # Stage 2: Replace local files with breadcrumbs
-gbrain files redirect ~/git/brain/attachments/ --dry-run
-gbrain files redirect ~/git/brain/attachments/
+mbrain files redirect ~/git/brain/attachments/ --dry-run
+mbrain files redirect ~/git/brain/attachments/
 # Your git repo just dropped from 2GB to 50MB
 
 # Undo: download everything back from cloud
-gbrain files restore ~/git/brain/attachments/
+mbrain files restore ~/git/brain/attachments/
 
 # Stage 3: Remove breadcrumbs (irreversible, cloud is the only copy)
-gbrain files clean ~/git/brain/attachments/ --yes
+mbrain files clean ~/git/brain/attachments/ --yes
 ```
 
-**Storage backends:** S3-compatible (AWS S3, Cloudflare R2, MinIO), Supabase Storage, or local filesystem. Configured during managed/Postgres `gbrain init`. These file/storage workflows are not yet supported in sqlite/local mode.
+**Storage backends:** S3-compatible (AWS S3, Cloudflare R2, MinIO), Supabase Storage, or local filesystem. Configured during managed/Postgres `mbrain init`. These file/storage workflows are not yet supported in sqlite/local mode.
 
 Additional file commands:
 
 ```bash
-gbrain files list [slug]           # list files for a page (or all)
-gbrain files upload <file> --page <slug>  # upload file linked to page
-gbrain files sync <dir>            # bulk upload directory
-gbrain files verify                # verify all uploads match local
-gbrain files status                # show migration status of directories
-gbrain files unmirror <dir>        # remove mirror marker (files stay in cloud)
+mbrain files list [slug]           # list files for a page (or all)
+mbrain files upload <file> --page <slug>  # upload file linked to page
+mbrain files sync <dir>            # bulk upload directory
+mbrain files verify                # verify all uploads match local
+mbrain files status                # show migration status of directories
+mbrain files unmirror <dir>        # remove mirror marker (files stay in cloud)
 ```
 
 The file resolver (`src/core/file-resolver.ts`) handles fallback automatically: if a local file is missing, it checks for a `.redirect` breadcrumb, then a `.supabase` marker, and resolves to the cloud URL. Code that references files by path keeps working after migration.
@@ -626,72 +626,72 @@ Three strategies, dispatched by content type:
 
 ```
 SETUP
-  gbrain init --local                       Create a local/offline SQLite brain
-  gbrain init [--supabase|--url <conn>]     Create a managed Postgres brain (guided wizard)
-  gbrain upgrade                            Self-update
+  mbrain init --local                       Create a local/offline SQLite brain
+  mbrain init [--supabase|--url <conn>]     Create a managed Postgres brain (guided wizard)
+  mbrain upgrade                            Self-update
 
 PAGES
-  gbrain get <slug>                         Read a page (supports fuzzy slug matching)
-  gbrain put <slug> [< file.md]             Write/update a page (auto-versions)
-  gbrain delete <slug>                      Delete a page
-  gbrain list [--type T] [--tag T] [-n N]   List pages with filters
+  mbrain get <slug>                         Read a page (supports fuzzy slug matching)
+  mbrain put <slug> [< file.md]             Write/update a page (auto-versions)
+  mbrain delete <slug>                      Delete a page
+  mbrain list [--type T] [--tag T] [-n N]   List pages with filters
 
 SEARCH
-  gbrain search <query>                     Keyword search (tsvector)
-  gbrain query <question>                   Hybrid search (vector + keyword + RRF + expansion)
+  mbrain search <query>                     Keyword search (tsvector)
+  mbrain query <question>                   Hybrid search (vector + keyword + RRF + expansion)
 
 IMPORT/EXPORT
-  gbrain import <dir>                       Import markdown directory (idempotent, embeddings deferred)
-  gbrain sync [--repo <path>] [flags]       Git-to-brain incremental sync
-  gbrain export [--dir ./out/]              Export to markdown (round-trip)
+  mbrain import <dir>                       Import markdown directory (idempotent, embeddings deferred)
+  mbrain sync [--repo <path>] [flags]       Git-to-brain incremental sync
+  mbrain export [--dir ./out/]              Export to markdown (round-trip)
 
 FILES
-  gbrain files list [slug]                  List stored files
-  gbrain files upload <file> --page <slug>  Upload file to storage
-  gbrain files sync <dir>                   Bulk upload directory
-  gbrain files verify                       Verify all uploads
+  mbrain files list [slug]                  List stored files
+  mbrain files upload <file> --page <slug>  Upload file to storage
+  mbrain files sync <dir>                   Bulk upload directory
+  mbrain files verify                       Verify all uploads
 
 EMBEDDINGS
-  gbrain embed [<slug>|--all|--stale]       Generate/refresh embeddings
+  mbrain embed [<slug>|--all|--stale]       Generate/refresh embeddings
 
 LINKS + GRAPH
-  gbrain link <from> <to> [--type T]        Create typed link
-  gbrain unlink <from> <to>                 Remove link
-  gbrain backlinks <slug>                   Incoming links
-  gbrain graph <slug> [--depth N]           Traverse link graph (recursive CTE, default depth 5)
+  mbrain link <from> <to> [--type T]        Create typed link
+  mbrain unlink <from> <to>                 Remove link
+  mbrain backlinks <slug>                   Incoming links
+  mbrain graph <slug> [--depth N]           Traverse link graph (recursive CTE, default depth 5)
 
 TAGS
-  gbrain tags <slug>                        List tags
-  gbrain tag <slug> <tag>                   Add tag
-  gbrain untag <slug> <tag>                 Remove tag
+  mbrain tags <slug>                        List tags
+  mbrain tag <slug> <tag>                   Add tag
+  mbrain untag <slug> <tag>                 Remove tag
 
 TIMELINE
-  gbrain timeline [<slug>]                  View timeline entries
-  gbrain timeline-add <slug> <date> <text>  Add timeline entry
+  mbrain timeline [<slug>]                  View timeline entries
+  mbrain timeline-add <slug> <date> <text>  Add timeline entry
 
 ADMIN
-  gbrain doctor [--json]                    Health checks (pgvector, RLS, schema, embeddings)
-  gbrain stats                              Brain statistics
-  gbrain health                             Health dashboard (embed coverage, stale, orphans)
-  gbrain history <slug>                     Page version history
-  gbrain revert <slug> <version-id>         Revert to previous version
-  gbrain config [get|set] <key> [value]     Brain config
-  gbrain serve                              MCP server (stdio, local)
+  mbrain doctor [--json]                    Health checks (pgvector, RLS, schema, embeddings)
+  mbrain stats                              Brain statistics
+  mbrain health                             Health dashboard (embed coverage, stale, orphans)
+  mbrain history <slug>                     Page version history
+  mbrain revert <slug> <version-id>         Revert to previous version
+  mbrain config [get|set] <key> [value]     Brain config
+  mbrain serve                              MCP server (stdio, local)
   scripts/deploy-remote.sh                  Deploy remote MCP server (Supabase Edge Functions)
   bun run src/commands/auth.ts              Token management (create/list/revoke/test)
-  gbrain call <tool> '<json>'               Raw tool invocation
-  gbrain --tools-json                       Tool discovery (JSON)
+  mbrain call <tool> '<json>'               Raw tool invocation
+  mbrain --tools-json                       Tool discovery (JSON)
 ```
 
 ## Library and MCP details
 
-See [GBrain without OpenClaw](#gbrain-without-openclaw) above for library usage examples, MCP server config, and skill file loading.
+See [MBrain without OpenClaw](#mbrain-without-openclaw) above for library usage examples, MCP server config, and skill file loading.
 
 The `BrainEngine` interface is pluggable. See `docs/ENGINES.md` for how to add backends. 30 MCP tools are generated from the contract-first `operations.ts`. Parity tests verify structural identity between CLI, MCP, and tools-json.
 
 ## Skills
 
-Fat markdown files that tell AI agents HOW to use gbrain. No skill logic in the binary.
+Fat markdown files that tell AI agents HOW to use mbrain. No skill logic in the binary.
 
 | Skill | What it does |
 |-------|-------------|
@@ -700,8 +700,8 @@ Fat markdown files that tell AI agents HOW to use gbrain. No skill logic in the 
 | **maintain** | Periodic health: find contradictions, stale compiled truth, orphan pages, dead links, tag inconsistency, missing embeddings, overdue threads. |
 | **enrich** | Enrich pages from external APIs. Raw data stored separately, distilled highlights go to compiled truth. |
 | **briefing** | Daily briefing: today's meetings with participant context, active deals with deadlines, time-sensitive threads, recent changes. |
-| **migrate** | Universal migration from Obsidian (wikilinks to gbrain links), Notion (stripped UUIDs), Logseq (block refs), plain markdown, CSV, JSON, Roam. |
-| **setup** | Set up GBrain from scratch: auto-provision Supabase via CLI, AGENTS.md injection, import, sync. Target TTHW < 2 min. |
+| **migrate** | Universal migration from Obsidian (wikilinks to mbrain links), Notion (stripped UUIDs), Logseq (block refs), plain markdown, CSV, JSON, Roam. |
+| **setup** | Set up MBrain from scratch: auto-provision Supabase via CLI, AGENTS.md injection, import, sync. Target TTHW < 2 min. |
 
 ## Engine Architecture
 
@@ -744,18 +744,18 @@ Initial embedding footprint: ~67MB for 7,500 pages at 768 dimensions. Runtime co
 
 ## Docs
 
-- **[GBRAIN_SKILLPACK.md](docs/GBRAIN_SKILLPACK.md)** -- **Start here for agents.** Reference architecture for production agents: brain-agent loop, entity detection, enrichment pipeline, meeting ingestion, cron schedule
-- [GBRAIN_RECOMMENDED_SCHEMA.md](docs/GBRAIN_RECOMMENDED_SCHEMA.md) -- The recommended brain schema: MECE directories, compiled truth + timeline, enrichment pipelines, resolver decision tree
-- [GBRAIN_V0.md](docs/GBRAIN_V0.md) -- Full product spec, all architecture decisions, every option considered
+- **[MBRAIN_SKILLPACK.md](docs/MBRAIN_SKILLPACK.md)** -- **Start here for agents.** Reference architecture for production agents: brain-agent loop, entity detection, enrichment pipeline, meeting ingestion, cron schedule
+- [MBRAIN_RECOMMENDED_SCHEMA.md](docs/MBRAIN_RECOMMENDED_SCHEMA.md) -- The recommended brain schema: MECE directories, compiled truth + timeline, enrichment pipelines, resolver decision tree
+- [MBRAIN_V0.md](docs/MBRAIN_V0.md) -- Full product spec, all architecture decisions, every option considered
 - [ENGINES.md](docs/ENGINES.md) -- Pluggable engine interface, capability matrix, how to add backends
 - [SQLITE_ENGINE.md](docs/SQLITE_ENGINE.md) -- Complete SQLite engine plan with schema, FTS5, vector search options
-- [GBRAIN_VERIFY.md](docs/GBRAIN_VERIFY.md) -- Installation verification runbook: schema, live sync, embeddings, brain-first lookup
+- [MBRAIN_VERIFY.md](docs/MBRAIN_VERIFY.md) -- Installation verification runbook: schema, live sync, embeddings, brain-first lookup
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Run `bun test` for unit tests. For E2E tests
 against real Postgres+pgvector: `docker compose -f docker-compose.test.yml up -d` then
-`DATABASE_URL=postgresql://postgres:postgres@localhost:5434/gbrain_test bun run test:e2e`.
+`DATABASE_URL=postgresql://postgres:postgres@localhost:5434/mbrain_test bun run test:e2e`.
 
 Welcome PRs for:
 

@@ -6,7 +6,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import type { BrainEngine } from './engine.ts';
-import type { GBrainConfig } from './config.ts';
+import type { MBrainConfig } from './config.ts';
 import { importFromContent } from './import-file.ts';
 import { hybridSearch } from './search/hybrid.ts';
 import { expandQuery } from './search/expansion.ts';
@@ -73,7 +73,7 @@ export interface Logger {
 
 export interface OperationContext {
   engine: BrainEngine;
-  config: GBrainConfig;
+  config: MBrainConfig;
   logger: Logger;
   dryRun: boolean;
 }
@@ -654,7 +654,7 @@ const file_url: Operation = {
       throw new OperationError('storage_error', `File not found: ${p.storage_path}`);
     }
     // TODO: generate signed URL from Supabase Storage
-    return { storage_path: rows[0].storage_path, url: `gbrain:files/${rows[0].storage_path}` };
+    return { storage_path: rows[0].storage_path, url: `mbrain:files/${rows[0].storage_path}` };
   },
 };
 
@@ -662,7 +662,7 @@ const file_url: Operation = {
 
 const get_skillpack: Operation = {
   name: 'get_skillpack',
-  description: 'Read the GBrain SKILLPACK reference architecture. Returns the full document or a specific section by number/name. Use this to learn detailed patterns for enrichment, meeting ingestion, cron schedules, and more.',
+  description: 'Read the MBrain SKILLPACK reference architecture. Returns the full document or a specific section by number/name. Use this to learn detailed patterns for enrichment, meeting ingestion, cron schedules, and more.',
   params: {
     section: { type: 'string', description: 'Section number or keyword (e.g. "5", "enrichment", "meeting", "cron"). Omit to get the compact agent rules.' },
   },
@@ -671,17 +671,17 @@ const get_skillpack: Operation = {
 
     // If no section requested, return the compact agent rules
     if (!section) {
-      const rulesPath = resolveDocPath('GBRAIN_AGENT_RULES.md');
+      const rulesPath = resolveDocPath('MBRAIN_AGENT_RULES.md');
       if (!rulesPath) {
-        return { error: 'not_found', message: 'GBRAIN_AGENT_RULES.md not found in the gbrain package.' };
+        return { error: 'not_found', message: 'MBRAIN_AGENT_RULES.md not found in the mbrain package.' };
       }
-      return { document: 'GBRAIN_AGENT_RULES.md', content: readFileSync(rulesPath, 'utf-8') };
+      return { document: 'MBRAIN_AGENT_RULES.md', content: readFileSync(rulesPath, 'utf-8') };
     }
 
     // Load full SKILLPACK and extract section
-    const skillpackPath = resolveDocPath('GBRAIN_SKILLPACK.md');
+    const skillpackPath = resolveDocPath('MBRAIN_SKILLPACK.md');
     if (!skillpackPath) {
-      return { error: 'not_found', message: 'GBRAIN_SKILLPACK.md not found in the gbrain package.' };
+      return { error: 'not_found', message: 'MBRAIN_SKILLPACK.md not found in the mbrain package.' };
     }
 
     const fullContent = readFileSync(skillpackPath, 'utf-8');
@@ -691,7 +691,7 @@ const get_skillpack: Operation = {
     if (!isNaN(sectionNum)) {
       const extracted = extractSection(fullContent, sectionNum);
       if (extracted) {
-        return { document: 'GBRAIN_SKILLPACK.md', section: sectionNum, content: extracted };
+        return { document: 'MBRAIN_SKILLPACK.md', section: sectionNum, content: extracted };
       }
       return { error: 'section_not_found', message: `Section ${sectionNum} not found.`, available: listSections(fullContent) };
     }
@@ -709,7 +709,7 @@ const get_skillpack: Operation = {
 
     if (matchingSections.length === 1) {
       const extracted = extractSection(fullContent, matchingSections[0].num);
-      return { document: 'GBRAIN_SKILLPACK.md', section: matchingSections[0].num, title: matchingSections[0].title, content: extracted };
+      return { document: 'MBRAIN_SKILLPACK.md', section: matchingSections[0].num, title: matchingSections[0].title, content: extracted };
     }
 
     if (matchingSections.length > 1) {
@@ -802,7 +802,7 @@ export const operations: Operation[] = [
 ];
 
 function assertCapabilitySupported(
-  config: GBrainConfig,
+  config: MBrainConfig,
   capability: 'files',
 ) {
   const reason = getUnsupportedCapabilityReason(config, capability);
