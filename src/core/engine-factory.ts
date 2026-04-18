@@ -64,14 +64,17 @@ export async function createConnectedEngine(
 ): Promise<BrainEngine> {
   validateResolvedConfig(config);
   const engineConfig = toEngineConfig(config, options);
+
+  if (config.engine !== 'postgres' && !options?.poolSize) {
+    await closeConnectionOwners();
+  }
+
   const engine = config.engine === 'pglite'
     ? await createEngine(engineConfig)
     : createEngineFromConfig(config);
   await engine.connect(engineConfig);
   if (config.engine === 'postgres' && !options?.poolSize && engine instanceof PostgresEngine) {
     registerConnectionOwner(engine);
-  } else if (!options?.poolSize) {
-    await closeConnectionOwners();
   }
   return engine;
 }

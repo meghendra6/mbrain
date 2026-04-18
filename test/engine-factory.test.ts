@@ -246,6 +246,69 @@ describe('engine factory', () => {
     }
   });
 
+  test('non-postgres createConnectedEngine drains stale owners before connecting and still attempts later owners after a disconnect failure', async () => {
+    const postgresOwners: PostgresEngine[] = [];
+    const postgresDisconnects: PostgresEngine[] = [];
+    const sqliteConnects: SQLiteEngine[] = [];
+    const sqliteDisconnects: SQLiteEngine[] = [];
+    const disconnectError = new Error('first stale owner failed to close');
+
+    const postgresConnectSpy = spyOn(PostgresEngine.prototype, 'connect').mockImplementation(async function () {
+      const fakeSql = (() => []) as unknown as ReturnType<typeof db.getConnection>;
+      (this as PostgresEngine & { _sql: typeof fakeSql })._sql = fakeSql;
+      postgresOwners.push(this as PostgresEngine);
+    });
+    const postgresDisconnectSpy = spyOn(PostgresEngine.prototype, 'disconnect').mockImplementation(async function () {
+      postgresDisconnects.push(this as PostgresEngine);
+      (this as PostgresEngine & { _sql: ReturnType<typeof db.getConnection> | null })._sql = null;
+      if (this === postgresOwners[1]) {
+        throw disconnectError;
+      }
+    });
+    const sqliteConnectSpy = spyOn(SQLiteEngine.prototype, 'connect').mockImplementation(async function () {
+      sqliteConnects.push(this as SQLiteEngine);
+    });
+    const sqliteDisconnectSpy = spyOn(SQLiteEngine.prototype, 'disconnect').mockImplementation(async function () {
+      sqliteDisconnects.push(this as SQLiteEngine);
+    });
+
+    try {
+      const { createConnectedEngine } = await import('../src/core/engine-factory.ts');
+
+      await db.connect({
+        engine: 'postgres',
+        database_url: 'postgresql://user:pass@localhost:5432/mbrain',
+      });
+      await createConnectedEngine({
+        engine: 'postgres',
+        database_url: 'postgresql://user:pass@localhost:5432/mbrain',
+        offline: false,
+        embedding_provider: 'none',
+        query_rewrite_provider: 'none',
+      });
+
+      await expect(createConnectedEngine({
+        engine: 'sqlite',
+        database_path: join(tempHome, 'brain.db'),
+        offline: true,
+        embedding_provider: 'local',
+        query_rewrite_provider: 'heuristic',
+      })).rejects.toThrow('first stale owner failed to close');
+
+      expect(postgresDisconnects).toHaveLength(2);
+      expect(sqliteConnects).toHaveLength(0);
+      expect(sqliteDisconnects).toHaveLength(0);
+      expect(() => db.getConnection()).toThrow('Global Postgres access removed');
+      await db.disconnect();
+      expect(postgresDisconnects).toHaveLength(2);
+    } finally {
+      postgresConnectSpy.mockRestore();
+      postgresDisconnectSpy.mockRestore();
+      sqliteConnectSpy.mockRestore();
+      sqliteDisconnectSpy.mockRestore();
+    }
+  });
+
   test('createEngine throws for unknown engines', async () => {
     const { createEngine } = await import('../src/core/engine-factory.ts');
     await expect(createEngine({ engine: 'mysql' as any })).rejects.toThrow('Unknown engine');

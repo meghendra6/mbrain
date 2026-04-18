@@ -17,13 +17,7 @@ export function registerConnectionOwner(engine: ConnectedPostgresEngine): void {
   activeConnectionOwner = engine;
 }
 
-export function clearConnectionOwner(engine?: ConnectedPostgresEngine): void {
-  if (!engine) {
-    connectionOwners.length = 0;
-    activeConnectionOwner = null;
-    return;
-  }
-
+export function clearConnectionOwner(engine: ConnectedPostgresEngine): void {
   const index = connectionOwners.indexOf(engine);
   if (index !== -1) {
     connectionOwners.splice(index, 1);
@@ -38,9 +32,22 @@ export async function closeConnectionOwners(): Promise<void> {
   const owners = [...connectionOwners];
   connectionOwners.length = 0;
   activeConnectionOwner = null;
+  const errors: unknown[] = [];
 
   for (const engine of owners.reverse()) {
-    await engine.disconnect();
+    try {
+      await engine.disconnect();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+
+  if (errors.length === 1) {
+    throw errors[0];
+  }
+
+  if (errors.length > 1) {
+    throw new AggregateError(errors, 'Failed to close one or more Postgres compatibility owners');
   }
 }
 
