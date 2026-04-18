@@ -192,6 +192,59 @@ describe('engine factory', () => {
     }
   });
 
+  test('non-postgres createConnectedEngine clears stale compatibility owners instead of leaving them queued for db.disconnect', async () => {
+    const postgresDisconnects: PostgresEngine[] = [];
+    const sqliteDisconnects: SQLiteEngine[] = [];
+
+    const postgresConnectSpy = spyOn(PostgresEngine.prototype, 'connect').mockImplementation(async function () {
+      const fakeSql = (() => []) as unknown as ReturnType<typeof db.getConnection>;
+      (this as PostgresEngine & { _sql: typeof fakeSql })._sql = fakeSql;
+    });
+    const postgresDisconnectSpy = spyOn(PostgresEngine.prototype, 'disconnect').mockImplementation(async function () {
+      postgresDisconnects.push(this as PostgresEngine);
+      (this as PostgresEngine & { _sql: ReturnType<typeof db.getConnection> | null })._sql = null;
+    });
+    const sqliteConnectSpy = spyOn(SQLiteEngine.prototype, 'connect').mockImplementation(async function () {});
+    const sqliteDisconnectSpy = spyOn(SQLiteEngine.prototype, 'disconnect').mockImplementation(async function () {
+      sqliteDisconnects.push(this as SQLiteEngine);
+    });
+
+    try {
+      const { createConnectedEngine } = await import('../src/core/engine-factory.ts');
+
+      await createConnectedEngine({
+        engine: 'postgres',
+        database_url: 'postgresql://user:pass@localhost:5432/mbrain',
+        offline: false,
+        embedding_provider: 'none',
+        query_rewrite_provider: 'none',
+      });
+
+      expect(() => db.getConnection()).not.toThrow();
+
+      const sqliteEngine = await createConnectedEngine({
+        engine: 'sqlite',
+        database_path: join(tempHome, 'brain.db'),
+        offline: true,
+        embedding_provider: 'local',
+        query_rewrite_provider: 'heuristic',
+      });
+
+      expect(sqliteEngine).toBeInstanceOf(SQLiteEngine);
+      expect(() => db.getConnection()).toThrow('Global Postgres access removed');
+
+      await db.disconnect();
+
+      expect(postgresDisconnects).toHaveLength(0);
+      expect(sqliteDisconnects).toHaveLength(0);
+    } finally {
+      postgresConnectSpy.mockRestore();
+      postgresDisconnectSpy.mockRestore();
+      sqliteConnectSpy.mockRestore();
+      sqliteDisconnectSpy.mockRestore();
+    }
+  });
+
   test('createEngine throws for unknown engines', async () => {
     const { createEngine } = await import('../src/core/engine-factory.ts');
     await expect(createEngine({ engine: 'mysql' as any })).rejects.toThrow('Unknown engine');

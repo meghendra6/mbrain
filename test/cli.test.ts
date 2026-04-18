@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -8,6 +8,29 @@ const cliSource = readFileSync(new URL('../src/cli.ts', import.meta.url), 'utf-8
 const initSource = readFileSync(new URL('../src/commands/init.ts', import.meta.url), 'utf-8');
 const originalEnv = { ...process.env };
 let tempHome: string;
+
+function captureConsole() {
+  const logs: string[] = [];
+  const errors: string[] = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+
+  console.log = ((...args: unknown[]) => {
+    logs.push(args.map(arg => String(arg)).join(' '));
+  }) as typeof console.log;
+  console.error = ((...args: unknown[]) => {
+    errors.push(args.map(arg => String(arg)).join(' '));
+  }) as typeof console.error;
+
+  return {
+    logs,
+    errors,
+    restore() {
+      console.log = originalLog;
+      console.error = originalError;
+    },
+  };
+}
 
 function writeUserConfig(config: Record<string, unknown>) {
   const dir = join(tempHome, '.mbrain');
@@ -25,6 +48,7 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env = { ...originalEnv };
+  mock.restore();
   rmSync(tempHome, { recursive: true, force: true });
 });
 
@@ -81,6 +105,58 @@ describe('CLI version', () => {
 });
 
 describe('CLI dispatch integration', () => {
+  test('runInit postgres bootstrap uses createConnectedEngine so db.getConnection remains available', async () => {
+    const capture = captureConsole();
+    const engineFactoryPath = new URL('../src/core/engine-factory.ts', import.meta.url).pathname;
+    const dbPath = new URL('../src/core/db.ts', import.meta.url).pathname;
+    const fakeSql: any = async (strings: TemplateStringsArray) => {
+      const text = Array.from(strings).join('');
+      if (text.includes("SELECT extname FROM pg_extension")) return [{ extname: 'vector' }];
+      return [];
+    };
+
+    const fakeEngine = {
+      connect: async () => undefined,
+      initSchema: async () => undefined,
+      getStats: async () => ({ page_count: 0 }),
+      disconnect: async () => undefined,
+    };
+
+    mock.module(engineFactoryPath, () => ({
+      createEngine: async () => {
+        throw new Error('unexpected createEngine');
+      },
+      createEngineFromConfig: () => {
+        throw new Error('createEngineFromConfig should not be used for postgres init');
+      },
+      createConnectedEngine: async (config: Record<string, unknown>) => {
+        expect(config.engine).toBe('postgres');
+        return fakeEngine;
+      },
+      toEngineConfig: (config: Record<string, unknown>) => config,
+    }));
+
+    mock.module(dbPath, () => ({
+      getConnection: () => fakeSql,
+      disconnect: async () => undefined,
+    }));
+
+    try {
+      const modulePath = new URL(`../src/commands/init.ts?postgres-init=${Date.now()}`, import.meta.url).href;
+      const { runInit } = await import(modulePath);
+      await runInit(['--url', 'postgresql://user:pass@localhost:5432/mbrain', '--json']);
+    } finally {
+      capture.restore();
+    }
+
+    const { loadConfig } = await import('../src/core/config.ts');
+    expect(loadConfig()).toMatchObject({
+      engine: 'postgres',
+      database_url: 'postgresql://user:pass@localhost:5432/mbrain',
+    });
+    expect(capture.logs.some(line => line.includes('"engine":"postgres"'))).toBe(true);
+  });
+
   test('--version outputs version', async () => {
     const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', '--version'], {
       cwd: repoRoot,

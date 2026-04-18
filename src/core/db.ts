@@ -19,6 +19,7 @@ export function registerConnectionOwner(engine: ConnectedPostgresEngine): void {
 
 export function clearConnectionOwner(engine?: ConnectedPostgresEngine): void {
   if (!engine) {
+    connectionOwners.length = 0;
     activeConnectionOwner = null;
     return;
   }
