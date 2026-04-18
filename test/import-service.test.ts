@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, relative } from 'path';
 import {
   collectImportSummary,
   resolveImportPlan,
@@ -65,10 +65,11 @@ describe('import service', () => {
     expect(plan.resumed).toBe(true);
   });
 
-  test('runImportService writes preserved checkpoints to the custom checkpointPath parent directory', async () => {
+  test('runImportService preserves checkpoints before failed files so resume retries them', async () => {
     const rootDir = makeTempDir('mbrain-import-root-');
-    for (let index = 0; index < 100; index++) {
-      writeFileSync(join(rootDir, `${index}.md`), `# note ${index}\n`);
+    for (let index = 0; index <= 100; index++) {
+      const fileName = `${String(index).padStart(3, '0')}.md`;
+      writeFileSync(join(rootDir, fileName), `# note ${index}\n`);
     }
 
     const checkpointPath = join(rootDir, 'nested', 'state', 'import-checkpoint.json');
@@ -76,8 +77,10 @@ describe('import service', () => {
       logIngest: async () => undefined,
       setConfig: async () => undefined,
     } as any;
+    const attemptedFilesByRun: string[][] = [[]];
+    let runIndex = 0;
 
-    const summary = await runImportService(
+    const firstSummary = await runImportService(
       engine,
       { rootDir, workers: 1, checkpointPath },
       {
@@ -85,7 +88,9 @@ describe('import service', () => {
           throw new Error('not used');
         },
         importFile: async (_engine, filePath) => {
-          if (filePath.endsWith('99.md')) {
+          const relativePath = relative(rootDir, filePath);
+          attemptedFilesByRun[runIndex].push(relativePath);
+          if (runIndex === 0 && relativePath === '099.md') {
             throw new Error('boom');
           }
           return { slug: filePath, status: 'imported' as const, chunks: 1 };
@@ -95,12 +100,36 @@ describe('import service', () => {
       },
     );
 
-    expect(summary.errors).toBe(1);
+    expect(firstSummary.errors).toBe(1);
     expect(existsSync(checkpointPath)).toBe(true);
     const checkpoint = JSON.parse(readFileSync(checkpointPath, 'utf-8'));
     expect(checkpoint.dir).toBe(rootDir);
-    expect(checkpoint.totalFiles).toBe(100);
-    expect(checkpoint.processedIndex).toBe(100);
+    expect(checkpoint.totalFiles).toBe(101);
+    expect(checkpoint.processedIndex).toBe(99);
+
+    runIndex = 1;
+    attemptedFilesByRun.push([]);
+
+    const secondSummary = await runImportService(
+      engine,
+      { rootDir, workers: 1, checkpointPath },
+      {
+        createConnectedEngine: async () => {
+          throw new Error('not used');
+        },
+        importFile: async (_engine, filePath) => {
+          const relativePath = relative(rootDir, filePath);
+          attemptedFilesByRun[runIndex].push(relativePath);
+          return { slug: filePath, status: 'imported' as const, chunks: 1 };
+        },
+        loadConfig: () => null,
+        supportsParallelWorkers: () => false,
+      },
+    );
+
+    expect(secondSummary.errors).toBe(0);
+    expect(attemptedFilesByRun[1]).toEqual(['099.md', '100.md']);
+    expect(existsSync(checkpointPath)).toBe(false);
   });
 
   test('runImportService uses staged local concurrency for prepare work but commits in file order', async () => {

@@ -328,9 +328,11 @@ export async function runImportService(
   let skipped = 0;
   let errors = 0;
   let processed = 0;
+  let retrySafeOffset = 0;
   let chunksCreated = 0;
   const importedSlugs: string[] = [];
   const errorCounts: Record<string, number> = {};
+  const checkpointOutcomes = new Map<number, boolean>();
   const startTime = Date.now();
 
   const logProgress = () => {
@@ -343,6 +345,17 @@ export async function runImportService(
     );
   };
 
+  const recordCheckpointOutcome = (fileIndex: number, canResumePastFile: boolean) => {
+    checkpointOutcomes.set(fileIndex, canResumePastFile);
+    while (checkpointOutcomes.has(retrySafeOffset)) {
+      if (!checkpointOutcomes.get(retrySafeOffset)) {
+        return;
+      }
+      checkpointOutcomes.delete(retrySafeOffset);
+      retrySafeOffset++;
+    }
+  };
+
   const writeCheckpoint = () => {
     try {
       const cpDir = dirname(checkpointPath);
@@ -352,8 +365,8 @@ export async function runImportService(
       writeFileSync(checkpointPath, JSON.stringify({
         dir: options.rootDir,
         totalFiles: allFiles.length,
-        processedIndex: plan.resumeIndex + processed,
-        completedFiles: importedSlugs.length + skipped,
+        processedIndex: plan.resumeIndex + retrySafeOffset,
+        completedFiles: plan.resumeIndex + processed,
         timestamp: new Date().toISOString(),
       }));
     } catch {
@@ -361,7 +374,12 @@ export async function runImportService(
     }
   };
 
-  const finalizeImportResult = (relativePath: string, result: Awaited<ReturnType<typeof importFile>>) => {
+  const finalizeImportResult = (
+    fileIndex: number,
+    relativePath: string,
+    result: Awaited<ReturnType<typeof importFile>>,
+  ) => {
+    recordCheckpointOutcome(fileIndex, true);
     if (result.status === 'imported') {
       imported++;
       chunksCreated += result.chunks;
@@ -382,7 +400,8 @@ export async function runImportService(
     }
   };
 
-  const finalizeImportError = (relativePath: string, message: string) => {
+  const finalizeImportError = (fileIndex: number, relativePath: string, message: string) => {
+    recordCheckpointOutcome(fileIndex, false);
     const errorKey = message.replace(/"[^"]*"/g, '""');
     errorCounts[errorKey] = (errorCounts[errorKey] || 0) + 1;
     if (errorCounts[errorKey] <= 5) {
@@ -402,14 +421,14 @@ export async function runImportService(
     }
   };
 
-  const processFile = async (activeEngine: BrainEngine, filePath: string) => {
+  const processFile = async (activeEngine: BrainEngine, filePath: string, fileIndex: number) => {
     const relativePath = relative(options.rootDir, filePath);
     try {
       const result = await deps.importFile(activeEngine, filePath, relativePath, { noEmbed: options.noEmbed });
-      finalizeImportResult(relativePath, result);
+      finalizeImportResult(fileIndex, relativePath, result);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      finalizeImportError(relativePath, message);
+      finalizeImportError(fileIndex, relativePath, message);
     }
   };
 
@@ -432,7 +451,7 @@ export async function runImportService(
         while (true) {
           const index = queueIndex++;
           if (index >= plan.files.length) break;
-          await processFile(workerEngine, plan.files[index]);
+          await processFile(workerEngine, plan.files[index], index);
         }
       }));
 
@@ -471,12 +490,13 @@ export async function runImportService(
 
         for (let index = 0; index < preparedResults.length; index++) {
           const prepared = preparedResults[index];
+          const fileIndex = batchStart + index;
           const relativePath = relative(options.rootDir, batchFiles[index]);
           if (prepared.status !== 'ready') {
             if (prepared.prepareFailed) {
-              finalizeImportError(relativePath, prepared.error ?? 'prepare failed');
+              finalizeImportError(fileIndex, relativePath, prepared.error ?? 'prepare failed');
             } else {
-              finalizeImportResult(relativePath, {
+              finalizeImportResult(fileIndex, relativePath, {
                 slug: prepared.slug,
                 status: 'skipped',
                 chunks: 0,
@@ -487,21 +507,21 @@ export async function runImportService(
           }
           try {
             const result = await deps.commitPreparedImport(engine, prepared);
-            finalizeImportResult(relativePath, result);
+            finalizeImportResult(fileIndex, relativePath, result);
           } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);
-            finalizeImportError(relativePath, message);
+            finalizeImportError(fileIndex, relativePath, message);
           }
         }
       }
     } else {
-      for (const filePath of plan.files) {
-        await processFile(engine, filePath);
+      for (let index = 0; index < plan.files.length; index++) {
+        await processFile(engine, plan.files[index], index);
       }
     }
   } else {
-    for (const filePath of plan.files) {
-      await processFile(engine, filePath);
+    for (let index = 0; index < plan.files.length; index++) {
+      await processFile(engine, plan.files[index], index);
     }
   }
 
@@ -517,8 +537,11 @@ export async function runImportService(
     } catch {
       // Non-fatal.
     }
-  } else if (errors > 0 && existsSync(checkpointPath)) {
-    logger.log(`  Checkpoint preserved (${errors} errors). Run again to retry failed files.`);
+  } else if (errors > 0) {
+    writeCheckpoint();
+    if (existsSync(checkpointPath)) {
+      logger.log(`  Checkpoint preserved (${errors} errors). Run again to retry failed files.`);
+    }
   }
 
   await updateImportGitState(engine, options.rootDir);

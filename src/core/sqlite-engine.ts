@@ -239,6 +239,8 @@ export class SQLiteEngine implements BrainEngine {
       migrated = true;
     }
 
+    this.backfillMissingPageEmbeddingsFromChunks();
+
     // Rebuild FTS index after schema migration. On a fresh database at baseline
     // version (no migrations needed), the FTS triggers maintain the index for all
     // subsequent CRUD — no rebuild is required. If FTS corruption is ever suspected,
@@ -1198,6 +1200,20 @@ export class SQLiteEngine implements BrainEngine {
       `UPDATE pages SET page_embedding = ? WHERE id = ?`,
       [centroid ? float32ToBlob(centroid) : null, pageId],
     );
+  }
+
+  private backfillMissingPageEmbeddingsFromChunks(): void {
+    const rows = this.database.query(`
+      SELECT DISTINCT p.id AS page_id
+      FROM pages p
+      JOIN content_chunks cc ON cc.page_id = p.id
+      WHERE p.page_embedding IS NULL
+        AND cc.embedding IS NOT NULL
+    `).all() as Array<{ page_id: number }>;
+
+    for (const row of rows) {
+      this.refreshPageEmbeddingFromChunks(Number(row.page_id));
+    }
   }
 
   private getPageId(slug: string): number | null {

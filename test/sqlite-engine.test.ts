@@ -852,4 +852,41 @@ describe('SQLiteEngine migrations', () => {
     const results = await engine.searchKeyword('System149.run');
     expect(results.map(result => result.slug)).toEqual(['systems/system-149.md']);
   });
+
+  test('rerunning initSchema backfills missing page embeddings for migrated chunk vectors', async () => {
+    await putPage('concepts/migrated-centroid.md', {
+      type: 'concept',
+      title: 'Migrated Centroid',
+      compiled_truth: 'Migrated centroid page.',
+      timeline: '',
+      frontmatter: {},
+    });
+    await putChunks('concepts/migrated-centroid.md', [
+      {
+        chunk_index: 0,
+        chunk_text: 'first centroid chunk',
+        chunk_source: 'compiled_truth',
+        embedding: new Float32Array([1, 0]),
+      },
+      {
+        chunk_index: 1,
+        chunk_text: 'second centroid chunk',
+        chunk_source: 'compiled_truth',
+        embedding: new Float32Array([0, 1]),
+      },
+    ]);
+
+    const db = (engine as any).database as Database;
+    db.run(`UPDATE pages SET page_embedding = NULL WHERE slug = ?`, ['concepts/migrated-centroid.md']);
+    db.run(`UPDATE config SET value = ? WHERE key = 'version'`, [String(LATEST_VERSION)]);
+
+    await engine.initSchema();
+
+    expect(await engine.getConfig('version')).toBe(String(LATEST_VERSION));
+    expect(await engine.getPageEmbeddings('concept')).toContainEqual({
+      page_id: expect.any(Number),
+      slug: 'concepts/migrated-centroid.md',
+      embedding: new Float32Array([0.5, 0.5]),
+    });
+  });
 });
