@@ -29,7 +29,7 @@ The redesign recognizes only a small number of canonical source classes:
 | Operational work records | Canonical active-work state | They preserve what is in progress, what was tried, what was decided, and what should resume next. |
 | Profile and personal records | Canonical personal memory within scope | They preserve durable non-work facts that must not leak across scope boundaries. |
 | Source evidence and raw artifacts | Canonical provenance substrate | They preserve what the system observed, where it came from, and what later synthesis is allowed to cite. |
-| Governance records | Canonical review state for candidate claims | They preserve whether a proposed memory claim was promoted, rejected, or superseded. |
+| Governance records | Canonical review state for candidate claims | They preserve the Memory Inbox, candidate records, and promotion, rejection, or supersession outcomes. |
 
 Canonical sources may be rendered, indexed, summarized, mapped, embedded, or cached. Those derivatives do not replace the canonical source.
 
@@ -38,9 +38,10 @@ Canonical sources may be rendered, indexed, summarized, mapped, embedded, or cac
 1. A derived artifact may be deleted and regenerated without loss of truth.
 2. A canonical artifact may not be silently rewritten by a derived process.
 3. Note manifests, context maps, context atlases, embeddings, search indexes, orientation reports, and retrieval caches are derived artifacts.
-4. Inferred links, suggested claims, and surprising connections are derived outputs until they pass the canonical write path and governance checks.
-5. A derived artifact may narrow search space, explain a path, or rank sources. It may not independently authorize a truth claim.
-6. Promotion changes canonical state. Regeneration changes only derived state.
+4. Retrieval traces are canonical operational records rather than derived caches.
+5. Inferred links, suggested claims, and surprising connections remain Memory Inbox candidates until they pass the canonical write path and governance checks.
+6. A derived artifact may narrow search space, explain a path, or rank sources. It may not independently authorize a truth claim.
+7. Promotion changes canonical state. Regeneration changes only derived state.
 
 ## Scope and Privacy Boundaries
 
@@ -75,8 +76,8 @@ Canonical sources may be rendered, indexed, summarized, mapped, embedded, or cac
 | Derived artifact | A regenerable product created from canonical sources to improve search, navigation, explanation, or performance. |
 | Task Thread | The canonical record for a unit of ongoing work across sessions, including its active state, related attempts, decisions, and next-resume context. |
 | Working Set | The canonical focused projection of the files, symbols, notes, decisions, and next actions most relevant to continuing an active Task Thread. |
-| Memory Inbox | The canonical governance queue that holds inferred, ambiguous, or not-yet-promoted memory candidates for review, promotion, rejection, or supersession. |
-| Retrieval Trace | The persisted explanation of which canonical sources, derived aids, and verification steps were used to produce a retrieval result. |
+| Memory Inbox | The canonical governance container that holds inferred, ambiguous, or not-yet-promoted memory candidates for review, promotion, rejection, or supersession. |
+| Retrieval Trace | The canonical operational record of which sources, derived aids, and verification steps informed a retrieval result. |
 | Promotion | The act of moving a proposed claim or relationship into canonical state after review and evidence checks. |
 | Provenance | The source context attached to a claim, including where it came from and why it can be trusted. |
 | Scope gate | The boundary check that determines which memory domain may participate in retrieval or write behavior for a request. |
