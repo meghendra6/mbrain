@@ -27,6 +27,20 @@ mbrain doctor --json
 **If it fails:** The doctor output includes specific fix instructions for each
 check. See `skills/setup/SKILL.md` Error Recovery table.
 
+## 1a. Execution envelope verification
+
+Run:
+
+```bash
+mbrain doctor --json | jq '.checks[] | select(.name == "execution_envelope" or .name == "contract_surface")'
+```
+
+Expected:
+
+- the active profile is reported honestly
+- unsupported contract surfaces include an explicit reason
+- sqlite/local mode does not pretend to support cloud file storage
+
 ---
 
 ## 2. Skillpack Loaded

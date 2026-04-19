@@ -243,6 +243,23 @@ What to expect:
 
 ---
 
+## Inspect the execution envelope
+
+Use doctor to confirm which public contract surfaces are supported in your current profile:
+
+```bash
+mbrain doctor --json
+```
+
+Look for:
+
+- `execution_envelope`
+- `contract_surface`
+
+If `files` or `check-update` are unsupported, the doctor output should explain why.
+
+---
+
 ## 6. Local query rewrite is optional too
 
 Local/offline defaults to:

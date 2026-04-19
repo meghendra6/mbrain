@@ -1,5 +1,6 @@
 import type { BrainEngine } from '../engine.ts';
 import { loadConfig, type MBrainConfig } from '../config.ts';
+import { buildExecutionEnvelope } from '../execution-envelope.ts';
 import { supportsRawPostgresAccess } from '../engine-factory.ts';
 import { LATEST_VERSION } from '../migrate.ts';
 import { resolveOfflineProfile, type OfflineProfile } from '../offline-profile.ts';
@@ -165,6 +166,25 @@ export function buildDoctorReport(input: DoctorInputs): DoctorReport {
       message: input.profile.status === 'local_offline'
         ? 'local/offline profile active (enabled)'
         : 'cloud-connected profile active',
+    });
+
+    const envelope = buildExecutionEnvelope(input.config);
+    checks.push({
+      name: 'execution_envelope',
+      status: 'ok',
+      message: `${envelope.mode}; baseline families: ${envelope.baselineFamilies.join(', ')}`,
+    });
+
+    const unsupportedContractSurfaces = Object.entries(envelope.publicContract)
+      .filter(([, surface]) => surface.status === 'unsupported')
+      .map(([name, surface]) => `${name}: ${surface.reason}`);
+
+    checks.push({
+      name: 'contract_surface',
+      status: unsupportedContractSurfaces.length > 0 ? 'warn' : 'ok',
+      message: unsupportedContractSurfaces.length > 0
+        ? unsupportedContractSurfaces.join('; ')
+        : 'All Phase 0 contract surfaces supported',
     });
 
     const unsupported = Object.entries(input.profile.capabilities)

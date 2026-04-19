@@ -82,6 +82,63 @@ describe('doctor command', () => {
     expect(report.checks.some((check) => check.name === 'offline_profile')).toBe(true);
   });
 
+  test('buildDoctorReport surfaces the execution envelope and contract surface', () => {
+    const report = buildDoctorReport({
+      connectionOk: true,
+      stats: {
+        page_count: 12,
+        chunk_count: 0,
+        embedded_count: 0,
+        link_count: 0,
+        tag_count: 0,
+        timeline_entry_count: 0,
+        pages_by_type: {},
+      },
+      config: {
+        engine: 'sqlite',
+        database_path: '/tmp/brain.db',
+        offline: true,
+        embedding_provider: 'local',
+        query_rewrite_provider: 'heuristic',
+      },
+      profile: {
+        status: 'local_offline',
+        offline: true,
+        engine: { type: 'sqlite' },
+        embedding: {
+          mode: 'local',
+          available: true,
+          implementation: 'ollama',
+          model: 'nomic-embed-text',
+        },
+        rewrite: {
+          mode: 'heuristic',
+          available: true,
+          implementation: 'heuristic',
+          model: null,
+        },
+        capabilities: {
+          check_update: { supported: false, reason: 'disabled offline' },
+          files: { supported: false, reason: 'unsupported in sqlite mode' },
+        },
+      },
+      rawPostgresChecksSupported: false,
+      latestVersion: 7,
+      schemaVersion: '7',
+      health: {
+        page_count: 12,
+        embed_coverage: 1,
+        stale_pages: 0,
+        orphan_pages: 0,
+        dead_links: 0,
+        missing_embeddings: 0,
+      },
+    });
+
+    expect(report.checks.some((check) => check.name === 'execution_envelope')).toBe(true);
+    expect(report.checks.some((check) => check.name === 'contract_surface')).toBe(true);
+  });
+
   test('buildDoctorReport points embedding remediation to mbrain embed --stale', () => {
     const partial = buildDoctorReport({
       connectionOk: true,

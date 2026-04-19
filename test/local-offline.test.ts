@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { runEmbed } from '../src/commands/embed.ts';
+import { createLocalConfigDefaults } from '../src/core/config.ts';
 import { embedChunks, getEmbeddingProvider, resetEmbeddingProviderForTests, setEmbeddingProviderForTests } from '../src/core/embedding.ts';
 import { getEngineCapabilities } from '../src/core/engine-capabilities.ts';
 import { importFile } from '../src/core/import-file.ts';
@@ -153,13 +154,13 @@ describe('local/offline profile semantics', () => {
   test('offline profile marks cloud-only capabilities unsupported in local mode', async () => {
     const { resolveOfflineProfile } = await import('../src/core/offline-profile.ts');
 
-    const profile = resolveOfflineProfile({
+    const profile = resolveOfflineProfile(createLocalConfigDefaults({
       engine: 'sqlite',
       database_path: dbPath,
       offline: true,
       embedding_provider: 'local',
       query_rewrite_provider: 'heuristic',
-    });
+    }));
 
     expect(profile.status).toBe('local_offline');
     expect(profile.offline).toBe(true);
