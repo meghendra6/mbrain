@@ -11,6 +11,7 @@ import { importFromContent } from './import-file.ts';
 import { serializeMarkdown } from './markdown.ts';
 import { hybridSearch } from './search/hybrid.ts';
 import { expandQuery } from './search/expansion.ts';
+import { buildTaskResumeCard } from './services/task-memory-service.ts';
 import * as db from './db.ts';
 import { getUnsupportedCapabilityReason } from './offline-profile.ts';
 
@@ -333,6 +334,21 @@ export function formatResult(
           return '';
       }
       return JSON.stringify(result, null, 2) + '\n';
+    }
+    case 'resume_task': {
+      const resume = result as any;
+      return [
+        `${resume.title} [${resume.status}]`,
+        `Goal: ${resume.goal}`,
+        `Summary: ${resume.current_summary}`,
+        `Active paths: ${(resume.active_paths || []).join(', ') || 'none'}`,
+        `Blockers: ${(resume.blockers || []).join(', ') || 'none'}`,
+        `Next steps: ${(resume.next_steps || []).join(', ') || 'none'}`,
+        `Failed attempts: ${(resume.failed_attempts || []).join(', ') || 'none'}`,
+        `Decisions: ${(resume.active_decisions || []).join(', ') || 'none'}`,
+        `Latest trace route: ${(resume.latest_trace_route || []).join(' -> ') || 'none'}`,
+        `State: ${resume.stale ? 'stale' : 'fresh'}`,
+      ].join('\n') + '\n';
     }
     default:
       return JSON.stringify(result, null, 2) + '\n';
@@ -757,6 +773,119 @@ const get_chunks: Operation = {
   },
 };
 
+// --- Operational Memory ---
+
+const start_task: Operation = {
+  name: 'start_task',
+  description: 'Create a new operational-memory task thread.',
+  params: {
+    title: { type: 'string', required: true, description: 'Task title' },
+    goal: { type: 'string', description: 'Task goal' },
+    scope: { type: 'string', description: 'Task scope', default: 'work', enum: ['work', 'personal', 'mixed'] },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    const id = crypto.randomUUID();
+    if (ctx.dryRun) {
+      return { dry_run: true, action: 'start_task', id, title: p.title, scope: p.scope ?? 'work' };
+    }
+
+    await ctx.engine.createTaskThread({
+      id,
+      scope: String(p.scope ?? 'work') as any,
+      title: String(p.title),
+      goal: String(p.goal ?? ''),
+      status: 'active',
+      repo_path: process.cwd(),
+      branch_name: null,
+      current_summary: '',
+    });
+
+    await ctx.engine.upsertTaskWorkingSet({
+      task_id: id,
+      active_paths: [],
+      active_symbols: [],
+      blockers: [],
+      open_questions: [],
+      next_steps: [],
+      verification_notes: [],
+      last_verified_at: null,
+    });
+
+    return ctx.engine.getTaskThread(id);
+  },
+  cliHints: { name: 'task-start' },
+};
+
+const resume_task: Operation = {
+  name: 'resume_task',
+  description: 'Resume an operational-memory task thread from canonical task state.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+  },
+  handler: async (ctx, p) => {
+    return buildTaskResumeCard(ctx.engine, p.task_id as string);
+  },
+  cliHints: { name: 'task-resume', positional: ['task_id'] },
+};
+
+const record_attempt: Operation = {
+  name: 'record_attempt',
+  description: 'Record a task attempt outcome for repeated-work prevention.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+    summary: { type: 'string', required: true, description: 'Attempt summary' },
+    outcome: {
+      type: 'string',
+      required: true,
+      description: 'Attempt outcome',
+      enum: ['failed', 'partial', 'succeeded', 'abandoned'],
+    },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    if (ctx.dryRun) {
+      return { dry_run: true, action: 'record_attempt', task_id: p.task_id, summary: p.summary };
+    }
+
+    return ctx.engine.recordTaskAttempt({
+      id: crypto.randomUUID(),
+      task_id: String(p.task_id),
+      summary: String(p.summary),
+      outcome: String(p.outcome) as any,
+      applicability_context: {},
+      evidence: [],
+    });
+  },
+  cliHints: { name: 'task-attempt' },
+};
+
+const record_decision: Operation = {
+  name: 'record_decision',
+  description: 'Record a task decision and rationale.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+    summary: { type: 'string', required: true, description: 'Decision summary' },
+    rationale: { type: 'string', required: true, description: 'Decision rationale' },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    if (ctx.dryRun) {
+      return { dry_run: true, action: 'record_decision', task_id: p.task_id, summary: p.summary };
+    }
+
+    return ctx.engine.recordTaskDecision({
+      id: crypto.randomUUID(),
+      task_id: String(p.task_id),
+      summary: String(p.summary),
+      rationale: String(p.rationale),
+      consequences: [],
+      validity_context: {},
+    });
+  },
+  cliHints: { name: 'task-decision' },
+};
+
 // --- Ingest Log ---
 
 const log_ingest: Operation = {
@@ -1039,6 +1168,8 @@ export const operations: Operation[] = [
   put_raw_data, get_raw_data,
   // Resolution & chunks
   resolve_slugs, get_chunks,
+  // Operational memory
+  start_task, resume_task, record_attempt, record_decision,
   // Ingest log
   log_ingest, get_ingest_log,
   // Files
