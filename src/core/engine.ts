@@ -9,6 +9,18 @@ import type {
   BrainStats, BrainHealth,
   IngestLogEntry, IngestLogInput,
   EngineConfig,
+  TaskAttempt,
+  TaskAttemptInput,
+  TaskDecision,
+  TaskDecisionInput,
+  TaskThread,
+  TaskThreadFilters,
+  TaskThreadInput,
+  TaskThreadPatch,
+  TaskWorkingSet,
+  TaskWorkingSetInput,
+  RetrievalTrace,
+  RetrievalTraceInput,
 } from './types.ts';
 
 export interface BrainEngine {
@@ -72,6 +84,20 @@ export interface BrainEngine {
   // Ingest log
   logIngest(entry: IngestLogInput): Promise<void>;
   getIngestLog(opts?: { limit?: number }): Promise<IngestLogEntry[]>;
+
+  // Operational memory
+  createTaskThread(input: TaskThreadInput): Promise<TaskThread>;
+  updateTaskThread(id: string, patch: TaskThreadPatch): Promise<TaskThread>;
+  listTaskThreads(filters?: TaskThreadFilters): Promise<TaskThread[]>;
+  getTaskThread(id: string): Promise<TaskThread | null>;
+  getTaskWorkingSet(taskId: string): Promise<TaskWorkingSet | null>;
+  upsertTaskWorkingSet(input: TaskWorkingSetInput): Promise<TaskWorkingSet>;
+  recordTaskAttempt(input: TaskAttemptInput): Promise<TaskAttempt>;
+  listTaskAttempts(taskId: string, opts?: { limit?: number }): Promise<TaskAttempt[]>;
+  recordTaskDecision(input: TaskDecisionInput): Promise<TaskDecision>;
+  listTaskDecisions(taskId: string, opts?: { limit?: number }): Promise<TaskDecision[]>;
+  putRetrievalTrace(input: RetrievalTraceInput): Promise<RetrievalTrace>;
+  listRetrievalTraces(taskId: string, opts?: { limit?: number }): Promise<RetrievalTrace[]>;
 
   // Sync
   updateSlug(oldSlug: string, newSlug: string): Promise<void>;

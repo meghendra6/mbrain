@@ -229,6 +229,33 @@ export interface TaskThread {
   updated_at: Date;
 }
 
+export interface TaskThreadInput {
+  id: string;
+  scope: TaskScope;
+  title: string;
+  goal?: string;
+  status: TaskStatus;
+  repo_path?: string | null;
+  branch_name?: string | null;
+  current_summary?: string;
+}
+
+export interface TaskThreadPatch {
+  scope?: TaskScope;
+  title?: string;
+  goal?: string;
+  status?: TaskStatus;
+  repo_path?: string | null;
+  branch_name?: string | null;
+  current_summary?: string;
+}
+
+export interface TaskThreadFilters {
+  scope?: TaskScope;
+  status?: TaskStatus;
+  limit?: number;
+}
+
 export interface TaskWorkingSet {
   task_id: string;
   active_paths: string[];
@@ -241,6 +268,17 @@ export interface TaskWorkingSet {
   updated_at: Date;
 }
 
+export interface TaskWorkingSetInput {
+  task_id: string;
+  active_paths: string[];
+  active_symbols: string[];
+  blockers: string[];
+  open_questions: string[];
+  next_steps: string[];
+  verification_notes: string[];
+  last_verified_at?: Date | string | null;
+}
+
 export interface TaskAttempt {
   id: string;
   task_id: string;
@@ -249,6 +287,15 @@ export interface TaskAttempt {
   applicability_context: Record<string, unknown>;
   evidence: string[];
   created_at: Date;
+}
+
+export interface TaskAttemptInput {
+  id: string;
+  task_id: string;
+  summary: string;
+  outcome: AttemptOutcome;
+  applicability_context?: Record<string, unknown>;
+  evidence?: string[];
 }
 
 export interface TaskDecision {
@@ -261,6 +308,15 @@ export interface TaskDecision {
   created_at: Date;
 }
 
+export interface TaskDecisionInput {
+  id: string;
+  task_id: string;
+  summary: string;
+  rationale: string;
+  consequences?: string[];
+  validity_context?: Record<string, unknown>;
+}
+
 export interface RetrievalTrace {
   id: string;
   task_id: string | null;
@@ -270,6 +326,16 @@ export interface RetrievalTrace {
   verification: string[];
   outcome: string;
   created_at: Date;
+}
+
+export interface RetrievalTraceInput {
+  id: string;
+  task_id?: string | null;
+  scope: TaskScope;
+  route?: string[];
+  source_refs?: string[];
+  verification?: string[];
+  outcome: string;
 }
 
 // Errors
