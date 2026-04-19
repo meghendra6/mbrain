@@ -54,6 +54,21 @@ Expected:
 - Postgres runs when `DATABASE_URL` is configured.
 - Missing Postgres coverage is reported as an explicit skip reason, not as a silent reduction in the supported surface.
 
+## Phase 1 operational-memory verification
+
+Run:
+
+```bash
+bun run test:phase1
+```
+
+Expected:
+
+- `task-memory-schema`, `task-memory-engine`, `task-memory-service`, and `task-memory-operations` all pass.
+- SQLite and PGLite persist task-memory records across reconnects.
+- Postgres task-memory persistence runs when `DATABASE_URL` is configured.
+- If `DATABASE_URL` is missing, the Postgres task-memory persistence check reports an explicit skip reason instead of silently dropping coverage.
+
 ---
 
 ## 2. Skillpack Loaded
