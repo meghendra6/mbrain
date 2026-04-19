@@ -1,5 +1,15 @@
 import { createHash } from 'crypto';
-import type { Page, PageType, Chunk, SearchResult } from './types.ts';
+import type {
+  Page,
+  PageType,
+  Chunk,
+  SearchResult,
+  TaskAttempt,
+  TaskDecision,
+  TaskThread,
+  TaskWorkingSet,
+  RetrievalTrace,
+} from './types.ts';
 
 export interface ImportContentHashInput {
   title: string;
@@ -101,4 +111,82 @@ export function rowToSearchResult(row: Record<string, unknown>): SearchResult {
     score: Number(row.score),
     stale: Boolean(row.stale),
   };
+}
+
+export function rowToTaskThread(row: Record<string, unknown>): TaskThread {
+  return {
+    id: row.id as string,
+    scope: row.scope as TaskThread['scope'],
+    title: row.title as string,
+    goal: (row.goal as string | null) ?? '',
+    status: row.status as TaskThread['status'],
+    repo_path: (row.repo_path as string | null) ?? null,
+    branch_name: (row.branch_name as string | null) ?? null,
+    current_summary: (row.current_summary as string | null) ?? '',
+    created_at: new Date(row.created_at as string),
+    updated_at: new Date(row.updated_at as string),
+  };
+}
+
+export function rowToTaskWorkingSet(row: Record<string, unknown>): TaskWorkingSet {
+  return {
+    task_id: row.task_id as string,
+    active_paths: parseJsonStringArray(row.active_paths),
+    active_symbols: parseJsonStringArray(row.active_symbols),
+    blockers: parseJsonStringArray(row.blockers),
+    open_questions: parseJsonStringArray(row.open_questions),
+    next_steps: parseJsonStringArray(row.next_steps),
+    verification_notes: parseJsonStringArray(row.verification_notes),
+    last_verified_at: row.last_verified_at ? new Date(row.last_verified_at as string) : null,
+    updated_at: new Date(row.updated_at as string),
+  };
+}
+
+export function rowToTaskAttempt(row: Record<string, unknown>): TaskAttempt {
+  return {
+    id: row.id as string,
+    task_id: row.task_id as string,
+    summary: row.summary as string,
+    outcome: row.outcome as TaskAttempt['outcome'],
+    applicability_context: parseJsonObject(row.applicability_context),
+    evidence: parseJsonStringArray(row.evidence),
+    created_at: new Date(row.created_at as string),
+  };
+}
+
+export function rowToTaskDecision(row: Record<string, unknown>): TaskDecision {
+  return {
+    id: row.id as string,
+    task_id: row.task_id as string,
+    summary: row.summary as string,
+    rationale: (row.rationale as string | null) ?? '',
+    consequences: parseJsonStringArray(row.consequences),
+    validity_context: parseJsonObject(row.validity_context),
+    created_at: new Date(row.created_at as string),
+  };
+}
+
+export function rowToRetrievalTrace(row: Record<string, unknown>): RetrievalTrace {
+  return {
+    id: row.id as string,
+    task_id: (row.task_id as string | null) ?? null,
+    scope: row.scope as RetrievalTrace['scope'],
+    route: parseJsonStringArray(row.route),
+    source_refs: parseJsonStringArray(row.source_refs),
+    verification: parseJsonStringArray(row.verification),
+    outcome: (row.outcome as string | null) ?? '',
+    created_at: new Date(row.created_at as string),
+  };
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> {
+  if (!value) return {};
+  if (typeof value === 'string') return JSON.parse(value) as Record<string, unknown>;
+  return value as Record<string, unknown>;
+}
+
+function parseJsonStringArray(value: unknown): string[] {
+  if (!value) return [];
+  if (typeof value === 'string') return JSON.parse(value) as string[];
+  return value as string[];
 }

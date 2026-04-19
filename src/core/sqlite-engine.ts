@@ -20,6 +20,18 @@ import type {
   BrainStats, BrainHealth,
   IngestLogEntry, IngestLogInput,
   EngineConfig,
+  RetrievalTrace,
+  RetrievalTraceInput,
+  TaskAttempt,
+  TaskAttemptInput,
+  TaskDecision,
+  TaskDecisionInput,
+  TaskThread,
+  TaskThreadFilters,
+  TaskThreadInput,
+  TaskThreadPatch,
+  TaskWorkingSet,
+  TaskWorkingSetInput,
 } from './types.ts';
 import { MBrainError } from './types.ts';
 import { buildFrontmatterSearchText, expandTechnicalAliases } from './markdown.ts';
@@ -150,6 +162,67 @@ CREATE TABLE IF NOT EXISTS ingest_log (
   summary TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+CREATE TABLE IF NOT EXISTS task_threads (
+  id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  title TEXT NOT NULL,
+  goal TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  repo_path TEXT,
+  branch_name TEXT,
+  current_summary TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_task_threads_status_updated ON task_threads(status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_threads_scope_updated ON task_threads(scope, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS task_working_sets (
+  task_id TEXT PRIMARY KEY REFERENCES task_threads(id) ON DELETE CASCADE,
+  active_paths TEXT NOT NULL DEFAULT '[]',
+  active_symbols TEXT NOT NULL DEFAULT '[]',
+  blockers TEXT NOT NULL DEFAULT '[]',
+  open_questions TEXT NOT NULL DEFAULT '[]',
+  next_steps TEXT NOT NULL DEFAULT '[]',
+  verification_notes TEXT NOT NULL DEFAULT '[]',
+  last_verified_at TEXT,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE IF NOT EXISTS task_attempts (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES task_threads(id) ON DELETE CASCADE,
+  summary TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  applicability_context TEXT NOT NULL DEFAULT '{}',
+  evidence TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_task_attempts_task_created ON task_attempts(task_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS task_decisions (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES task_threads(id) ON DELETE CASCADE,
+  summary TEXT NOT NULL,
+  rationale TEXT NOT NULL DEFAULT '',
+  consequences TEXT NOT NULL DEFAULT '[]',
+  validity_context TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_task_decisions_task_created ON task_decisions(task_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS retrieval_traces (
+  id TEXT PRIMARY KEY,
+  task_id TEXT REFERENCES task_threads(id) ON DELETE SET NULL,
+  scope TEXT NOT NULL,
+  route TEXT NOT NULL DEFAULT '[]',
+  source_refs TEXT NOT NULL DEFAULT '[]',
+  verification TEXT NOT NULL DEFAULT '[]',
+  outcome TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_retrieval_traces_task_created ON retrieval_traces(task_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS access_tokens (
   id TEXT PRIMARY KEY,
@@ -888,6 +961,244 @@ export class SQLiteEngine implements BrainEngine {
     return rows.map(rowToIngestLog);
   }
 
+  async createTaskThread(input: TaskThreadInput): Promise<TaskThread> {
+    const timestamp = nowIso();
+    this.database.run(`
+      INSERT INTO task_threads (
+        id, scope, title, goal, status, repo_path, branch_name, current_summary, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      input.id,
+      input.scope,
+      input.title,
+      input.goal ?? '',
+      input.status,
+      input.repo_path ?? null,
+      input.branch_name ?? null,
+      input.current_summary ?? '',
+      timestamp,
+      timestamp,
+    ]);
+
+    const thread = await this.getTaskThread(input.id);
+    if (!thread) throw new Error(`Task thread not found after insert: ${input.id}`);
+    return thread;
+  }
+
+  async updateTaskThread(id: string, patch: TaskThreadPatch): Promise<TaskThread> {
+    const current = await this.getTaskThread(id);
+    if (!current) throw new Error(`Task thread not found: ${id}`);
+
+    this.database.run(`
+      UPDATE task_threads
+      SET scope = ?, title = ?, goal = ?, status = ?, repo_path = ?, branch_name = ?, current_summary = ?, updated_at = ?
+      WHERE id = ?
+    `, [
+      patch.scope ?? current.scope,
+      patch.title ?? current.title,
+      patch.goal ?? current.goal,
+      patch.status ?? current.status,
+      patch.repo_path === undefined ? current.repo_path : patch.repo_path,
+      patch.branch_name === undefined ? current.branch_name : patch.branch_name,
+      patch.current_summary ?? current.current_summary,
+      nowIso(),
+      id,
+    ]);
+
+    const thread = await this.getTaskThread(id);
+    if (!thread) throw new Error(`Task thread not found after update: ${id}`);
+    return thread;
+  }
+
+  async listTaskThreads(filters?: TaskThreadFilters): Promise<TaskThread[]> {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (filters?.scope) {
+      clauses.push('scope = ?');
+      params.push(filters.scope);
+    }
+    if (filters?.status) {
+      clauses.push('status = ?');
+      params.push(filters.status);
+    }
+
+    params.push(filters?.limit ?? 50);
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = this.database.query(`
+      SELECT id, scope, title, goal, status, repo_path, branch_name, current_summary, created_at, updated_at
+      FROM task_threads
+      ${where}
+      ORDER BY updated_at DESC, id DESC
+      LIMIT ?
+    `).all(...params) as Record<string, unknown>[];
+
+    return rows.map(rowToTaskThread);
+  }
+
+  async getTaskThread(id: string): Promise<TaskThread | null> {
+    const row = this.database.query(`
+      SELECT id, scope, title, goal, status, repo_path, branch_name, current_summary, created_at, updated_at
+      FROM task_threads
+      WHERE id = ?
+    `).get(id) as Record<string, unknown> | null;
+    return row ? rowToTaskThread(row) : null;
+  }
+
+  async getTaskWorkingSet(taskId: string): Promise<TaskWorkingSet | null> {
+    const row = this.database.query(`
+      SELECT task_id, active_paths, active_symbols, blockers, open_questions, next_steps, verification_notes, last_verified_at, updated_at
+      FROM task_working_sets
+      WHERE task_id = ?
+    `).get(taskId) as Record<string, unknown> | null;
+    return row ? rowToTaskWorkingSet(row) : null;
+  }
+
+  async upsertTaskWorkingSet(input: TaskWorkingSetInput): Promise<TaskWorkingSet> {
+    const timestamp = nowIso();
+    const lastVerifiedAt = input.last_verified_at instanceof Date
+      ? input.last_verified_at.toISOString()
+      : input.last_verified_at ?? null;
+
+    this.database.run(`
+      INSERT INTO task_working_sets (
+        task_id, active_paths, active_symbols, blockers, open_questions, next_steps, verification_notes, last_verified_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(task_id) DO UPDATE SET
+        active_paths = excluded.active_paths,
+        active_symbols = excluded.active_symbols,
+        blockers = excluded.blockers,
+        open_questions = excluded.open_questions,
+        next_steps = excluded.next_steps,
+        verification_notes = excluded.verification_notes,
+        last_verified_at = excluded.last_verified_at,
+        updated_at = excluded.updated_at
+    `, [
+      input.task_id,
+      JSON.stringify(input.active_paths ?? []),
+      JSON.stringify(input.active_symbols ?? []),
+      JSON.stringify(input.blockers ?? []),
+      JSON.stringify(input.open_questions ?? []),
+      JSON.stringify(input.next_steps ?? []),
+      JSON.stringify(input.verification_notes ?? []),
+      lastVerifiedAt,
+      timestamp,
+    ]);
+
+    const workingSet = await this.getTaskWorkingSet(input.task_id);
+    if (!workingSet) throw new Error(`Task working set not found after upsert: ${input.task_id}`);
+    return workingSet;
+  }
+
+  async recordTaskAttempt(input: TaskAttemptInput): Promise<TaskAttempt> {
+    const timestamp = nowIso();
+    this.database.run(`
+      INSERT INTO task_attempts (
+        id, task_id, summary, outcome, applicability_context, evidence, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [
+      input.id,
+      input.task_id,
+      input.summary,
+      input.outcome,
+      JSON.stringify(input.applicability_context ?? {}),
+      JSON.stringify(input.evidence ?? []),
+      timestamp,
+    ]);
+
+    const row = this.database.query(`
+      SELECT id, task_id, summary, outcome, applicability_context, evidence, created_at
+      FROM task_attempts
+      WHERE id = ?
+    `).get(input.id) as Record<string, unknown> | null;
+    if (!row) throw new Error(`Task attempt not found after insert: ${input.id}`);
+    return rowToTaskAttempt(row);
+  }
+
+  async listTaskAttempts(taskId: string, opts?: { limit?: number }): Promise<TaskAttempt[]> {
+    const rows = this.database.query(`
+      SELECT id, task_id, summary, outcome, applicability_context, evidence, created_at
+      FROM task_attempts
+      WHERE task_id = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?
+    `).all(taskId, opts?.limit ?? 20) as Record<string, unknown>[];
+    return rows.map(rowToTaskAttempt);
+  }
+
+  async recordTaskDecision(input: TaskDecisionInput): Promise<TaskDecision> {
+    const timestamp = nowIso();
+    this.database.run(`
+      INSERT INTO task_decisions (
+        id, task_id, summary, rationale, consequences, validity_context, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [
+      input.id,
+      input.task_id,
+      input.summary,
+      input.rationale,
+      JSON.stringify(input.consequences ?? []),
+      JSON.stringify(input.validity_context ?? {}),
+      timestamp,
+    ]);
+
+    const row = this.database.query(`
+      SELECT id, task_id, summary, rationale, consequences, validity_context, created_at
+      FROM task_decisions
+      WHERE id = ?
+    `).get(input.id) as Record<string, unknown> | null;
+    if (!row) throw new Error(`Task decision not found after insert: ${input.id}`);
+    return rowToTaskDecision(row);
+  }
+
+  async listTaskDecisions(taskId: string, opts?: { limit?: number }): Promise<TaskDecision[]> {
+    const rows = this.database.query(`
+      SELECT id, task_id, summary, rationale, consequences, validity_context, created_at
+      FROM task_decisions
+      WHERE task_id = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?
+    `).all(taskId, opts?.limit ?? 20) as Record<string, unknown>[];
+    return rows.map(rowToTaskDecision);
+  }
+
+  async putRetrievalTrace(input: RetrievalTraceInput): Promise<RetrievalTrace> {
+    const timestamp = nowIso();
+    this.database.run(`
+      INSERT INTO retrieval_traces (
+        id, task_id, scope, route, source_refs, verification, outcome, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      input.id,
+      input.task_id ?? null,
+      input.scope,
+      JSON.stringify(input.route ?? []),
+      JSON.stringify(input.source_refs ?? []),
+      JSON.stringify(input.verification ?? []),
+      input.outcome,
+      timestamp,
+    ]);
+
+    const row = this.database.query(`
+      SELECT id, task_id, scope, route, source_refs, verification, outcome, created_at
+      FROM retrieval_traces
+      WHERE id = ?
+    `).get(input.id) as Record<string, unknown> | null;
+    if (!row) throw new Error(`Retrieval trace not found after insert: ${input.id}`);
+    return rowToRetrievalTrace(row);
+  }
+
+  async listRetrievalTraces(taskId: string, opts?: { limit?: number }): Promise<RetrievalTrace[]> {
+    const rows = this.database.query(`
+      SELECT id, task_id, scope, route, source_refs, verification, outcome, created_at
+      FROM retrieval_traces
+      WHERE task_id = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?
+    `).all(taskId, opts?.limit ?? 20) as Record<string, unknown>[];
+    return rows.map(rowToRetrievalTrace);
+  }
+
   async updateSlug(oldSlug: string, newSlug: string): Promise<void> {
     this.database.run(`UPDATE pages SET slug = ?, updated_at = ? WHERE slug = ? OR lower(slug) = ?`, [
       validateSlug(newSlug),
@@ -1003,6 +1314,75 @@ export class SQLiteEngine implements BrainEngine {
               END;
             `);
           }
+          break;
+        case 8:
+          this.database.exec(`
+            CREATE TABLE IF NOT EXISTS task_threads (
+              id TEXT PRIMARY KEY,
+              scope TEXT NOT NULL,
+              title TEXT NOT NULL,
+              goal TEXT NOT NULL DEFAULT '',
+              status TEXT NOT NULL,
+              repo_path TEXT,
+              branch_name TEXT,
+              current_summary TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+              updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_task_threads_status_updated
+              ON task_threads(status, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_task_threads_scope_updated
+              ON task_threads(scope, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS task_working_sets (
+              task_id TEXT PRIMARY KEY REFERENCES task_threads(id) ON DELETE CASCADE,
+              active_paths TEXT NOT NULL DEFAULT '[]',
+              active_symbols TEXT NOT NULL DEFAULT '[]',
+              blockers TEXT NOT NULL DEFAULT '[]',
+              open_questions TEXT NOT NULL DEFAULT '[]',
+              next_steps TEXT NOT NULL DEFAULT '[]',
+              verification_notes TEXT NOT NULL DEFAULT '[]',
+              last_verified_at TEXT,
+              updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS task_attempts (
+              id TEXT PRIMARY KEY,
+              task_id TEXT NOT NULL REFERENCES task_threads(id) ON DELETE CASCADE,
+              summary TEXT NOT NULL,
+              outcome TEXT NOT NULL,
+              applicability_context TEXT NOT NULL DEFAULT '{}',
+              evidence TEXT NOT NULL DEFAULT '[]',
+              created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_task_attempts_task_created
+              ON task_attempts(task_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS task_decisions (
+              id TEXT PRIMARY KEY,
+              task_id TEXT NOT NULL REFERENCES task_threads(id) ON DELETE CASCADE,
+              summary TEXT NOT NULL,
+              rationale TEXT NOT NULL DEFAULT '',
+              consequences TEXT NOT NULL DEFAULT '[]',
+              validity_context TEXT NOT NULL DEFAULT '{}',
+              created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_task_decisions_task_created
+              ON task_decisions(task_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS retrieval_traces (
+              id TEXT PRIMARY KEY,
+              task_id TEXT REFERENCES task_threads(id) ON DELETE SET NULL,
+              scope TEXT NOT NULL,
+              route TEXT NOT NULL DEFAULT '[]',
+              source_refs TEXT NOT NULL DEFAULT '[]',
+              verification TEXT NOT NULL DEFAULT '[]',
+              outcome TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_retrieval_traces_task_created
+              ON retrieval_traces(task_id, created_at DESC);
+          `);
           break;
       }
 
@@ -1354,6 +1734,72 @@ function rowToIngestLog(row: Record<string, unknown>): IngestLogEntry {
     source_ref: String(row.source_ref),
     pages_updated: parseJsonArray(row.pages_updated),
     summary: String(row.summary),
+    created_at: new Date(String(row.created_at)),
+  };
+}
+
+function rowToTaskThread(row: Record<string, unknown>): TaskThread {
+  return {
+    id: String(row.id),
+    scope: row.scope as TaskThread['scope'],
+    title: String(row.title),
+    goal: String(row.goal ?? ''),
+    status: row.status as TaskThread['status'],
+    repo_path: row.repo_path == null ? null : String(row.repo_path),
+    branch_name: row.branch_name == null ? null : String(row.branch_name),
+    current_summary: String(row.current_summary ?? ''),
+    created_at: new Date(String(row.created_at)),
+    updated_at: new Date(String(row.updated_at)),
+  };
+}
+
+function rowToTaskWorkingSet(row: Record<string, unknown>): TaskWorkingSet {
+  return {
+    task_id: String(row.task_id),
+    active_paths: parseJsonArray(row.active_paths),
+    active_symbols: parseJsonArray(row.active_symbols),
+    blockers: parseJsonArray(row.blockers),
+    open_questions: parseJsonArray(row.open_questions),
+    next_steps: parseJsonArray(row.next_steps),
+    verification_notes: parseJsonArray(row.verification_notes),
+    last_verified_at: row.last_verified_at ? new Date(String(row.last_verified_at)) : null,
+    updated_at: new Date(String(row.updated_at)),
+  };
+}
+
+function rowToTaskAttempt(row: Record<string, unknown>): TaskAttempt {
+  return {
+    id: String(row.id),
+    task_id: String(row.task_id),
+    summary: String(row.summary),
+    outcome: row.outcome as TaskAttempt['outcome'],
+    applicability_context: parseJsonObject(row.applicability_context),
+    evidence: parseJsonArray(row.evidence),
+    created_at: new Date(String(row.created_at)),
+  };
+}
+
+function rowToTaskDecision(row: Record<string, unknown>): TaskDecision {
+  return {
+    id: String(row.id),
+    task_id: String(row.task_id),
+    summary: String(row.summary),
+    rationale: String(row.rationale ?? ''),
+    consequences: parseJsonArray(row.consequences),
+    validity_context: parseJsonObject(row.validity_context),
+    created_at: new Date(String(row.created_at)),
+  };
+}
+
+function rowToRetrievalTrace(row: Record<string, unknown>): RetrievalTrace {
+  return {
+    id: String(row.id),
+    task_id: row.task_id == null ? null : String(row.task_id),
+    scope: row.scope as RetrievalTrace['scope'],
+    route: parseJsonArray(row.route),
+    source_refs: parseJsonArray(row.source_refs),
+    verification: parseJsonArray(row.verification),
+    outcome: String(row.outcome ?? ''),
     created_at: new Date(String(row.created_at)),
   };
 }

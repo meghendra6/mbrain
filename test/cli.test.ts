@@ -252,6 +252,171 @@ describe('CLI dispatch integration', () => {
     expect(exitCode).toBe(0);
   });
 
+  test('task-list --help prints usage without DB connection', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'task-list', '--help'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(stdout).toContain('Usage: mbrain task-list');
+    expect(exitCode).toBe(0);
+  });
+
+  test('task-update --help prints usage without DB connection', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'task-update', '--help'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(stdout).toContain('Usage: mbrain task-update <task_id>');
+    expect(exitCode).toBe(0);
+  });
+
+  test('task-trace --help prints usage without DB connection', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'task-trace', '--help'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(stdout).toContain('Usage: mbrain task-trace <task_id>');
+    expect(exitCode).toBe(0);
+  });
+
+  test('task-traces --help prints usage without DB connection', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'task-traces', '--help'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(stdout).toContain('Usage: mbrain task-traces <task_id>');
+    expect(exitCode).toBe(0);
+  });
+
+  test('task-attempts --help prints usage without DB connection', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'task-attempts', '--help'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(stdout).toContain('Usage: mbrain task-attempts <task_id>');
+    expect(exitCode).toBe(0);
+  });
+
+  test('task-decisions --help prints usage without DB connection', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'task-decisions', '--help'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(stdout).toContain('Usage: mbrain task-decisions <task_id>');
+    expect(exitCode).toBe(0);
+  });
+
+  test('task-show --help prints usage without DB connection', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'task-show', '--help'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(stdout).toContain('Usage: mbrain task-show <task_id>');
+    expect(exitCode).toBe(0);
+  });
+
+  test('task-attempts and task-decisions execute against the shared task-memory contract', async () => {
+    const initProc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'init', '--local', '--json'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(await initProc.exited).toBe(0);
+
+    const startProc = Bun.spawn([
+      'bun', 'run', 'src/cli.ts', 'task-start',
+      '--title', 'Phase 1 MVP',
+      '--goal', 'Ship operational memory',
+      '--scope', 'work',
+    ], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const startStdout = await new Response(startProc.stdout).text();
+    expect(await startProc.exited).toBe(0);
+    const task = JSON.parse(startStdout);
+    const taskId = task.id as string;
+
+    const attemptProc = Bun.spawn([
+      'bun', 'run', 'src/cli.ts', 'task-attempt',
+      '--task-id', taskId,
+      '--summary', 'Tried raw-source-only reconstruction',
+      '--outcome', 'failed',
+    ], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(await attemptProc.exited).toBe(0);
+
+    const decisionProc = Bun.spawn([
+      'bun', 'run', 'src/cli.ts', 'task-decision',
+      '--task-id', taskId,
+      '--summary', 'Keep task memory canonical in DB',
+      '--rationale', 'Resume should not reconstruct from raw notes',
+    ], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(await decisionProc.exited).toBe(0);
+
+    const attemptsProc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'task-attempts', taskId], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const attemptsStdout = await new Response(attemptsProc.stdout).text();
+    expect(await attemptsProc.exited).toBe(0);
+    expect(attemptsStdout).toContain('failed');
+    expect(attemptsStdout).toContain('Tried raw-source-only reconstruction');
+
+    const decisionsProc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'task-decisions', taskId], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const decisionsStdout = await new Response(decisionsProc.stdout).text();
+    expect(await decisionsProc.exited).toBe(0);
+    expect(decisionsStdout).toContain('Keep task memory canonical in DB');
+    expect(decisionsStdout).toContain('Resume should not reconstruct from raw notes');
+  });
+
   test('sync --help surfaces watch-mode CLI extension flags', async () => {
     const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'sync', '--help'], {
       cwd: repoRoot,

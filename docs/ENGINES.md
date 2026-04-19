@@ -4,7 +4,7 @@
 
 Every MBrain operation goes through `BrainEngine`. The engine is the contract between "what the brain can do" and "how it's stored." Swap the engine, keep everything else.
 
-v0 ships `PostgresEngine` backed by Supabase. The interface is designed so a `SQLiteEngine`, `DuckDBEngine`, or `TursoEngine` could slot in without touching the CLI, MCP server, skills, or any consumer code.
+`PostgresEngine` remains the full cloud-backed path. `SQLiteEngine` and `PGLiteEngine` are current local-path contract engines, and the same interface is designed so a `DuckDBEngine` or `TursoEngine` could slot in without touching the CLI, MCP server, skills, or any consumer code.
 
 ## Why this matters
 
@@ -13,12 +13,12 @@ Different users have different constraints:
 | User | Needs | Best engine |
 |------|-------|-------------|
 | Power user (you) | World-class search, 7K+ pages, zero-ops | PostgresEngine + Supabase |
-| Open source hacker | Single file, no server, git-friendly | SQLiteEngine (future) |
+| Open source hacker | Single file, no server, git-friendly | SQLiteEngine (Phase 0 contract path) |
 | Team/enterprise | Multi-user, RLS, audit trail | PostgresEngine + self-hosted |
 | Researcher | Analytics, bulk exports, embeddings | DuckDBEngine (someday) |
 | Edge/mobile | Offline-first, sync later | SQLiteEngine + sync (someday) |
 
-The engine interface means we don't have to choose. Ship Postgres now, let the community build the rest.
+The engine interface means we do not have to choose a single storage story. Postgres remains the full cloud path, while SQLite and PGLite already cover honest local-path usage and still leave room for more engines later.
 
 ## The interface
 
@@ -175,7 +175,7 @@ Every method in `BrainEngine`. The full interface. No optional methods, no featu
 
 ## Capability matrix
 
-| Capability | PostgresEngine | SQLiteEngine (future) | Notes |
+| Capability | PostgresEngine | SQLiteEngine (Phase 0 contract path) | Notes |
 |-----------|---------------|----------------------|-------|
 | CRUD | Full | Full | |
 | Keyword search | tsvector + ts_rank | FTS5 + bm25 | Different ranking algorithms |
@@ -187,9 +187,11 @@ Every method in `BrainEngine`. The full interface. No optional methods, no featu
 | Concurrent access | Connection pooling | Single writer | SQLite limitation |
 | Hosting | Supabase, self-hosted, Docker | Local file | |
 
-## Future engine ideas
+## Current local paths and future engine ideas
 
-**SQLiteEngine** (most requested). See `docs/SQLITE_ENGINE.md` for the full plan. Single file, no server, git-friendly. Uses FTS5 for keyword search, sqlite-vss or vec0 for vector search. Great for open source users who want zero infrastructure.
+**SQLiteEngine.** Current Phase 0 local-path engine. See `docs/SQLITE_ENGINE.md` for the implementation plan, parity work, and local-first trade-offs. Single file, no server, git-friendly.
+
+**PGLiteEngine.** Current embedded-Postgres local-path engine. It keeps local execution on-device while preserving more Postgres semantics than SQLite.
 
 **TursoEngine.** libSQL (SQLite fork) with embedded replicas and HTTP edge access. Would give SQLite's simplicity with cloud sync. Interesting for mobile/edge use cases.
 
@@ -206,3 +208,12 @@ These behavioral differences between PostgresEngine and SQLiteEngine are intenti
 | Fuzzy slug resolution | `pg_trgm` similarity scoring — tolerates typos and partial-word matches | Case-insensitive `LIKE` pattern — requires the query to be a substring of the slug or title | SQLite may miss typo-tolerant matches that Postgres would find. Workaround: use exact slugs when possible. |
 | Keyword search chunk_text | JOINs `content_chunks` and returns the actual matching chunk text (~500 tokens) | Returns a ~300-char snippet window extracted from the matched page body around matching terms | Both return focused text; the extraction mechanism differs. |
 | File storage | Full support (Postgres `files` table + cloud storage backends) | Not supported — the `files` command requires a Postgres backend | Local mode users store files via git or filesystem directly. |
+
+## Phase 0 execution envelope
+
+The redesign's Phase 0 contract is explicit:
+
+- Markdown remains canonical across every engine.
+- Derived artifacts remain regenerable.
+- SQLite and PGLite are supported contract paths, not preview-only modes.
+- Unsupported surfaces such as cloud file storage in sqlite mode must be exposed honestly in diagnostics.

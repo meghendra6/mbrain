@@ -11,6 +11,7 @@ import { importFromContent } from './import-file.ts';
 import { serializeMarkdown } from './markdown.ts';
 import { hybridSearch } from './search/hybrid.ts';
 import { expandQuery } from './search/expansion.ts';
+import { buildTaskResumeCard } from './services/task-memory-service.ts';
 import * as db from './db.ts';
 import { getUnsupportedCapabilityReason } from './offline-profile.ts';
 
@@ -29,6 +30,7 @@ export const MCP_INSTRUCTIONS = [
 
 export type ErrorCode =
   | 'page_not_found'
+  | 'task_not_found'
   | 'invalid_params'
   | 'embedding_failed'
   | 'storage_error'
@@ -256,6 +258,54 @@ export function formatResult(
       }
       return rows;
     }
+    case 'list_tasks': {
+      const tasks = result as any[];
+      if (tasks.length === 0) return 'No tasks.\n';
+      const rows = tasks.map(task =>
+        `${task.id}\t${task.status}\t${task.scope}\t${task.title}`,
+      ).join('\n') + '\n';
+      const requestedLimit = (params.limit as number) ?? 20;
+      if (tasks.length >= requestedLimit) {
+        return rows + `\n(result may be truncated at ${requestedLimit}; pass --limit N or -n N to change)\n`;
+      }
+      return rows;
+    }
+    case 'list_task_traces': {
+      const traces = result as any[];
+      if (traces.length === 0) return 'No traces.\n';
+      const rows = traces.map(trace =>
+        `${trace.id}\t${trace.created_at?.toString().slice(0, 19) || '?'}\t${(trace.route || []).join(' -> ')}\t${trace.outcome}`,
+      ).join('\n') + '\n';
+      const requestedLimit = (params.limit as number) ?? 10;
+      if (traces.length >= requestedLimit) {
+        return rows + `\n(result may be truncated at ${requestedLimit}; pass --limit N or -n N to change)\n`;
+      }
+      return rows;
+    }
+    case 'list_task_attempts': {
+      const attempts = result as any[];
+      if (attempts.length === 0) return 'No attempts.\n';
+      const rows = attempts.map(attempt =>
+        `${attempt.id}\t${attempt.outcome}\t${attempt.created_at?.toString().slice(0, 19) || '?'}\t${attempt.summary}`,
+      ).join('\n') + '\n';
+      const requestedLimit = (params.limit as number) ?? 10;
+      if (attempts.length >= requestedLimit) {
+        return rows + `\n(result may be truncated at ${requestedLimit}; pass --limit N or -n N to change)\n`;
+      }
+      return rows;
+    }
+    case 'list_task_decisions': {
+      const decisions = result as any[];
+      if (decisions.length === 0) return 'No decisions.\n';
+      const rows = decisions.map(decision =>
+        `${decision.id}\t${decision.created_at?.toString().slice(0, 19) || '?'}\t${decision.summary}\t${decision.rationale}`,
+      ).join('\n') + '\n';
+      const requestedLimit = (params.limit as number) ?? 10;
+      if (decisions.length >= requestedLimit) {
+        return rows + `\n(result may be truncated at ${requestedLimit}; pass --limit N or -n N to change)\n`;
+      }
+      return rows;
+    }
     case 'search':
     case 'query': {
       const results = result as any[];
@@ -334,9 +384,96 @@ export function formatResult(
       }
       return JSON.stringify(result, null, 2) + '\n';
     }
+    case 'resume_task': {
+      const resume = result as any;
+      return [
+        `${resume.title} [${resume.status}]`,
+        `Goal: ${resume.goal}`,
+        `Summary: ${resume.current_summary}`,
+        `Active paths: ${(resume.active_paths || []).join(', ') || 'none'}`,
+        `Active symbols: ${(resume.active_symbols || []).join(', ') || 'none'}`,
+        `Blockers: ${(resume.blockers || []).join(', ') || 'none'}`,
+        `Open questions: ${(resume.open_questions || []).join(', ') || 'none'}`,
+        `Next steps: ${(resume.next_steps || []).join(', ') || 'none'}`,
+        `Failed attempts: ${(resume.failed_attempts || []).join(', ') || 'none'}`,
+        `Decisions: ${(resume.active_decisions || []).join(', ') || 'none'}`,
+        `Latest trace route: ${(resume.latest_trace_route || []).join(' -> ') || 'none'}`,
+        `State: ${resume.stale ? 'stale' : 'fresh'}`,
+      ].join('\n') + '\n';
+    }
+    case 'get_task_working_set': {
+      const state = result as any;
+      const task = state.thread;
+      const workingSet = state.working_set;
+      return [
+        `${task.title} [${task.status}]`,
+        `Scope: ${task.scope}`,
+        `Goal: ${task.goal}`,
+        `Summary: ${task.current_summary}`,
+        `Active paths: ${(workingSet?.active_paths || []).join(', ') || 'none'}`,
+        `Active symbols: ${(workingSet?.active_symbols || []).join(', ') || 'none'}`,
+        `Blockers: ${(workingSet?.blockers || []).join(', ') || 'none'}`,
+        `Open questions: ${(workingSet?.open_questions || []).join(', ') || 'none'}`,
+        `Next steps: ${(workingSet?.next_steps || []).join(', ') || 'none'}`,
+        `Verification notes: ${(workingSet?.verification_notes || []).join(', ') || 'none'}`,
+        `Last verified: ${workingSet?.last_verified_at ? new Date(workingSet.last_verified_at).toISOString() : 'never'}`,
+      ].join('\n') + '\n';
+    }
     default:
       return JSON.stringify(result, null, 2) + '\n';
   }
+}
+
+function parseStringListParam(value: unknown, key: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item));
+  }
+  if (typeof value !== 'string') {
+    throw new OperationError('invalid_params', `${key} must be an array or string list.`);
+  }
+
+  const trimmed = value.trim();
+  if (trimmed === '') return [];
+
+  if (trimmed.startsWith('[')) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      throw new OperationError('invalid_params', `${key} must be valid JSON when passed as an array string.`);
+    }
+    if (!Array.isArray(parsed)) {
+      throw new OperationError('invalid_params', `${key} JSON value must be an array.`);
+    }
+    return parsed.map((item) => String(item));
+  }
+
+  return trimmed
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function parseOptionalDateParam(value: unknown, key: string): Date | undefined {
+  if (value === undefined) return undefined;
+  if (value instanceof Date) return value;
+  if (typeof value !== 'string') {
+    throw new OperationError('invalid_params', `${key} must be an ISO datetime string.`);
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new OperationError('invalid_params', `${key} must be a valid ISO datetime string.`);
+  }
+  return parsed;
+}
+
+async function requireTaskThread(engine: BrainEngine, taskId: string) {
+  const thread = await engine.getTaskThread(taskId);
+  if (!thread) {
+    throw new OperationError('task_not_found', `Task thread not found: ${taskId}`, 'Check the task id or create the task first.');
+  }
+  return thread;
 }
 
 const runtimeImport = new Function('specifier', 'return import(specifier)') as (
@@ -757,6 +894,332 @@ const get_chunks: Operation = {
   },
 };
 
+// --- Operational Memory ---
+
+const list_tasks: Operation = {
+  name: 'list_tasks',
+  description: 'List task threads from canonical operational memory.',
+  params: {
+    scope: { type: 'string', description: 'Filter by task scope', enum: ['work', 'personal', 'mixed'] },
+    status: {
+      type: 'string',
+      description: 'Filter by task status',
+      enum: ['active', 'paused', 'blocked', 'completed', 'abandoned'],
+    },
+    limit: { type: 'number', description: 'Max results (default 20)' },
+  },
+  handler: async (ctx, p) => {
+    return ctx.engine.listTaskThreads({
+      scope: p.scope as any,
+      status: p.status as any,
+      limit: (p.limit as number) ?? 20,
+    });
+  },
+  cliHints: { name: 'task-list', aliases: { n: 'limit' } },
+};
+
+const start_task: Operation = {
+  name: 'start_task',
+  description: 'Create a new operational-memory task thread.',
+  params: {
+    title: { type: 'string', required: true, description: 'Task title' },
+    goal: { type: 'string', description: 'Task goal' },
+    scope: { type: 'string', description: 'Task scope', default: 'work', enum: ['work', 'personal', 'mixed'] },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    const id = crypto.randomUUID();
+    if (ctx.dryRun) {
+      return { dry_run: true, action: 'start_task', id, title: p.title, scope: p.scope ?? 'work' };
+    }
+
+    return ctx.engine.transaction(async (tx) => {
+      await tx.createTaskThread({
+        id,
+        scope: String(p.scope ?? 'work') as any,
+        title: String(p.title),
+        goal: String(p.goal ?? ''),
+        status: 'active',
+        repo_path: process.cwd(),
+        branch_name: null,
+        current_summary: '',
+      });
+
+      await tx.upsertTaskWorkingSet({
+        task_id: id,
+        active_paths: [],
+        active_symbols: [],
+        blockers: [],
+        open_questions: [],
+        next_steps: [],
+        verification_notes: [],
+        last_verified_at: null,
+      });
+
+      return tx.getTaskThread(id);
+    });
+  },
+  cliHints: { name: 'task-start' },
+};
+
+const update_task: Operation = {
+  name: 'update_task',
+  description: 'Update canonical task-thread state for an existing task.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+    title: { type: 'string', description: 'Updated task title' },
+    goal: { type: 'string', description: 'Updated task goal' },
+    status: {
+      type: 'string',
+      description: 'Updated task status',
+      enum: ['active', 'paused', 'blocked', 'completed', 'abandoned'],
+    },
+    current_summary: { type: 'string', description: 'Updated task summary' },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    const taskId = String(p.task_id);
+    const patch = Object.fromEntries(
+      Object.entries({
+        title: p.title,
+        goal: p.goal,
+        status: p.status,
+        current_summary: p.current_summary,
+      }).filter(([, value]) => value !== undefined),
+    );
+
+    if (Object.keys(patch).length === 0) {
+      throw new OperationError('invalid_params', 'update_task requires at least one patch field.');
+    }
+
+    if (ctx.dryRun) {
+      return { dry_run: true, action: 'update_task', task_id: taskId, patch };
+    }
+
+    await requireTaskThread(ctx.engine, taskId);
+    return ctx.engine.updateTaskThread(taskId, patch as any);
+  },
+  cliHints: { name: 'task-update', positional: ['task_id'] },
+};
+
+const resume_task: Operation = {
+  name: 'resume_task',
+  description: 'Resume an operational-memory task thread from canonical task state.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+  },
+  handler: async (ctx, p) => {
+    return buildTaskResumeCard(ctx.engine, p.task_id as string);
+  },
+  cliHints: { name: 'task-resume', positional: ['task_id'] },
+};
+
+const get_task_working_set: Operation = {
+  name: 'get_task_working_set',
+  description: 'Get the canonical task thread and working-set state for one task.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+  },
+  handler: async (ctx, p) => {
+    const thread = await requireTaskThread(ctx.engine, String(p.task_id));
+    const workingSet = await ctx.engine.getTaskWorkingSet(String(p.task_id));
+    return {
+      thread,
+      working_set: workingSet,
+    };
+  },
+  cliHints: { name: 'task-show', positional: ['task_id'] },
+};
+
+const record_retrieval_trace: Operation = {
+  name: 'record_retrieval_trace',
+  description: 'Record a retrieval trace for a task-scoped operational-memory flow.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+    outcome: { type: 'string', required: true, description: 'Trace outcome summary' },
+    route: { type: 'array', items: { type: 'string' }, description: 'Ordered retrieval route' },
+    source_refs: { type: 'array', items: { type: 'string' }, description: 'Source references consulted' },
+    verification: { type: 'array', items: { type: 'string' }, description: 'Verification steps performed' },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    const taskId = String(p.task_id);
+    const route = parseStringListParam(p.route, 'route') ?? [];
+    const sourceRefs = parseStringListParam(p.source_refs, 'source_refs') ?? [];
+    const verification = parseStringListParam(p.verification, 'verification') ?? [];
+
+    if (ctx.dryRun) {
+      return {
+        dry_run: true,
+        action: 'record_retrieval_trace',
+        task_id: taskId,
+        outcome: String(p.outcome),
+        route,
+        source_refs: sourceRefs,
+        verification,
+      };
+    }
+
+    const thread = await requireTaskThread(ctx.engine, taskId);
+    return ctx.engine.putRetrievalTrace({
+      id: crypto.randomUUID(),
+      task_id: taskId,
+      scope: thread.scope,
+      route,
+      source_refs: sourceRefs,
+      verification,
+      outcome: String(p.outcome),
+    });
+  },
+  cliHints: { name: 'task-trace', positional: ['task_id'] },
+};
+
+const list_task_traces: Operation = {
+  name: 'list_task_traces',
+  description: 'List retrieval traces for one task thread.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+    limit: { type: 'number', description: 'Max results (default 10)' },
+  },
+  handler: async (ctx, p) => {
+    const taskId = String(p.task_id);
+    await requireTaskThread(ctx.engine, taskId);
+    return ctx.engine.listRetrievalTraces(taskId, {
+      limit: (p.limit as number) ?? 10,
+    });
+  },
+  cliHints: { name: 'task-traces', positional: ['task_id'], aliases: { n: 'limit' } },
+};
+
+const list_task_attempts: Operation = {
+  name: 'list_task_attempts',
+  description: 'List recorded attempts for one task thread.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+    limit: { type: 'number', description: 'Max results (default 10)' },
+  },
+  handler: async (ctx, p) => {
+    const taskId = String(p.task_id);
+    await requireTaskThread(ctx.engine, taskId);
+    return ctx.engine.listTaskAttempts(taskId, {
+      limit: (p.limit as number) ?? 10,
+    });
+  },
+  cliHints: { name: 'task-attempts', positional: ['task_id'], aliases: { n: 'limit' } },
+};
+
+const list_task_decisions: Operation = {
+  name: 'list_task_decisions',
+  description: 'List recorded decisions for one task thread.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+    limit: { type: 'number', description: 'Max results (default 10)' },
+  },
+  handler: async (ctx, p) => {
+    const taskId = String(p.task_id);
+    await requireTaskThread(ctx.engine, taskId);
+    return ctx.engine.listTaskDecisions(taskId, {
+      limit: (p.limit as number) ?? 10,
+    });
+  },
+  cliHints: { name: 'task-decisions', positional: ['task_id'], aliases: { n: 'limit' } },
+};
+
+const refresh_task_working_set: Operation = {
+  name: 'refresh_task_working_set',
+  description: 'Refresh a task working set snapshot and advance its verification timestamp.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+    active_paths: { type: 'array', items: { type: 'string' }, description: 'Active file paths' },
+    active_symbols: { type: 'array', items: { type: 'string' }, description: 'Active symbols' },
+    blockers: { type: 'array', items: { type: 'string' }, description: 'Current blockers' },
+    open_questions: { type: 'array', items: { type: 'string' }, description: 'Open questions' },
+    next_steps: { type: 'array', items: { type: 'string' }, description: 'Next steps' },
+    verification_notes: { type: 'array', items: { type: 'string' }, description: 'Verification notes' },
+    last_verified_at: { type: 'string', description: 'Override verification timestamp (ISO datetime)' },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    const taskId = String(p.task_id);
+    if (ctx.dryRun) {
+      return { dry_run: true, action: 'refresh_task_working_set', task_id: taskId };
+    }
+
+    await requireTaskThread(ctx.engine, taskId);
+    const existing = await ctx.engine.getTaskWorkingSet(taskId);
+    return ctx.engine.upsertTaskWorkingSet({
+      task_id: taskId,
+      active_paths: parseStringListParam(p.active_paths, 'active_paths') ?? existing?.active_paths ?? [],
+      active_symbols: parseStringListParam(p.active_symbols, 'active_symbols') ?? existing?.active_symbols ?? [],
+      blockers: parseStringListParam(p.blockers, 'blockers') ?? existing?.blockers ?? [],
+      open_questions: parseStringListParam(p.open_questions, 'open_questions') ?? existing?.open_questions ?? [],
+      next_steps: parseStringListParam(p.next_steps, 'next_steps') ?? existing?.next_steps ?? [],
+      verification_notes: parseStringListParam(p.verification_notes, 'verification_notes') ?? existing?.verification_notes ?? [],
+      last_verified_at: parseOptionalDateParam(p.last_verified_at, 'last_verified_at') ?? new Date(),
+    });
+  },
+  cliHints: { name: 'task-working-set', positional: ['task_id'] },
+};
+
+const record_attempt: Operation = {
+  name: 'record_attempt',
+  description: 'Record a task attempt outcome for repeated-work prevention.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+    summary: { type: 'string', required: true, description: 'Attempt summary' },
+    outcome: {
+      type: 'string',
+      required: true,
+      description: 'Attempt outcome',
+      enum: ['failed', 'partial', 'succeeded', 'abandoned'],
+    },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    if (ctx.dryRun) {
+      return { dry_run: true, action: 'record_attempt', task_id: p.task_id, summary: p.summary };
+    }
+
+    await requireTaskThread(ctx.engine, String(p.task_id));
+    return ctx.engine.recordTaskAttempt({
+      id: crypto.randomUUID(),
+      task_id: String(p.task_id),
+      summary: String(p.summary),
+      outcome: String(p.outcome) as any,
+      applicability_context: {},
+      evidence: [],
+    });
+  },
+  cliHints: { name: 'task-attempt' },
+};
+
+const record_decision: Operation = {
+  name: 'record_decision',
+  description: 'Record a task decision and rationale.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+    summary: { type: 'string', required: true, description: 'Decision summary' },
+    rationale: { type: 'string', required: true, description: 'Decision rationale' },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    if (ctx.dryRun) {
+      return { dry_run: true, action: 'record_decision', task_id: p.task_id, summary: p.summary };
+    }
+
+    await requireTaskThread(ctx.engine, String(p.task_id));
+    return ctx.engine.recordTaskDecision({
+      id: crypto.randomUUID(),
+      task_id: String(p.task_id),
+      summary: String(p.summary),
+      rationale: String(p.rationale),
+      consequences: [],
+      validity_context: {},
+    });
+  },
+  cliHints: { name: 'task-decision' },
+};
+
 // --- Ingest Log ---
 
 const log_ingest: Operation = {
@@ -1039,6 +1502,8 @@ export const operations: Operation[] = [
   put_raw_data, get_raw_data,
   // Resolution & chunks
   resolve_slugs, get_chunks,
+  // Operational memory
+  list_tasks, start_task, update_task, resume_task, get_task_working_set, record_retrieval_trace, list_task_traces, list_task_attempts, list_task_decisions, refresh_task_working_set, record_attempt, record_decision,
   // Ingest log
   log_ingest, get_ingest_log,
   // Files

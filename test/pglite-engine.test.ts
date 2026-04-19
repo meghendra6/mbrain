@@ -346,7 +346,7 @@ describe('PGLiteEngine: Search', () => {
     const pageEmbeddings = await engine.getPageEmbeddings('system');
     const upgraded = pageEmbeddings.find((entry) => entry.slug === 'systems/page-embedding-upgrade');
 
-    expect(await engine.getConfig('version')).toBe('7');
+    expect(await engine.getConfig('version')).toBe('8');
     expect(upgraded).toBeDefined();
     expect(Array.from(upgraded!.embedding!.slice(0, 3))).toEqual([1, 2, 3]);
   });
@@ -380,7 +380,7 @@ describe('PGLiteEngine: Search', () => {
     const pageEmbeddings = await engine.getPageEmbeddings('system');
     const upgraded = pageEmbeddings.find((entry) => entry.slug === 'systems/page-embedding-centroid-upgrade');
 
-    expect(await engine.getConfig('version')).toBe('7');
+    expect(await engine.getConfig('version')).toBe('8');
     expect(upgraded?.embedding).not.toBeNull();
     expect(Array.from(upgraded!.embedding!.slice(0, 3))).toEqual([2, 3, 4]);
   });

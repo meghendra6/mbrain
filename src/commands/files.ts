@@ -4,7 +4,7 @@ import { createHash } from 'crypto';
 import type { BrainEngine } from '../core/engine.ts';
 import * as db from '../core/db.ts';
 import { loadConfig } from '../core/config.ts';
-import { resolveOfflineProfile } from '../core/offline-profile.ts';
+import { buildExecutionEnvelope } from '../core/execution-envelope.ts';
 
 interface FileRecord {
   id: number;
@@ -41,17 +41,12 @@ function fileHash(filePath: string): string {
 export async function runFiles(engine: BrainEngine, args: string[]) {
   void engine;
   const config = loadConfig();
-  if (config) {
-    const profile = resolveOfflineProfile(config);
-    if (!profile.capabilities.files.supported) {
-      console.error(profile.capabilities.files.reason);
-      process.exit(1);
-      return;
-    }
-  }
-  if (config?.engine === 'sqlite') {
-    console.error('The files command requires a Postgres backend. SQLite does not support file storage.');
-    console.error('Use engine="postgres" in your config to use file commands.');
+  const contractSurface = config
+    ? buildExecutionEnvelope(config).publicContract.files
+    : null;
+
+  if (contractSurface?.status === 'unsupported') {
+    console.error(contractSurface.reason);
     process.exit(1);
     return;
   }

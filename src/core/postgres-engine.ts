@@ -13,12 +13,36 @@ import type {
   BrainStats, BrainHealth,
   IngestLogEntry, IngestLogInput,
   EngineConfig,
+  RetrievalTrace,
+  RetrievalTraceInput,
+  TaskAttempt,
+  TaskAttemptInput,
+  TaskDecision,
+  TaskDecisionInput,
+  TaskThread,
+  TaskThreadFilters,
+  TaskThreadInput,
+  TaskThreadPatch,
+  TaskWorkingSet,
+  TaskWorkingSetInput,
 } from './types.ts';
 import { MBrainError } from './types.ts';
 import { clearConnectionOwner } from './db.ts';
 import { buildFrontmatterSearchText } from './markdown.ts';
 import { ensurePageChunks } from './page-chunks.ts';
-import { validateSlug, contentHash, importContentHash, rowToPage, rowToChunk, rowToSearchResult } from './utils.ts';
+import {
+  validateSlug,
+  contentHash,
+  importContentHash,
+  rowToPage,
+  rowToChunk,
+  rowToRetrievalTrace,
+  rowToSearchResult,
+  rowToTaskAttempt,
+  rowToTaskDecision,
+  rowToTaskThread,
+  rowToTaskWorkingSet,
+} from './utils.ts';
 
 export class PostgresEngine implements BrainEngine {
   private _sql: ReturnType<typeof postgres> | null = null;
@@ -789,6 +813,218 @@ export class PostgresEngine implements BrainEngine {
       SELECT * FROM ingest_log ORDER BY created_at DESC LIMIT ${limit}
     `;
     return rows as unknown as IngestLogEntry[];
+  }
+
+  async createTaskThread(input: TaskThreadInput): Promise<TaskThread> {
+    const sql = this.sql;
+    const rows = await sql`
+      INSERT INTO task_threads (
+        id, scope, title, goal, status, repo_path, branch_name, current_summary
+      ) VALUES (
+        ${input.id},
+        ${input.scope},
+        ${input.title},
+        ${input.goal ?? ''},
+        ${input.status},
+        ${input.repo_path ?? null},
+        ${input.branch_name ?? null},
+        ${input.current_summary ?? ''}
+      )
+      RETURNING id, scope, title, goal, status, repo_path, branch_name, current_summary, created_at, updated_at
+    `;
+    return rowToTaskThread(rows[0] as Record<string, unknown>);
+  }
+
+  async updateTaskThread(id: string, patch: TaskThreadPatch): Promise<TaskThread> {
+    const sql = this.sql;
+    const current = await this.getTaskThread(id);
+    if (!current) throw new Error(`Task thread not found: ${id}`);
+
+    const rows = await sql`
+      UPDATE task_threads
+      SET scope = ${patch.scope ?? current.scope},
+          title = ${patch.title ?? current.title},
+          goal = ${patch.goal ?? current.goal},
+          status = ${patch.status ?? current.status},
+          repo_path = ${patch.repo_path === undefined ? current.repo_path : patch.repo_path},
+          branch_name = ${patch.branch_name === undefined ? current.branch_name : patch.branch_name},
+          current_summary = ${patch.current_summary ?? current.current_summary},
+          updated_at = now()
+      WHERE id = ${id}
+      RETURNING id, scope, title, goal, status, repo_path, branch_name, current_summary, created_at, updated_at
+    `;
+    return rowToTaskThread(rows[0] as Record<string, unknown>);
+  }
+
+  async listTaskThreads(filters?: TaskThreadFilters): Promise<TaskThread[]> {
+    const sql = this.sql;
+    const limit = filters?.limit ?? 50;
+    const params: unknown[] = [];
+    const clauses: string[] = [];
+
+    if (filters?.scope) {
+      params.push(filters.scope);
+      clauses.push(`scope = $${params.length}`);
+    }
+    if (filters?.status) {
+      params.push(filters.status);
+      clauses.push(`status = $${params.length}`);
+    }
+
+    params.push(limit);
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = await sql.unsafe(
+      `SELECT id, scope, title, goal, status, repo_path, branch_name, current_summary, created_at, updated_at
+       FROM task_threads
+       ${whereClause}
+       ORDER BY updated_at DESC, id DESC
+       LIMIT $${params.length}`,
+      params,
+    );
+    return (rows as Record<string, unknown>[]).map(rowToTaskThread);
+  }
+
+  async getTaskThread(id: string): Promise<TaskThread | null> {
+    const sql = this.sql;
+    const rows = await sql`
+      SELECT id, scope, title, goal, status, repo_path, branch_name, current_summary, created_at, updated_at
+      FROM task_threads
+      WHERE id = ${id}
+    `;
+    if (rows.length === 0) return null;
+    return rowToTaskThread(rows[0] as Record<string, unknown>);
+  }
+
+  async getTaskWorkingSet(taskId: string): Promise<TaskWorkingSet | null> {
+    const sql = this.sql;
+    const rows = await sql`
+      SELECT task_id, active_paths, active_symbols, blockers, open_questions, next_steps, verification_notes, last_verified_at, updated_at
+      FROM task_working_sets
+      WHERE task_id = ${taskId}
+    `;
+    if (rows.length === 0) return null;
+    return rowToTaskWorkingSet(rows[0] as Record<string, unknown>);
+  }
+
+  async upsertTaskWorkingSet(input: TaskWorkingSetInput): Promise<TaskWorkingSet> {
+    const sql = this.sql;
+    const rows = await sql`
+      INSERT INTO task_working_sets (
+        task_id, active_paths, active_symbols, blockers, open_questions, next_steps, verification_notes, last_verified_at, updated_at
+      ) VALUES (
+        ${input.task_id},
+        ${JSON.stringify(input.active_paths ?? [])}::jsonb,
+        ${JSON.stringify(input.active_symbols ?? [])}::jsonb,
+        ${JSON.stringify(input.blockers ?? [])}::jsonb,
+        ${JSON.stringify(input.open_questions ?? [])}::jsonb,
+        ${JSON.stringify(input.next_steps ?? [])}::jsonb,
+        ${JSON.stringify(input.verification_notes ?? [])}::jsonb,
+        ${input.last_verified_at instanceof Date ? input.last_verified_at.toISOString() : input.last_verified_at ?? null},
+        now()
+      )
+      ON CONFLICT (task_id) DO UPDATE SET
+        active_paths = EXCLUDED.active_paths,
+        active_symbols = EXCLUDED.active_symbols,
+        blockers = EXCLUDED.blockers,
+        open_questions = EXCLUDED.open_questions,
+        next_steps = EXCLUDED.next_steps,
+        verification_notes = EXCLUDED.verification_notes,
+        last_verified_at = EXCLUDED.last_verified_at,
+        updated_at = now()
+      RETURNING task_id, active_paths, active_symbols, blockers, open_questions, next_steps, verification_notes, last_verified_at, updated_at
+    `;
+    return rowToTaskWorkingSet(rows[0] as Record<string, unknown>);
+  }
+
+  async recordTaskAttempt(input: TaskAttemptInput): Promise<TaskAttempt> {
+    const sql = this.sql;
+    const rows = await sql`
+      INSERT INTO task_attempts (
+        id, task_id, summary, outcome, applicability_context, evidence
+      ) VALUES (
+        ${input.id},
+        ${input.task_id},
+        ${input.summary},
+        ${input.outcome},
+        ${JSON.stringify(input.applicability_context ?? {})}::jsonb,
+        ${JSON.stringify(input.evidence ?? [])}::jsonb
+      )
+      RETURNING id, task_id, summary, outcome, applicability_context, evidence, created_at
+    `;
+    return rowToTaskAttempt(rows[0] as Record<string, unknown>);
+  }
+
+  async listTaskAttempts(taskId: string, opts?: { limit?: number }): Promise<TaskAttempt[]> {
+    const sql = this.sql;
+    const rows = await sql`
+      SELECT id, task_id, summary, outcome, applicability_context, evidence, created_at
+      FROM task_attempts
+      WHERE task_id = ${taskId}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ${opts?.limit ?? 20}
+    `;
+    return (rows as Record<string, unknown>[]).map(rowToTaskAttempt);
+  }
+
+  async recordTaskDecision(input: TaskDecisionInput): Promise<TaskDecision> {
+    const sql = this.sql;
+    const rows = await sql`
+      INSERT INTO task_decisions (
+        id, task_id, summary, rationale, consequences, validity_context
+      ) VALUES (
+        ${input.id},
+        ${input.task_id},
+        ${input.summary},
+        ${input.rationale},
+        ${JSON.stringify(input.consequences ?? [])}::jsonb,
+        ${JSON.stringify(input.validity_context ?? {})}::jsonb
+      )
+      RETURNING id, task_id, summary, rationale, consequences, validity_context, created_at
+    `;
+    return rowToTaskDecision(rows[0] as Record<string, unknown>);
+  }
+
+  async listTaskDecisions(taskId: string, opts?: { limit?: number }): Promise<TaskDecision[]> {
+    const sql = this.sql;
+    const rows = await sql`
+      SELECT id, task_id, summary, rationale, consequences, validity_context, created_at
+      FROM task_decisions
+      WHERE task_id = ${taskId}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ${opts?.limit ?? 20}
+    `;
+    return (rows as Record<string, unknown>[]).map(rowToTaskDecision);
+  }
+
+  async putRetrievalTrace(input: RetrievalTraceInput): Promise<RetrievalTrace> {
+    const sql = this.sql;
+    const rows = await sql`
+      INSERT INTO retrieval_traces (
+        id, task_id, scope, route, source_refs, verification, outcome
+      ) VALUES (
+        ${input.id},
+        ${input.task_id ?? null},
+        ${input.scope},
+        ${JSON.stringify(input.route ?? [])}::jsonb,
+        ${JSON.stringify(input.source_refs ?? [])}::jsonb,
+        ${JSON.stringify(input.verification ?? [])}::jsonb,
+        ${input.outcome}
+      )
+      RETURNING id, task_id, scope, route, source_refs, verification, outcome, created_at
+    `;
+    return rowToRetrievalTrace(rows[0] as Record<string, unknown>);
+  }
+
+  async listRetrievalTraces(taskId: string, opts?: { limit?: number }): Promise<RetrievalTrace[]> {
+    const sql = this.sql;
+    const rows = await sql`
+      SELECT id, task_id, scope, route, source_refs, verification, outcome, created_at
+      FROM retrieval_traces
+      WHERE task_id = ${taskId}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ${opts?.limit ?? 20}
+    `;
+    return (rows as Record<string, unknown>[]).map(rowToRetrievalTrace);
   }
 
   // Sync

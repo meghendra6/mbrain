@@ -17,15 +17,98 @@ worse than no sync at all, because you think it's working.
 mbrain doctor --json
 ```
 
-**Expected:** All checks return `"ok"`:
-- `connection`: connected, N pages
-- `pgvector`: extension installed
-- `rls`: enabled on all tables
-- `schema_version`: current
-- `embeddings`: coverage percentage
+**Expected:** The output should match the active profile:
+- On Postgres profiles, `connection`, `pgvector`, `rls`, `schema_version`, and `embeddings` should be `ok`.
+- On local/offline profiles, `execution_envelope` and `contract_surface` should appear, `pgvector` and `rls` should short-circuit with `warn`, and `check-update` should be reported honestly as unsupported.
+- `unsupported_capabilities` should explain any local-path limits such as cloud file storage.
 
 **If it fails:** The doctor output includes specific fix instructions for each
 check. See `skills/setup/SKILL.md` Error Recovery table.
+
+## 1a. Execution envelope verification
+
+Run:
+
+```bash
+mbrain doctor --json | jq '.checks[] | select(.name == "execution_envelope" or .name == "contract_surface")'
+```
+
+Expected:
+
+- the active profile is reported honestly
+- unsupported contract surfaces include an explicit reason
+- sqlite/local mode does not pretend to support cloud file storage
+- pglite local-path mode should follow the same honest contract reporting
+
+## Phase 0 parity verification
+
+Run:
+
+```bash
+bun test test/phase0-contract-parity.test.ts
+```
+
+Expected:
+
+- SQLite and PGLite pass unconditionally against the same shared workflow fixture.
+- Postgres runs when `DATABASE_URL` is configured.
+- Missing Postgres coverage is reported as an explicit skip reason, not as a silent reduction in the supported surface.
+
+## Phase 1 operational-memory verification
+
+Run:
+
+```bash
+bun run test:phase1
+```
+
+Expected:
+
+- `task-memory-schema`, `task-memory-engine`, `task-memory-service`, and `task-memory-operations` all pass.
+- SQLite and PGLite persist task-memory records across reconnects.
+- Phase 1 task-resume parity runs through `test/phase0-contract-parity.test.ts`, including the `task resume semantics` coverage.
+- Postgres task-memory persistence runs when `DATABASE_URL` is configured.
+- If `DATABASE_URL` is missing, the Postgres task-memory persistence and parity checks report explicit skip reasons instead of silently dropping coverage.
+
+## Phase 1 operational-memory benchmark
+
+Run:
+
+```bash
+bun run bench:phase1 --json
+```
+
+Expected:
+
+- the report includes `task_resume`, `attempt_history`, `decision_history`, and `resume_projection`
+- latency workloads report positive `p50_ms` and `p95_ms`
+- `resume_projection.success_rate` is `100` on the published fixture workload
+- `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
+- `acceptance.phase1_status` stays `pending_baseline` until a comparable repeated-work baseline exists for the primary improvement threshold
+- the benchmark stays local and uses the same sqlite execution envelope as the Phase 0 baseline runner
+
+To evaluate the full primary-improvement threshold once you have a comparable prior benchmark:
+
+```bash
+bun run bench:phase1 --json --baseline path/to/previous-phase1-benchmark.json
+```
+
+Expected:
+
+- `acceptance.phase1_status` becomes `pass` or `fail` instead of `pending_baseline`
+- the baseline must use the same engine and include a comparable `task_resume` latency measurement
+
+To publish a reusable environment-specific baseline artifact:
+
+```bash
+bun run bench:phase1 --json --write-baseline docs/benchmarks/phase1/YYYY-MM-DD-<env>.json
+```
+
+Expected:
+
+- the command still prints the benchmark JSON to stdout
+- the same payload is written to the requested file
+- the file can later be passed back through `--baseline`
 
 ---
 
@@ -51,7 +134,9 @@ mbrain check-update --json
 ```
 
 **Expected:** Returns JSON with `current_version`, `latest_version`,
-`update_available` (boolean). The cron `mbrain-update-check` is registered.
+`update_available` (boolean). On local/offline profiles, the command should
+short-circuit with `error: "offline_mode"` and a human-readable `reason`.
+The cron `mbrain-update-check` is registered.
 
 **If it fails:** Run step 7 from the install paste. See MBRAIN_SKILLPACK.md
 Section 17.

@@ -243,7 +243,24 @@ What to expect:
 
 ---
 
-## 6. Local query rewrite is optional too
+## 6. Inspect the execution envelope
+
+Use doctor to confirm which public contract surfaces are supported in your current profile:
+
+```bash
+mbrain doctor --json
+```
+
+Look for:
+
+- `execution_envelope`
+- `contract_surface`
+
+If `files` or `check-update` are unsupported, the doctor output should explain why.
+
+---
+
+## 7. Local query rewrite is optional too
 
 Local/offline defaults to:
 
@@ -277,7 +294,7 @@ If the runtime is missing, returns malformed output, or responds with an error, 
 
 ---
 
-## 7. Connect Codex to the local MCP server
+## 8. Connect Codex to the local MCP server
 
 Initialize the brain first:
 
@@ -314,7 +331,7 @@ Then point Codex at that wrapper instead of assuming custom env support in every
 
 ---
 
-## 8. Connect Claude Code to the local MCP server
+## 9. Connect Claude Code to the local MCP server
 
 The shortest path mirrors the Codex setup:
 
@@ -353,7 +370,7 @@ If you need a non-default config directory, use the same wrapper-script pattern 
 
 ---
 
-## 9. One-command agent setup: `mbrain setup-agent`
+## 10. One-command agent setup: `mbrain setup-agent`
 
 Instead of manually registering MCP and copying behavioral rules, run:
 
@@ -409,7 +426,7 @@ Start a new session in your AI client and verify:
 
 ---
 
-## 10. Using Codex and Claude Code simultaneously
+## 11. Using Codex and Claude Code simultaneously
 
 Both clients can connect to the same local brain at the same time. Each spawns its own `mbrain serve` process, and both read from the same SQLite database at `~/.mbrain/brain.db`. SQLite WAL mode makes concurrent reads safe.
 
@@ -439,7 +456,7 @@ Both clients auto-spawn the server when they need it.
 
 ---
 
-## 10. Suggested first-day workflow
+## 12. Suggested first-day workflow
 
 A practical local/offline routine looks like this:
 
@@ -471,7 +488,7 @@ Or let Codex / Claude Code spawn it for you.
 
 ---
 
-## 11. Verification checklist
+## 13. Verification checklist
 
 Run these in order:
 
@@ -503,7 +520,7 @@ You should see embedding coverage increase.
 
 ---
 
-## 12. What is not supported in local/offline mode yet
+## 14. What is not supported in local/offline mode yet
 
 These workflows are still managed/Postgres-oriented:
 
@@ -517,7 +534,7 @@ That is intentional. The current local profile is designed to be truthful, not t
 
 ---
 
-## 13. Troubleshooting
+## 15. Troubleshooting
 
 ### `mbrain init --local` succeeded, but query returns nothing
 
@@ -562,7 +579,7 @@ Local/offline SQLite mode does not support the cloud file/storage workflow yet.
 
 ---
 
-## 14. If you want the same guide in Korean
+## 16. If you want the same guide in Korean
 
 See:
 

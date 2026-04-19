@@ -1,6 +1,6 @@
 import { VERSION } from '../version.ts';
 import { loadConfig } from '../core/config.ts';
-import { resolveOfflineProfile } from '../core/offline-profile.ts';
+import { buildExecutionEnvelope } from '../core/execution-envelope.ts';
 import { detectInstallMethod } from './upgrade.ts';
 
 interface CheckUpdateResult {
@@ -129,10 +129,12 @@ export async function runCheckUpdate(args: string[]) {
   const method = detectInstallMethod();
   const upgradeCmd = upgradeCommandForMethod(method);
   const config = loadConfig();
-  const profile = config ? resolveOfflineProfile(config) : null;
+  const contractSurface = config
+    ? buildExecutionEnvelope(config).publicContract.checkUpdate
+    : null;
 
-  if (profile && !profile.capabilities.check_update.supported) {
-    const reason = profile.capabilities.check_update.reason || 'Update checks are disabled in offline mode.';
+  if (contractSurface?.status === 'unsupported') {
+    const reason = contractSurface.reason || 'Update checks are disabled in offline mode.';
     if (json) {
       console.log(JSON.stringify({
         current_version: VERSION,

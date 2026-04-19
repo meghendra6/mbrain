@@ -20,8 +20,32 @@ import type {
   BrainStats, BrainHealth,
   IngestLogEntry, IngestLogInput,
   EngineConfig,
+  RetrievalTrace,
+  RetrievalTraceInput,
+  TaskAttempt,
+  TaskAttemptInput,
+  TaskDecision,
+  TaskDecisionInput,
+  TaskThread,
+  TaskThreadFilters,
+  TaskThreadInput,
+  TaskThreadPatch,
+  TaskWorkingSet,
+  TaskWorkingSetInput,
 } from './types.ts';
-import { validateSlug, contentHash, importContentHash, rowToPage, rowToChunk, rowToSearchResult } from './utils.ts';
+import {
+  validateSlug,
+  contentHash,
+  importContentHash,
+  rowToPage,
+  rowToChunk,
+  rowToSearchResult,
+  rowToRetrievalTrace,
+  rowToTaskAttempt,
+  rowToTaskDecision,
+  rowToTaskThread,
+  rowToTaskWorkingSet,
+} from './utils.ts';
 
 type PGLiteDB = PGlite;
 
@@ -735,6 +759,226 @@ export class PGLiteEngine implements BrainEngine {
       [limit]
     );
     return rows as unknown as IngestLogEntry[];
+  }
+
+  async createTaskThread(input: TaskThreadInput): Promise<TaskThread> {
+    const { rows } = await this.db.query(
+      `INSERT INTO task_threads (
+        id, scope, title, goal, status, repo_path, branch_name, current_summary
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING id, scope, title, goal, status, repo_path, branch_name, current_summary, created_at, updated_at`,
+      [
+        input.id,
+        input.scope,
+        input.title,
+        input.goal ?? '',
+        input.status,
+        input.repo_path ?? null,
+        input.branch_name ?? null,
+        input.current_summary ?? '',
+      ],
+    );
+    return rowToTaskThread(rows[0] as Record<string, unknown>);
+  }
+
+  async updateTaskThread(id: string, patch: TaskThreadPatch): Promise<TaskThread> {
+    const current = await this.getTaskThread(id);
+    if (!current) throw new Error(`Task thread not found: ${id}`);
+
+    const { rows } = await this.db.query(
+      `UPDATE task_threads
+       SET scope = $2,
+           title = $3,
+           goal = $4,
+           status = $5,
+           repo_path = $6,
+           branch_name = $7,
+           current_summary = $8,
+           updated_at = now()
+       WHERE id = $1
+       RETURNING id, scope, title, goal, status, repo_path, branch_name, current_summary, created_at, updated_at`,
+      [
+        id,
+        patch.scope ?? current.scope,
+        patch.title ?? current.title,
+        patch.goal ?? current.goal,
+        patch.status ?? current.status,
+        patch.repo_path === undefined ? current.repo_path : patch.repo_path,
+        patch.branch_name === undefined ? current.branch_name : patch.branch_name,
+        patch.current_summary ?? current.current_summary,
+      ],
+    );
+    return rowToTaskThread(rows[0] as Record<string, unknown>);
+  }
+
+  async listTaskThreads(filters?: TaskThreadFilters): Promise<TaskThread[]> {
+    const limit = filters?.limit ?? 50;
+    const params: unknown[] = [];
+    const clauses: string[] = [];
+
+    if (filters?.scope) {
+      params.push(filters.scope);
+      clauses.push(`scope = $${params.length}`);
+    }
+    if (filters?.status) {
+      params.push(filters.status);
+      clauses.push(`status = $${params.length}`);
+    }
+
+    params.push(limit);
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const { rows } = await this.db.query(
+      `SELECT id, scope, title, goal, status, repo_path, branch_name, current_summary, created_at, updated_at
+       FROM task_threads
+       ${whereClause}
+       ORDER BY updated_at DESC, id DESC
+       LIMIT $${params.length}`,
+      params,
+    );
+
+    return (rows as Record<string, unknown>[]).map(rowToTaskThread);
+  }
+
+  async getTaskThread(id: string): Promise<TaskThread | null> {
+    const { rows } = await this.db.query(
+      `SELECT id, scope, title, goal, status, repo_path, branch_name, current_summary, created_at, updated_at
+       FROM task_threads
+       WHERE id = $1`,
+      [id],
+    );
+    if (rows.length === 0) return null;
+    return rowToTaskThread(rows[0] as Record<string, unknown>);
+  }
+
+  async getTaskWorkingSet(taskId: string): Promise<TaskWorkingSet | null> {
+    const { rows } = await this.db.query(
+      `SELECT task_id, active_paths, active_symbols, blockers, open_questions, next_steps, verification_notes, last_verified_at, updated_at
+       FROM task_working_sets
+       WHERE task_id = $1`,
+      [taskId],
+    );
+    if (rows.length === 0) return null;
+    return rowToTaskWorkingSet(rows[0] as Record<string, unknown>);
+  }
+
+  async upsertTaskWorkingSet(input: TaskWorkingSetInput): Promise<TaskWorkingSet> {
+    const { rows } = await this.db.query(
+      `INSERT INTO task_working_sets (
+        task_id, active_paths, active_symbols, blockers, open_questions, next_steps, verification_notes, last_verified_at, updated_at
+      ) VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, now())
+      ON CONFLICT (task_id) DO UPDATE SET
+        active_paths = EXCLUDED.active_paths,
+        active_symbols = EXCLUDED.active_symbols,
+        blockers = EXCLUDED.blockers,
+        open_questions = EXCLUDED.open_questions,
+        next_steps = EXCLUDED.next_steps,
+        verification_notes = EXCLUDED.verification_notes,
+        last_verified_at = EXCLUDED.last_verified_at,
+        updated_at = now()
+      RETURNING task_id, active_paths, active_symbols, blockers, open_questions, next_steps, verification_notes, last_verified_at, updated_at`,
+      [
+        input.task_id,
+        JSON.stringify(input.active_paths ?? []),
+        JSON.stringify(input.active_symbols ?? []),
+        JSON.stringify(input.blockers ?? []),
+        JSON.stringify(input.open_questions ?? []),
+        JSON.stringify(input.next_steps ?? []),
+        JSON.stringify(input.verification_notes ?? []),
+        input.last_verified_at instanceof Date ? input.last_verified_at.toISOString() : input.last_verified_at ?? null,
+      ],
+    );
+    return rowToTaskWorkingSet(rows[0] as Record<string, unknown>);
+  }
+
+  async recordTaskAttempt(input: TaskAttemptInput): Promise<TaskAttempt> {
+    const { rows } = await this.db.query(
+      `INSERT INTO task_attempts (
+        id, task_id, summary, outcome, applicability_context, evidence
+      ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)
+      RETURNING id, task_id, summary, outcome, applicability_context, evidence, created_at`,
+      [
+        input.id,
+        input.task_id,
+        input.summary,
+        input.outcome,
+        JSON.stringify(input.applicability_context ?? {}),
+        JSON.stringify(input.evidence ?? []),
+      ],
+    );
+    return rowToTaskAttempt(rows[0] as Record<string, unknown>);
+  }
+
+  async listTaskAttempts(taskId: string, opts?: { limit?: number }): Promise<TaskAttempt[]> {
+    const { rows } = await this.db.query(
+      `SELECT id, task_id, summary, outcome, applicability_context, evidence, created_at
+       FROM task_attempts
+       WHERE task_id = $1
+       ORDER BY created_at DESC, id DESC
+       LIMIT $2`,
+      [taskId, opts?.limit ?? 20],
+    );
+    return (rows as Record<string, unknown>[]).map(rowToTaskAttempt);
+  }
+
+  async recordTaskDecision(input: TaskDecisionInput): Promise<TaskDecision> {
+    const { rows } = await this.db.query(
+      `INSERT INTO task_decisions (
+        id, task_id, summary, rationale, consequences, validity_context
+      ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)
+      RETURNING id, task_id, summary, rationale, consequences, validity_context, created_at`,
+      [
+        input.id,
+        input.task_id,
+        input.summary,
+        input.rationale,
+        JSON.stringify(input.consequences ?? []),
+        JSON.stringify(input.validity_context ?? {}),
+      ],
+    );
+    return rowToTaskDecision(rows[0] as Record<string, unknown>);
+  }
+
+  async listTaskDecisions(taskId: string, opts?: { limit?: number }): Promise<TaskDecision[]> {
+    const { rows } = await this.db.query(
+      `SELECT id, task_id, summary, rationale, consequences, validity_context, created_at
+       FROM task_decisions
+       WHERE task_id = $1
+       ORDER BY created_at DESC, id DESC
+       LIMIT $2`,
+      [taskId, opts?.limit ?? 20],
+    );
+    return (rows as Record<string, unknown>[]).map(rowToTaskDecision);
+  }
+
+  async putRetrievalTrace(input: RetrievalTraceInput): Promise<RetrievalTrace> {
+    const { rows } = await this.db.query(
+      `INSERT INTO retrieval_traces (
+        id, task_id, scope, route, source_refs, verification, outcome
+      ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7)
+      RETURNING id, task_id, scope, route, source_refs, verification, outcome, created_at`,
+      [
+        input.id,
+        input.task_id ?? null,
+        input.scope,
+        JSON.stringify(input.route ?? []),
+        JSON.stringify(input.source_refs ?? []),
+        JSON.stringify(input.verification ?? []),
+        input.outcome,
+      ],
+    );
+    return rowToRetrievalTrace(rows[0] as Record<string, unknown>);
+  }
+
+  async listRetrievalTraces(taskId: string, opts?: { limit?: number }): Promise<RetrievalTrace[]> {
+    const { rows } = await this.db.query(
+      `SELECT id, task_id, scope, route, source_refs, verification, outcome, created_at
+       FROM retrieval_traces
+       WHERE task_id = $1
+       ORDER BY created_at DESC, id DESC
+       LIMIT $2`,
+      [taskId, opts?.limit ?? 20],
+    );
+    return (rows as Record<string, unknown>[]).map(rowToRetrievalTrace);
   }
 
   // Sync

@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { runEmbed } from '../src/commands/embed.ts';
+import { createLocalConfigDefaults } from '../src/core/config.ts';
 import { embedChunks, getEmbeddingProvider, resetEmbeddingProviderForTests, setEmbeddingProviderForTests } from '../src/core/embedding.ts';
 import { getEngineCapabilities } from '../src/core/engine-capabilities.ts';
 import { importFile } from '../src/core/import-file.ts';
@@ -153,13 +154,13 @@ describe('local/offline profile semantics', () => {
   test('offline profile marks cloud-only capabilities unsupported in local mode', async () => {
     const { resolveOfflineProfile } = await import('../src/core/offline-profile.ts');
 
-    const profile = resolveOfflineProfile({
+    const profile = resolveOfflineProfile(createLocalConfigDefaults({
       engine: 'sqlite',
       database_path: dbPath,
       offline: true,
       embedding_provider: 'local',
       query_rewrite_provider: 'heuristic',
-    });
+    }));
 
     expect(profile.status).toBe('local_offline');
     expect(profile.offline).toBe(true);
@@ -167,6 +168,7 @@ describe('local/offline profile semantics', () => {
     expect(profile.embedding.mode).toBe('local');
     expect(profile.rewrite.mode).toBe('heuristic');
     expect(profile.capabilities.check_update.supported).toBe(false);
+    expect(profile.capabilities.check_update.reason).toMatch(/local\/offline/i);
     expect(profile.capabilities.files.supported).toBe(false);
     expect(profile.capabilities.files.reason).toMatch(/sqlite\/local mode/i);
   });
@@ -389,6 +391,35 @@ describe('local/offline profile semantics', () => {
     expect(output.reason).toMatch(/offline/i);
   });
 
+  test('check-update skips remote checks for pglite local-path execution', async () => {
+    writeUserConfig({
+      engine: 'pglite',
+      database_path: join(tempDir, 'brain.pglite'),
+      embedding_provider: 'local',
+      query_rewrite_provider: 'heuristic',
+    });
+
+    const originalFetch = globalThis.fetch;
+    const fetchSpy = mock(async () => new Response('{}'));
+    globalThis.fetch = fetchSpy as typeof fetch;
+    const capture = captureConsole();
+
+    try {
+      const { runCheckUpdate } = await import('../src/commands/check-update.ts');
+      await runCheckUpdate(['--json']);
+    } finally {
+      globalThis.fetch = originalFetch;
+      capture.restore();
+    }
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const output = JSON.parse(capture.logs.join('\n'));
+    expect(output.update_available).toBe(false);
+    expect(output.error).toBe('offline_mode');
+    expect(output.reason).toMatch(/check-update/i);
+    expect(output.reason).toMatch(/local\/offline|pglite/i);
+  });
+
   test('files commands explain that local/offline mode does not support file storage yet', async () => {
     writeUserConfig({
       engine: 'sqlite',
@@ -410,6 +441,28 @@ describe('local/offline profile semantics', () => {
     expect(capture.exitSpy).toHaveBeenCalledWith(1);
     expect(capture.errors.join('\n')).toMatch(/files\/storage commands/i);
     expect(capture.errors.join('\n')).toMatch(/offline|sqlite\/local mode/i);
+  });
+
+  test('files commands reject pglite local-path execution before touching raw Postgres access', async () => {
+    writeUserConfig({
+      engine: 'pglite',
+      database_path: join(tempDir, 'brain.pglite'),
+      embedding_provider: 'local',
+      query_rewrite_provider: 'heuristic',
+    });
+
+    const capture = captureConsole();
+
+    try {
+      const { runFiles } = await import('../src/commands/files.ts');
+      await runFiles(engine, ['list']);
+    } finally {
+      capture.restore();
+    }
+
+    expect(capture.exitSpy).toHaveBeenCalledWith(1);
+    expect(capture.errors.join('\n')).toMatch(/files\/storage commands/i);
+    expect(capture.errors.join('\n')).toMatch(/pglite|local mode/i);
   });
 });
 
