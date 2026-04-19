@@ -44,17 +44,36 @@ function toSurfaceStatus(status: { supported: boolean; reason?: string }): Contr
   return status.supported ? { status: 'supported' } : { status: 'unsupported', reason: status.reason };
 }
 
+function isLocalPathExecution(config: MBrainConfig, profileMode: ExecutionEnvelope['mode']): boolean {
+  return profileMode === 'local_offline' || config.engine === 'pglite';
+}
+
+function localPathSurfaceReason(surface: 'files' | 'checkUpdate', engine: MBrainConfig['engine']): string {
+  if (surface === 'files') {
+    return engine === 'pglite'
+      ? 'files/storage commands require raw Postgres access and are not supported in pglite/local mode.'
+      : 'files/storage commands require Postgres raw database access and are not supported in sqlite/local mode.';
+  }
+
+  return 'check-update is disabled in the local/offline profile.';
+}
+
 export function buildExecutionEnvelope(config: MBrainConfig): ExecutionEnvelope {
   const profile = resolveOfflineProfile(config);
+  const localPath = isLocalPathExecution(config, profile.status);
 
   return {
-    mode: profile.status,
+    mode: localPath ? 'local_offline' : profile.status,
     markdownCanonical: true,
     derivedArtifactsRegenerable: true,
     baselineFamilies: [...BASELINE_FAMILIES],
     publicContract: {
-      files: toSurfaceStatus(profile.capabilities.files),
-      checkUpdate: toSurfaceStatus(profile.capabilities.check_update),
+      files: localPath
+        ? { status: 'unsupported', reason: localPathSurfaceReason('files', config.engine) }
+        : toSurfaceStatus(profile.capabilities.files),
+      checkUpdate: localPath
+        ? { status: 'unsupported', reason: localPathSurfaceReason('checkUpdate', config.engine) }
+        : toSurfaceStatus(profile.capabilities.check_update),
     },
     parity: {
       requiresSemanticAlignment: true,

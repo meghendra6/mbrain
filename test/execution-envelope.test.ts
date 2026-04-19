@@ -45,4 +45,19 @@ describe('execution envelope', () => {
       'scope_isolation',
     ]);
   });
+
+  test('pglite follows local-path semantics instead of cloud defaults', () => {
+    const config = resolveConfig({
+      engine: 'pglite',
+      database_path: '/tmp/brain.pglite',
+      embedding_provider: 'none',
+      query_rewrite_provider: 'none',
+    });
+
+    const envelope = buildExecutionEnvelope(config);
+    expect(envelope.mode).toBe('local_offline');
+    expect(envelope.publicContract.files.status).toBe('unsupported');
+    expect(envelope.publicContract.files.reason).toContain('pglite');
+    expect(envelope.publicContract.checkUpdate.status).toBe('unsupported');
+  });
 });
