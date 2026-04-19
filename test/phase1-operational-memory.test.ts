@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'bun';
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -112,6 +112,37 @@ describe('phase1 operational-memory benchmark', () => {
       expect(primaryCheck.status).toBe('pass');
       expect(typeof primaryCheck.actual).toBe('number');
       expect(primaryCheck.actual).toBeGreaterThanOrEqual(10);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('--write-baseline persists the benchmark payload to disk', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mbrain-phase1-write-baseline-'));
+    const baselinePath = join(dir, 'written-baseline.json');
+
+    try {
+      const proc = spawnSync([
+        'bun',
+        'run',
+        'scripts/bench/phase1-operational-memory.ts',
+        '--json',
+        '--write-baseline',
+        baselinePath,
+      ], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+
+      expect(proc.exitCode).toBe(0);
+      const stdoutPayload = JSON.parse(new TextDecoder().decode(proc.stdout));
+      const filePayload = JSON.parse(readFileSync(baselinePath, 'utf-8'));
+
+      expect(filePayload.engine).toBe(stdoutPayload.engine);
+      expect(filePayload.workloads.map((workload: any) => workload.name).sort()).toEqual(
+        stdoutPayload.workloads.map((workload: any) => workload.name).sort(),
+      );
+      expect(filePayload.acceptance.phase1_status).toBe(stdoutPayload.acceptance.phase1_status);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

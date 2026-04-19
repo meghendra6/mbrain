@@ -98,6 +98,18 @@ Expected:
 - `acceptance.phase1_status` becomes `pass` or `fail` instead of `pending_baseline`
 - the baseline must use the same engine and include a comparable `task_resume` latency measurement
 
+To publish a reusable environment-specific baseline artifact:
+
+```bash
+bun run bench:phase1 --json --write-baseline docs/benchmarks/phase1/YYYY-MM-DD-<env>.json
+```
+
+Expected:
+
+- the command still prints the benchmark JSON to stdout
+- the same payload is written to the requested file
+- the file can later be passed back through `--baseline`
+
 ---
 
 ## 2. Skillpack Loaded

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
-import { mkdtempSync, readFileSync, rmSync } from 'fs';
-import { join } from 'path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { dirname, join } from 'path';
 import { tmpdir } from 'os';
 import { performance } from 'perf_hooks';
 import { createLocalConfigDefaults } from '../../src/core/config.ts';
@@ -22,9 +22,10 @@ import {
 const rawArgs = process.argv.slice(2);
 const args = new Set(rawArgs);
 const baselinePath = getFlagValue(rawArgs, '--baseline');
+const writeBaselinePath = getFlagValue(rawArgs, '--write-baseline');
 
 if (args.has('--help')) {
-  console.log('Usage: bun run scripts/bench/phase1-operational-memory.ts [--json] [--baseline <path>]');
+  console.log('Usage: bun run scripts/bench/phase1-operational-memory.ts [--json] [--baseline <path>] [--write-baseline <path>]');
   process.exit(0);
 }
 
@@ -57,6 +58,10 @@ try {
     workloads,
     acceptance: evaluateAcceptance(workloads, config.engine, baselinePath ? loadBaseline(baselinePath) : null),
   };
+
+  if (writeBaselinePath) {
+    persistBaseline(writeBaselinePath, payload);
+  }
 
   if (jsonOutput) {
     console.log(JSON.stringify(payload, null, 2));
@@ -357,6 +362,11 @@ function getCorrectnessWorkload(
 
 function loadBaseline(path: string): Phase1BenchmarkPayload {
   return JSON.parse(readFileSync(path, 'utf-8')) as Phase1BenchmarkPayload;
+}
+
+function persistBaseline(path: string, payload: unknown): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(payload, null, 2) + '\n', 'utf-8');
 }
 
 function getFlagValue(args: string[], flag: string): string | undefined {
