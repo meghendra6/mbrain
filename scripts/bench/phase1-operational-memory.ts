@@ -9,8 +9,12 @@ import { createConnectedEngine } from '../../src/core/engine-factory.ts';
 import { buildTaskResumeCard } from '../../src/core/services/task-memory-service.ts';
 import type { BrainEngine } from '../../src/core/engine.ts';
 import {
+  PHASE1_ACCEPTANCE_THRESHOLDS,
+  PHASE1_PENDING_BASELINE_REASON,
   PHASE1_TASK_FIXTURES,
   PHASE1_WORKLOADS,
+  type Phase1AcceptanceCheck,
+  type Phase1AcceptanceReport,
   type Phase1LatencyWorkloadName,
   type Phase1WorkloadResult,
 } from './phase1-workloads.ts';
@@ -49,6 +53,7 @@ try {
     generated_at: new Date().toISOString(),
     engine: config.engine,
     workloads,
+    acceptance: evaluateAcceptance(workloads),
   };
 
   if (jsonOutput) {
@@ -172,6 +177,105 @@ function percentile(values: number[], fraction: number): number {
 function formatMeasuredMs(value: number): number {
   if (value <= 0) return 0;
   return Math.max(0.001, roundTo(value, 3));
+}
+
+function evaluateAcceptance(workloads: Phase1WorkloadResult[]): Phase1AcceptanceReport {
+  const checks: Phase1AcceptanceCheck[] = [];
+
+  const taskResume = getLatencyWorkload(workloads, 'task_resume');
+  checks.push({
+    name: 'task_resume_p95_ms',
+    status: taskResume.p95_ms <= PHASE1_ACCEPTANCE_THRESHOLDS.task_resume_p95_ms_max ? 'pass' : 'fail',
+    actual: taskResume.p95_ms,
+    threshold: {
+      operator: '<=',
+      value: PHASE1_ACCEPTANCE_THRESHOLDS.task_resume_p95_ms_max,
+      unit: 'ms',
+    },
+  });
+
+  const attemptHistory = getLatencyWorkload(workloads, 'attempt_history');
+  checks.push({
+    name: 'attempt_history_p95_ms',
+    status: attemptHistory.p95_ms <= PHASE1_ACCEPTANCE_THRESHOLDS.attempt_history_p95_ms_max ? 'pass' : 'fail',
+    actual: attemptHistory.p95_ms,
+    threshold: {
+      operator: '<=',
+      value: PHASE1_ACCEPTANCE_THRESHOLDS.attempt_history_p95_ms_max,
+      unit: 'ms',
+    },
+  });
+
+  const decisionHistory = getLatencyWorkload(workloads, 'decision_history');
+  checks.push({
+    name: 'decision_history_p95_ms',
+    status: decisionHistory.p95_ms <= PHASE1_ACCEPTANCE_THRESHOLDS.decision_history_p95_ms_max ? 'pass' : 'fail',
+    actual: decisionHistory.p95_ms,
+    threshold: {
+      operator: '<=',
+      value: PHASE1_ACCEPTANCE_THRESHOLDS.decision_history_p95_ms_max,
+      unit: 'ms',
+    },
+  });
+
+  const resumeProjection = getCorrectnessWorkload(workloads, 'resume_projection');
+  checks.push({
+    name: 'resume_projection_success_rate',
+    status: resumeProjection.success_rate === PHASE1_ACCEPTANCE_THRESHOLDS.resume_projection_success_rate ? 'pass' : 'fail',
+    actual: resumeProjection.success_rate,
+    threshold: {
+      operator: '===',
+      value: PHASE1_ACCEPTANCE_THRESHOLDS.resume_projection_success_rate,
+      unit: 'percent',
+    },
+  });
+
+  checks.push({
+    name: 'primary_improvement_threshold',
+    status: 'pending_baseline',
+    threshold: {
+      operator: '>=',
+      value: PHASE1_ACCEPTANCE_THRESHOLDS.primary_improvement_threshold_pct,
+      unit: 'percent',
+    },
+    reason: PHASE1_PENDING_BASELINE_REASON,
+  });
+
+  const readiness_status = checks.every((check) => check.status !== 'fail') ? 'pass' : 'fail';
+  const phase1_status = readiness_status === 'fail' ? 'fail' : 'pending_baseline';
+  const summary = readiness_status === 'fail'
+    ? 'Phase 1 readiness failed one or more local guardrails.'
+    : `Phase 1 readiness passes the local guardrails, but full phase acceptance remains pending: ${PHASE1_PENDING_BASELINE_REASON}`;
+
+  return {
+    thresholds: PHASE1_ACCEPTANCE_THRESHOLDS,
+    readiness_status,
+    phase1_status,
+    checks,
+    summary,
+  };
+}
+
+function getLatencyWorkload(
+  workloads: Phase1WorkloadResult[],
+  name: Phase1LatencyWorkloadName,
+): Extract<Phase1WorkloadResult, { name: Phase1LatencyWorkloadName }> {
+  const workload = workloads.find((entry) => entry.name === name);
+  if (!workload || workload.unit !== 'ms') {
+    throw new Error(`Missing latency workload: ${name}`);
+  }
+  return workload;
+}
+
+function getCorrectnessWorkload(
+  workloads: Phase1WorkloadResult[],
+  name: 'resume_projection',
+): Extract<Phase1WorkloadResult, { name: 'resume_projection' }> {
+  const workload = workloads.find((entry) => entry.name === name);
+  if (!workload || workload.unit !== 'percent') {
+    throw new Error(`Missing correctness workload: ${name}`);
+  }
+  return workload;
 }
 
 function roundTo(value: number, digits: number): number {

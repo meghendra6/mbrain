@@ -83,6 +83,8 @@ Expected:
 - the report includes `task_resume`, `attempt_history`, `decision_history`, and `resume_projection`
 - latency workloads report positive `p50_ms` and `p95_ms`
 - `resume_projection.success_rate` is `100` on the published fixture workload
+- `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
+- `acceptance.phase1_status` stays `pending_baseline` until a comparable repeated-work baseline exists for the primary improvement threshold
 - the benchmark stays local and uses the same sqlite execution envelope as the Phase 0 baseline runner
 
 ---

@@ -25,6 +25,41 @@ export type Phase1WorkloadResult =
   | Phase1LatencyWorkloadResult
   | Phase1CorrectnessWorkloadResult;
 
+export type Phase1AcceptanceStatus = 'pass' | 'fail' | 'pending_baseline';
+
+export interface Phase1AcceptanceThresholds {
+  task_resume_p95_ms_max: number;
+  attempt_history_p95_ms_max: number;
+  decision_history_p95_ms_max: number;
+  resume_projection_success_rate: number;
+  primary_improvement_threshold_pct: number;
+}
+
+export interface Phase1AcceptanceCheck {
+  name:
+    | 'task_resume_p95_ms'
+    | 'attempt_history_p95_ms'
+    | 'decision_history_p95_ms'
+    | 'resume_projection_success_rate'
+    | 'primary_improvement_threshold';
+  status: Phase1AcceptanceStatus;
+  actual?: number;
+  threshold: {
+    operator: '<=' | '>=' | '===';
+    value: number;
+    unit: 'ms' | 'percent';
+  };
+  reason?: string;
+}
+
+export interface Phase1AcceptanceReport {
+  thresholds: Phase1AcceptanceThresholds;
+  readiness_status: Extract<Phase1AcceptanceStatus, 'pass' | 'fail'>;
+  phase1_status: Phase1AcceptanceStatus;
+  checks: Phase1AcceptanceCheck[];
+  summary: string;
+}
+
 export interface Phase1WorkloadDefinition {
   name: Phase1WorkloadName;
   unit: Phase1WorkloadResult['unit'];
@@ -101,6 +136,17 @@ export const PHASE1_WORKLOADS: Phase1WorkloadDefinition[] = [
     unit: 'percent',
   },
 ];
+
+export const PHASE1_ACCEPTANCE_THRESHOLDS: Phase1AcceptanceThresholds = {
+  task_resume_p95_ms_max: 10,
+  attempt_history_p95_ms_max: 5,
+  decision_history_p95_ms_max: 5,
+  resume_projection_success_rate: 100,
+  primary_improvement_threshold_pct: 10,
+};
+
+export const PHASE1_PENDING_BASELINE_REASON =
+  'Full Phase 1 acceptance still requires a comparable repeated-work baseline. Phase 0 publishes task_resume as unsupported, so the primary improvement threshold cannot be evaluated yet.';
 
 export const PHASE1_TASK_FIXTURES: Phase1TaskFixture[] = [
   {

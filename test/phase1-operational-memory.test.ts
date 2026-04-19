@@ -25,6 +25,7 @@ describe('phase1 operational-memory benchmark', () => {
     expect(payload).toHaveProperty('generated_at');
     expect(payload).toHaveProperty('engine');
     expect(Array.isArray(payload.workloads)).toBe(true);
+    expect(payload).toHaveProperty('acceptance');
 
     const names = payload.workloads.map((workload: any) => workload.name).sort();
     expect(names).toEqual([
@@ -49,5 +50,24 @@ describe('phase1 operational-memory benchmark', () => {
         expect(workload.success_rate).toBe(100);
       }
     }
+
+    expect(payload.acceptance).toHaveProperty('thresholds');
+    expect(Array.isArray(payload.acceptance.checks)).toBe(true);
+    expect(payload.acceptance.readiness_status).toBe('pass');
+    expect(payload.acceptance.phase1_status).toBe('pending_baseline');
+
+    const checkNames = payload.acceptance.checks.map((check: any) => check.name).sort();
+    expect(checkNames).toEqual([
+      'attempt_history_p95_ms',
+      'decision_history_p95_ms',
+      'primary_improvement_threshold',
+      'resume_projection_success_rate',
+      'task_resume_p95_ms',
+    ]);
+
+    const pendingCheck = payload.acceptance.checks.find((check: any) => check.name === 'primary_improvement_threshold');
+    expect(pendingCheck.status).toBe('pending_baseline');
+    expect(typeof pendingCheck.reason).toBe('string');
+    expect(pendingCheck.reason.length).toBeGreaterThan(0);
   });
 });
