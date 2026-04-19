@@ -4,6 +4,7 @@ import { formatResult, OperationError, operations } from '../src/core/operations
 test('task operations are registered with CLI hints', () => {
   const start = operations.find((operation) => operation.name === 'start_task');
   const list = operations.find((operation) => operation.name === 'list_tasks');
+  const update = operations.find((operation) => operation.name === 'update_task');
   const resume = operations.find((operation) => operation.name === 'resume_task');
   const show = operations.find((operation) => operation.name === 'get_task_working_set');
   const refresh = operations.find((operation) => operation.name === 'refresh_task_working_set');
@@ -12,6 +13,7 @@ test('task operations are registered with CLI hints', () => {
 
   expect(start?.cliHints?.name).toBe('task-start');
   expect(list?.cliHints?.name).toBe('task-list');
+  expect(update?.cliHints?.name).toBe('task-update');
   expect(resume?.cliHints?.name).toBe('task-resume');
   expect(show?.cliHints?.name).toBe('task-show');
   expect(refresh?.cliHints?.name).toBe('task-working-set');
@@ -117,6 +119,104 @@ test('get_task_working_set rejects unknown task ids with a stable error', async 
   }, {
     task_id: 'missing-task',
   })).rejects.toMatchObject({ code: 'task_not_found' });
+});
+
+test('update_task forwards the allowed patch fields to canonical task state', async () => {
+  const update = operations.find((operation) => operation.name === 'update_task');
+  if (!update) throw new Error('update_task operation is missing');
+
+  const calls: Array<Record<string, unknown>> = [];
+  const result = await update.handler({
+    engine: {
+      getTaskThread: async () => ({
+        id: 'task-1',
+        scope: 'work',
+        title: 'Phase 1 MVP',
+        goal: 'Ship operational memory',
+        status: 'active',
+        repo_path: '/repo',
+        branch_name: 'docs/mbrain-redesign-doc-set',
+        current_summary: 'Need mutation surface',
+        created_at: new Date('2026-04-19T00:00:00.000Z'),
+        updated_at: new Date('2026-04-19T00:05:00.000Z'),
+      }),
+      updateTaskThread: async (id: string, patch: Record<string, unknown>) => {
+        calls.push({ id, ...patch });
+        return {
+          id,
+          scope: 'work',
+          title: String(patch.title),
+          goal: String(patch.goal),
+          status: String(patch.status),
+          repo_path: '/repo',
+          branch_name: 'docs/mbrain-redesign-doc-set',
+          current_summary: String(patch.current_summary),
+          created_at: new Date('2026-04-19T00:00:00.000Z'),
+          updated_at: new Date('2026-04-19T00:06:00.000Z'),
+        };
+      },
+    } as any,
+    config: {} as any,
+    logger: console,
+    dryRun: false,
+  }, {
+    task_id: 'task-1',
+    title: 'Phase 1 polish',
+    goal: 'Ship operational memory cleanly',
+    status: 'blocked',
+    current_summary: 'Waiting on review feedback',
+  });
+
+  expect(calls).toEqual([{
+    id: 'task-1',
+    title: 'Phase 1 polish',
+    goal: 'Ship operational memory cleanly',
+    status: 'blocked',
+    current_summary: 'Waiting on review feedback',
+  }]);
+  expect((result as any).status).toBe('blocked');
+  expect((result as any).current_summary).toBe('Waiting on review feedback');
+});
+
+test('update_task rejects unknown task ids with a stable error', async () => {
+  const update = operations.find((operation) => operation.name === 'update_task');
+  if (!update) throw new Error('update_task operation is missing');
+
+  await expect(update.handler({
+    engine: {
+      getTaskThread: async () => null,
+    } as any,
+    config: {} as any,
+    logger: console,
+    dryRun: false,
+  }, {
+    task_id: 'missing-task',
+    status: 'blocked',
+  })).rejects.toMatchObject({ code: 'task_not_found' });
+});
+
+test('update_task supports dry-run without a live task lookup', async () => {
+  const update = operations.find((operation) => operation.name === 'update_task');
+  if (!update) throw new Error('update_task operation is missing');
+
+  const result = await update.handler({
+    engine: {} as any,
+    config: {} as any,
+    logger: console,
+    dryRun: true,
+  }, {
+    task_id: 'task-1',
+    status: 'blocked',
+  });
+
+  expect(result).toEqual({
+    dry_run: true,
+    action: 'update_task',
+    task_id: 'task-1',
+    patch: {
+      status: 'blocked',
+    },
+  });
 });
 
 test('start_task seeds an empty working set', async () => {

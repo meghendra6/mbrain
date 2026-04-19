@@ -926,6 +926,46 @@ const start_task: Operation = {
   cliHints: { name: 'task-start' },
 };
 
+const update_task: Operation = {
+  name: 'update_task',
+  description: 'Update canonical task-thread state for an existing task.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+    title: { type: 'string', description: 'Updated task title' },
+    goal: { type: 'string', description: 'Updated task goal' },
+    status: {
+      type: 'string',
+      description: 'Updated task status',
+      enum: ['active', 'paused', 'blocked', 'completed', 'abandoned'],
+    },
+    current_summary: { type: 'string', description: 'Updated task summary' },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    const taskId = String(p.task_id);
+    const patch = Object.fromEntries(
+      Object.entries({
+        title: p.title,
+        goal: p.goal,
+        status: p.status,
+        current_summary: p.current_summary,
+      }).filter(([, value]) => value !== undefined),
+    );
+
+    if (Object.keys(patch).length === 0) {
+      throw new OperationError('invalid_params', 'update_task requires at least one patch field.');
+    }
+
+    if (ctx.dryRun) {
+      return { dry_run: true, action: 'update_task', task_id: taskId, patch };
+    }
+
+    await requireTaskThread(ctx.engine, taskId);
+    return ctx.engine.updateTaskThread(taskId, patch as any);
+  },
+  cliHints: { name: 'task-update', positional: ['task_id'] },
+};
+
 const resume_task: Operation = {
   name: 'resume_task',
   description: 'Resume an operational-memory task thread from canonical task state.',
@@ -1333,7 +1373,7 @@ export const operations: Operation[] = [
   // Resolution & chunks
   resolve_slugs, get_chunks,
   // Operational memory
-  list_tasks, start_task, resume_task, get_task_working_set, refresh_task_working_set, record_attempt, record_decision,
+  list_tasks, start_task, update_task, resume_task, get_task_working_set, refresh_task_working_set, record_attempt, record_decision,
   // Ingest log
   log_ingest, get_ingest_log,
   // Files
