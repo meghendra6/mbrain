@@ -20,7 +20,6 @@
     "build:schema": "bash scripts/build-schema.sh",
     "build:edge": "bun run build:schema && bun build src/edge-entry.ts --format=esm --outfile=supabase/functions/mbrain-mcp/mbrain-core.js --external=postgres --external=openai --external=fs --external=os --external=path --external=crypto --external=child_process --external=@aws-sdk/client-s3 --external=@anthropic-ai/sdk --external=gray-matter --minify",
     "bench:phase0": "bun run ./scripts/bench/phase0-baseline.ts",
-    "scripts/bench/phase0-baseline.ts": "bun run ./scripts/bench/phase0-baseline.ts",
     "test": "bun test",
     "test:e2e": "bun test test/e2e/",
     "prepublish:clawhub": "bun run build:all",

@@ -23,6 +23,21 @@ describe('phase0 baseline runner', () => {
     expect(payload).toHaveProperty('generated_at');
     expect(payload).toHaveProperty('engine');
     expect(Array.isArray(payload.workloads)).toBe(true);
-    expect(payload.workloads.some((w: any) => w.name === 'task_resume' && w.status === 'unsupported')).toBe(true);
+    expect(payload.workloads.some((w: any) => w.name === 'task_resume' && w.status === 'unsupported' && typeof w.reason === 'string' && w.reason.length > 0)).toBe(true);
+
+    const measured = payload.workloads.filter((w: any) => w.status === 'measured');
+    expect(measured.length).toBeGreaterThanOrEqual(4);
+    for (const workload of measured) {
+      if (workload.unit === 'ms') {
+        expect(typeof workload.p50_ms).toBe('number');
+        expect(typeof workload.p95_ms).toBe('number');
+        expect(workload.p50_ms).toBeGreaterThan(0);
+        expect(workload.p95_ms).toBeGreaterThanOrEqual(workload.p50_ms);
+      }
+
+      if (workload.name === 'fixture_import') {
+        expect(workload.pages_per_second).toBeGreaterThan(0);
+      }
+    }
   });
 });

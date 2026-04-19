@@ -4,11 +4,12 @@ import { readdirSync, readFileSync, statSync, mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { performance } from 'perf_hooks';
+import { parseMarkdown } from '../../src/core/markdown.ts';
 import { importFromContent } from '../../src/core/import-file.ts';
 import { createConnectedEngine } from '../../src/core/engine-factory.ts';
 import { createLocalConfigDefaults } from '../../src/core/config.ts';
 import { hybridSearch } from '../../src/core/search/hybrid.ts';
-import { resetEmbeddingProviderForTests, setEmbeddingProviderForTests } from '../../src/core/embedding.ts';
+import { embedChunks, resetEmbeddingProviderForTests, setEmbeddingProviderForTests } from '../../src/core/embedding.ts';
 import type { ResolvedEmbeddingProvider } from '../../src/core/embedding/provider.ts';
 import {
   PHASE0_FIXTURES_DIR,
@@ -45,7 +46,9 @@ try {
   await engine.initSchema();
 
   const workloads: Phase0WorkloadResult[] = [];
-  workloads.push(await runFixtureImportWorkload(engine, fixtureFiles));
+  const { summary: fixtureImportResult, importedSlugs } = await runFixtureImportWorkload(engine, fixtureFiles);
+  await backfillImportedEmbeddings(engine, importedSlugs);
+  workloads.push(fixtureImportResult);
   workloads.push(await runKeywordSearchWorkload(engine));
   workloads.push(await runHybridSearchWorkload(engine));
   workloads.push(await runStatsHealthWorkload(engine));
@@ -76,26 +79,44 @@ try {
   rmSync(tempDir, { recursive: true, force: true });
 }
 
-async function runFixtureImportWorkload(engine: NonNullable<typeof engine>, files: string[]): Promise<Phase0WorkloadResult> {
-  const importedCount = files.length;
-
+async function runFixtureImportWorkload(
+  engine: NonNullable<typeof engine>,
+  files: string[],
+): Promise<{ summary: Phase0WorkloadResult; importedSlugs: string[] }> {
+  const importedSlugs: string[] = [];
   const start = performance.now();
   for (const filePath of files) {
     const relativePath = filePath.slice(PHASE0_FIXTURES_DIR.length + 1);
     const content = readFileSync(filePath, 'utf-8');
-    const result = await importFromContent(engine, slugFromRelativePath(relativePath), content);
+    const parsed = parseMarkdown(content, relativePath);
+    const result = await importFromContent(engine, parsed.slug, content);
     if (result.status !== 'imported' && result.status !== 'skipped') {
       throw new Error(`Fixture import failed for ${relativePath}: ${result.status}`);
     }
+    if (result.status === 'imported') {
+      importedSlugs.push(result.slug);
+    }
   }
-
   const totalMs = performance.now() - start;
+  const throughput = importedSlugs.length > 0 ? importedSlugs.length / (totalMs / 1000) : 0;
   return {
-    name: 'fixture_import',
-    status: 'measured',
-    unit: 'pages_per_second',
-    pages_per_second: importedCount > 0 ? roundTo(importedCount / (totalMs / 1000), 2) : 0,
+    importedSlugs,
+    summary: {
+      name: 'fixture_import',
+      status: 'measured',
+      unit: 'pages_per_second',
+      pages_per_second: throughput > 0 ? roundTo(throughput, 2) : 0,
+    },
   };
+}
+
+async function backfillImportedEmbeddings(engine: NonNullable<typeof engine>, slugs: string[]): Promise<void> {
+  for (const slug of slugs) {
+    const chunks = await engine.getChunks(slug);
+    if (chunks.length === 0) continue;
+    const embedded = await embedChunks(chunks);
+    await engine.upsertChunks(slug, embedded.chunks);
+  }
 }
 
 async function runKeywordSearchWorkload(engine: NonNullable<typeof engine>): Promise<Phase0WorkloadResult> {
@@ -147,12 +168,14 @@ function measuredMsResult(
   name: 'keyword_search' | 'hybrid_search' | 'stats_health',
   durations: number[],
 ): Phase0WorkloadResult {
+  const p50 = percentile(durations, 0.5);
+  const p95 = percentile(durations, 0.95);
   return {
     name,
     status: 'measured',
     unit: 'ms',
-    p50_ms: Math.round(percentile(durations, 0.5)),
-    p95_ms: Math.round(percentile(durations, 0.95)),
+    p50_ms: formatMeasuredMs(p50),
+    p95_ms: formatMeasuredMs(p95),
   };
 }
 
@@ -161,6 +184,11 @@ function percentile(values: number[], fraction: number): number {
   const sorted = [...values].sort((a, b) => a - b);
   const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * fraction) - 1));
   return sorted[index] ?? 0;
+}
+
+function formatMeasuredMs(value: number): number {
+  if (value <= 0) return 0;
+  return Math.max(0.001, roundTo(value, 3));
 }
 
 function roundTo(value: number, digits: number): number {
@@ -182,14 +210,6 @@ function listMarkdownFiles(dir: string): string[] {
     }
   }
   return entries.sort();
-}
-
-function slugFromRelativePath(relativePath: string): string {
-  return relativePath
-    .replace(/\.md$/i, '')
-    .split('/')
-    .map(part => part.toLowerCase())
-    .join('/');
 }
 
 function createDeterministicEmbeddingProvider(): ResolvedEmbeddingProvider {
