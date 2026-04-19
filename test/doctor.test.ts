@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { buildDoctorReport } from '../src/core/services/doctor-service.ts';
+import { resolveOfflineProfile } from '../src/core/offline-profile.ts';
 
 
 const originalEnv = { ...process.env };
@@ -137,6 +138,49 @@ describe('doctor command', () => {
 
     expect(report.checks.some((check) => check.name === 'execution_envelope')).toBe(true);
     expect(report.checks.some((check) => check.name === 'contract_surface')).toBe(true);
+  });
+
+  test('buildDoctorReport keeps pglite doctor output aligned with the execution envelope', () => {
+    const config = {
+      engine: 'pglite',
+      database_path: '/tmp/brain.pglite',
+      offline: false,
+      embedding_provider: 'none',
+      query_rewrite_provider: 'none',
+    } as const;
+
+    const report = buildDoctorReport({
+      connectionOk: true,
+      stats: {
+        page_count: 4,
+        chunk_count: 0,
+        embedded_count: 0,
+        link_count: 0,
+        tag_count: 0,
+        timeline_entry_count: 0,
+        pages_by_type: {},
+      },
+      config,
+      profile: resolveOfflineProfile(config),
+      rawPostgresChecksSupported: false,
+      latestVersion: 7,
+      schemaVersion: '7',
+      health: {
+        page_count: 4,
+        embed_coverage: 1,
+        stale_pages: 0,
+        orphan_pages: 0,
+        dead_links: 0,
+        missing_embeddings: 0,
+      },
+    });
+
+    const offlineProfile = report.checks.find((check) => check.name === 'offline_profile');
+    const unsupportedCapabilities = report.checks.find((check) => check.name === 'unsupported_capabilities');
+
+    expect(offlineProfile?.message).toContain('local/offline');
+    expect(unsupportedCapabilities?.message).toContain('file/storage');
+    expect(unsupportedCapabilities?.message).toContain('check-update');
   });
 
   test('buildDoctorReport points embedding remediation to mbrain embed --stale', () => {

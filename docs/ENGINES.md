@@ -13,12 +13,12 @@ Different users have different constraints:
 | User | Needs | Best engine |
 |------|-------|-------------|
 | Power user (you) | World-class search, 7K+ pages, zero-ops | PostgresEngine + Supabase |
-| Open source hacker | Single file, no server, git-friendly | SQLiteEngine (future) |
+| Open source hacker | Single file, no server, git-friendly | SQLiteEngine (Phase 0 contract path) |
 | Team/enterprise | Multi-user, RLS, audit trail | PostgresEngine + self-hosted |
 | Researcher | Analytics, bulk exports, embeddings | DuckDBEngine (someday) |
 | Edge/mobile | Offline-first, sync later | SQLiteEngine + sync (someday) |
 
-The engine interface means we don't have to choose. Ship Postgres now, let the community build the rest.
+The engine interface means we don't have to choose. Ship Postgres now while the Phase 0 contract keeps SQLite and PGLite honest, local-path options.
 
 ## The interface
 
@@ -175,7 +175,7 @@ Every method in `BrainEngine`. The full interface. No optional methods, no featu
 
 ## Capability matrix
 
-| Capability | PostgresEngine | SQLiteEngine (future) | Notes |
+| Capability | PostgresEngine | SQLiteEngine (Phase 0 contract path) | Notes |
 |-----------|---------------|----------------------|-------|
 | CRUD | Full | Full | |
 | Keyword search | tsvector + ts_rank | FTS5 + bm25 | Different ranking algorithms |

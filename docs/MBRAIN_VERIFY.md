@@ -17,12 +17,10 @@ worse than no sync at all, because you think it's working.
 mbrain doctor --json
 ```
 
-**Expected:** All checks return `"ok"`:
-- `connection`: connected, N pages
-- `pgvector`: extension installed
-- `rls`: enabled on all tables
-- `schema_version`: current
-- `embeddings`: coverage percentage
+**Expected:** The output should match the active profile:
+- On Postgres profiles, `connection`, `pgvector`, `rls`, `schema_version`, and `embeddings` should be `ok`.
+- On local/offline profiles, `execution_envelope` and `contract_surface` should appear, `pgvector` and `rls` should short-circuit with `warn`, and `check-update` should be reported honestly as unsupported.
+- `unsupported_capabilities` should explain any local-path limits such as cloud file storage.
 
 **If it fails:** The doctor output includes specific fix instructions for each
 check. See `skills/setup/SKILL.md` Error Recovery table.
@@ -40,6 +38,7 @@ Expected:
 - the active profile is reported honestly
 - unsupported contract surfaces include an explicit reason
 - sqlite/local mode does not pretend to support cloud file storage
+- pglite local-path mode should follow the same honest contract reporting
 
 ---
 
@@ -65,7 +64,9 @@ mbrain check-update --json
 ```
 
 **Expected:** Returns JSON with `current_version`, `latest_version`,
-`update_available` (boolean). The cron `mbrain-update-check` is registered.
+`update_available` (boolean). On local/offline profiles, the command should
+short-circuit with `error: "offline_mode"` and a human-readable `reason`.
+The cron `mbrain-update-check` is registered.
 
 **If it fails:** Run step 7 from the install paste. See MBRAIN_SKILLPACK.md
 Section 17.

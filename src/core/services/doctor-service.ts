@@ -160,15 +160,15 @@ export function buildDoctorReport(input: DoctorInputs): DoctorReport {
       status: input.profile.rewrite.available ? 'ok' : 'warn',
       message: `${input.profile.rewrite.mode}${input.profile.rewrite.reason ? ` — ${input.profile.rewrite.reason}` : ''}`,
     });
+    const envelope = buildExecutionEnvelope(input.config);
+    const offlineProfileMessage = envelope.mode === 'local_offline'
+      ? 'local/offline profile active (enabled)'
+      : 'cloud-connected profile active';
     checks.push({
       name: 'offline_profile',
-      status: input.profile.offline ? 'ok' : 'warn',
-      message: input.profile.status === 'local_offline'
-        ? 'local/offline profile active (enabled)'
-        : 'cloud-connected profile active',
+      status: envelope.mode === 'local_offline' ? 'ok' : 'warn',
+      message: offlineProfileMessage,
     });
-
-    const envelope = buildExecutionEnvelope(input.config);
     checks.push({
       name: 'execution_envelope',
       status: 'ok',
@@ -187,9 +187,9 @@ export function buildDoctorReport(input: DoctorInputs): DoctorReport {
         : 'All Phase 0 contract surfaces supported',
     });
 
-    const unsupported = Object.entries(input.profile.capabilities)
-      .filter(([, capability]) => !capability.supported)
-      .map(([name, capability]) => `${name === 'files' ? 'file/storage' : 'check-update'}: ${capability.reason}`);
+    const unsupported = Object.entries(envelope.publicContract)
+      .filter(([, surface]) => surface.status === 'unsupported')
+      .map(([name, surface]) => `${name === 'files' ? 'file/storage' : 'check-update'}: ${surface.reason}`);
 
     checks.push({
       name: 'unsupported_capabilities',

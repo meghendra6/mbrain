@@ -168,6 +168,7 @@ describe('local/offline profile semantics', () => {
     expect(profile.embedding.mode).toBe('local');
     expect(profile.rewrite.mode).toBe('heuristic');
     expect(profile.capabilities.check_update.supported).toBe(false);
+    expect(profile.capabilities.check_update.reason).toMatch(/local\/offline/i);
     expect(profile.capabilities.files.supported).toBe(false);
     expect(profile.capabilities.files.reason).toMatch(/sqlite\/local mode/i);
   });
