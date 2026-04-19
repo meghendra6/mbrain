@@ -8,6 +8,8 @@ test('task operations are registered with CLI hints', () => {
   const resume = operations.find((operation) => operation.name === 'resume_task');
   const show = operations.find((operation) => operation.name === 'get_task_working_set');
   const refresh = operations.find((operation) => operation.name === 'refresh_task_working_set');
+  const trace = operations.find((operation) => operation.name === 'record_retrieval_trace');
+  const traces = operations.find((operation) => operation.name === 'list_task_traces');
   const attempt = operations.find((operation) => operation.name === 'record_attempt');
   const decision = operations.find((operation) => operation.name === 'record_decision');
 
@@ -17,6 +19,8 @@ test('task operations are registered with CLI hints', () => {
   expect(resume?.cliHints?.name).toBe('task-resume');
   expect(show?.cliHints?.name).toBe('task-show');
   expect(refresh?.cliHints?.name).toBe('task-working-set');
+  expect(trace?.cliHints?.name).toBe('task-trace');
+  expect(traces?.cliHints?.name).toBe('task-traces');
   expect(attempt?.cliHints?.name).toBe('task-attempt');
   expect(decision?.cliHints?.name).toBe('task-decision');
 });
@@ -217,6 +221,106 @@ test('update_task supports dry-run without a live task lookup', async () => {
       status: 'blocked',
     },
   });
+});
+
+test('record_retrieval_trace derives scope from the task thread and persists the trace', async () => {
+  const trace = operations.find((operation) => operation.name === 'record_retrieval_trace');
+  if (!trace) throw new Error('record_retrieval_trace operation is missing');
+
+  const calls: Array<Record<string, unknown>> = [];
+  const result = await trace.handler({
+    engine: {
+      getTaskThread: async () => ({
+        id: 'task-1',
+        scope: 'work',
+        title: 'Phase 1 MVP',
+        goal: 'Ship operational memory',
+        status: 'blocked',
+        repo_path: '/repo',
+        branch_name: 'docs/mbrain-redesign-doc-set',
+        current_summary: 'Need trace surface',
+        created_at: new Date('2026-04-19T00:00:00.000Z'),
+        updated_at: new Date('2026-04-19T00:05:00.000Z'),
+      }),
+      putRetrievalTrace: async (payload: Record<string, unknown>) => {
+        calls.push(payload);
+        return {
+          ...payload,
+          created_at: new Date('2026-04-19T00:06:00.000Z'),
+        };
+      },
+    } as any,
+    config: {} as any,
+    logger: console,
+    dryRun: false,
+  }, {
+    task_id: 'task-1',
+    outcome: 'resume path assembled',
+    route: ['task_thread', 'working_set', 'attempts'],
+    source_refs: ['task-thread:task-1'],
+    verification: ['current branch verified'],
+  });
+
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({
+    task_id: 'task-1',
+    scope: 'work',
+    outcome: 'resume path assembled',
+    route: ['task_thread', 'working_set', 'attempts'],
+    source_refs: ['task-thread:task-1'],
+    verification: ['current branch verified'],
+  });
+  expect((result as any).created_at).toBeInstanceOf(Date);
+});
+
+test('list_task_traces forwards task and limit filters and formats rows', async () => {
+  const traces = operations.find((operation) => operation.name === 'list_task_traces');
+  if (!traces) throw new Error('list_task_traces operation is missing');
+
+  const calls: Array<Record<string, unknown>> = [];
+  const result = await traces.handler({
+    engine: {
+      getTaskThread: async () => ({
+        id: 'task-1',
+        scope: 'work',
+        title: 'Phase 1 MVP',
+        goal: 'Ship operational memory',
+        status: 'blocked',
+        repo_path: '/repo',
+        branch_name: 'docs/mbrain-redesign-doc-set',
+        current_summary: 'Need trace read surface',
+        created_at: new Date('2026-04-19T00:00:00.000Z'),
+        updated_at: new Date('2026-04-19T00:05:00.000Z'),
+      }),
+      listRetrievalTraces: async (taskId: string, filters?: Record<string, unknown>) => {
+        calls.push({ taskId, ...filters });
+        return [
+          {
+            id: 'trace-1',
+            task_id: 'task-1',
+            scope: 'work',
+            route: ['task_thread', 'working_set', 'attempts'],
+            source_refs: ['task-thread:task-1'],
+            verification: ['current branch verified'],
+            outcome: 'resume path assembled',
+            created_at: new Date('2026-04-19T00:06:00.000Z'),
+          },
+        ];
+      },
+    } as any,
+    config: {} as any,
+    logger: console,
+    dryRun: false,
+  }, {
+    task_id: 'task-1',
+    limit: 5,
+  });
+
+  expect(calls).toEqual([{ taskId: 'task-1', limit: 5 }]);
+  const output = formatResult('list_task_traces', result, { limit: 5 });
+  expect(output).toContain('trace-1');
+  expect(output).toContain('resume path assembled');
+  expect(output).toContain('task_thread -> working_set -> attempts');
 });
 
 test('start_task seeds an empty working set', async () => {

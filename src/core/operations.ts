@@ -270,6 +270,18 @@ export function formatResult(
       }
       return rows;
     }
+    case 'list_task_traces': {
+      const traces = result as any[];
+      if (traces.length === 0) return 'No traces.\n';
+      const rows = traces.map(trace =>
+        `${trace.id}\t${trace.created_at?.toString().slice(0, 19) || '?'}\t${(trace.route || []).join(' -> ')}\t${trace.outcome}`,
+      ).join('\n') + '\n';
+      const requestedLimit = (params.limit as number) ?? 10;
+      if (traces.length >= requestedLimit) {
+        return rows + `\n(result may be truncated at ${requestedLimit}; pass --limit N or -n N to change)\n`;
+      }
+      return rows;
+    }
     case 'search':
     case 'query': {
       const results = result as any[];
@@ -995,6 +1007,66 @@ const get_task_working_set: Operation = {
   cliHints: { name: 'task-show', positional: ['task_id'] },
 };
 
+const record_retrieval_trace: Operation = {
+  name: 'record_retrieval_trace',
+  description: 'Record a retrieval trace for a task-scoped operational-memory flow.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+    outcome: { type: 'string', required: true, description: 'Trace outcome summary' },
+    route: { type: 'array', items: { type: 'string' }, description: 'Ordered retrieval route' },
+    source_refs: { type: 'array', items: { type: 'string' }, description: 'Source references consulted' },
+    verification: { type: 'array', items: { type: 'string' }, description: 'Verification steps performed' },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    const taskId = String(p.task_id);
+    const route = parseStringListParam(p.route, 'route') ?? [];
+    const sourceRefs = parseStringListParam(p.source_refs, 'source_refs') ?? [];
+    const verification = parseStringListParam(p.verification, 'verification') ?? [];
+
+    if (ctx.dryRun) {
+      return {
+        dry_run: true,
+        action: 'record_retrieval_trace',
+        task_id: taskId,
+        outcome: String(p.outcome),
+        route,
+        source_refs: sourceRefs,
+        verification,
+      };
+    }
+
+    const thread = await requireTaskThread(ctx.engine, taskId);
+    return ctx.engine.putRetrievalTrace({
+      id: crypto.randomUUID(),
+      task_id: taskId,
+      scope: thread.scope,
+      route,
+      source_refs: sourceRefs,
+      verification,
+      outcome: String(p.outcome),
+    });
+  },
+  cliHints: { name: 'task-trace', positional: ['task_id'] },
+};
+
+const list_task_traces: Operation = {
+  name: 'list_task_traces',
+  description: 'List retrieval traces for one task thread.',
+  params: {
+    task_id: { type: 'string', required: true, description: 'Task thread id' },
+    limit: { type: 'number', description: 'Max results (default 10)' },
+  },
+  handler: async (ctx, p) => {
+    const taskId = String(p.task_id);
+    await requireTaskThread(ctx.engine, taskId);
+    return ctx.engine.listRetrievalTraces(taskId, {
+      limit: (p.limit as number) ?? 10,
+    });
+  },
+  cliHints: { name: 'task-traces', positional: ['task_id'], aliases: { n: 'limit' } },
+};
+
 const refresh_task_working_set: Operation = {
   name: 'refresh_task_working_set',
   description: 'Refresh a task working set snapshot and advance its verification timestamp.',
@@ -1373,7 +1445,7 @@ export const operations: Operation[] = [
   // Resolution & chunks
   resolve_slugs, get_chunks,
   // Operational memory
-  list_tasks, start_task, update_task, resume_task, get_task_working_set, refresh_task_working_set, record_attempt, record_decision,
+  list_tasks, start_task, update_task, resume_task, get_task_working_set, record_retrieval_trace, list_task_traces, refresh_task_working_set, record_attempt, record_decision,
   // Ingest log
   log_ingest, get_ingest_log,
   // Files

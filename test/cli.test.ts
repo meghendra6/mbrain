@@ -278,6 +278,32 @@ describe('CLI dispatch integration', () => {
     expect(exitCode).toBe(0);
   });
 
+  test('task-trace --help prints usage without DB connection', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'task-trace', '--help'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(stdout).toContain('Usage: mbrain task-trace <task_id>');
+    expect(exitCode).toBe(0);
+  });
+
+  test('task-traces --help prints usage without DB connection', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'task-traces', '--help'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(stdout).toContain('Usage: mbrain task-traces <task_id>');
+    expect(exitCode).toBe(0);
+  });
+
   test('task-show --help prints usage without DB connection', async () => {
     const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'task-show', '--help'], {
       cwd: repoRoot,
