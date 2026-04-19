@@ -151,6 +151,67 @@ CREATE TABLE IF NOT EXISTS ingest_log (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
+CREATE TABLE IF NOT EXISTS task_threads (
+  id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  title TEXT NOT NULL,
+  goal TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  repo_path TEXT,
+  branch_name TEXT,
+  current_summary TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_task_threads_status_updated ON task_threads(status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_threads_scope_updated ON task_threads(scope, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS task_working_sets (
+  task_id TEXT PRIMARY KEY REFERENCES task_threads(id) ON DELETE CASCADE,
+  active_paths TEXT NOT NULL DEFAULT '[]',
+  active_symbols TEXT NOT NULL DEFAULT '[]',
+  blockers TEXT NOT NULL DEFAULT '[]',
+  open_questions TEXT NOT NULL DEFAULT '[]',
+  next_steps TEXT NOT NULL DEFAULT '[]',
+  verification_notes TEXT NOT NULL DEFAULT '[]',
+  last_verified_at TEXT,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE IF NOT EXISTS task_attempts (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES task_threads(id) ON DELETE CASCADE,
+  summary TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  applicability_context TEXT NOT NULL DEFAULT '{}',
+  evidence TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_task_attempts_task_created ON task_attempts(task_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS task_decisions (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES task_threads(id) ON DELETE CASCADE,
+  summary TEXT NOT NULL,
+  rationale TEXT NOT NULL DEFAULT '',
+  consequences TEXT NOT NULL DEFAULT '[]',
+  validity_context TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_task_decisions_task_created ON task_decisions(task_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS retrieval_traces (
+  id TEXT PRIMARY KEY,
+  task_id TEXT REFERENCES task_threads(id) ON DELETE SET NULL,
+  scope TEXT NOT NULL,
+  route TEXT NOT NULL DEFAULT '[]',
+  source_refs TEXT NOT NULL DEFAULT '[]',
+  verification TEXT NOT NULL DEFAULT '[]',
+  outcome TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_retrieval_traces_task_created ON retrieval_traces(task_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS access_tokens (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -1003,6 +1064,75 @@ export class SQLiteEngine implements BrainEngine {
               END;
             `);
           }
+          break;
+        case 8:
+          this.database.exec(`
+            CREATE TABLE IF NOT EXISTS task_threads (
+              id TEXT PRIMARY KEY,
+              scope TEXT NOT NULL,
+              title TEXT NOT NULL,
+              goal TEXT NOT NULL DEFAULT '',
+              status TEXT NOT NULL,
+              repo_path TEXT,
+              branch_name TEXT,
+              current_summary TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+              updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_task_threads_status_updated
+              ON task_threads(status, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_task_threads_scope_updated
+              ON task_threads(scope, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS task_working_sets (
+              task_id TEXT PRIMARY KEY REFERENCES task_threads(id) ON DELETE CASCADE,
+              active_paths TEXT NOT NULL DEFAULT '[]',
+              active_symbols TEXT NOT NULL DEFAULT '[]',
+              blockers TEXT NOT NULL DEFAULT '[]',
+              open_questions TEXT NOT NULL DEFAULT '[]',
+              next_steps TEXT NOT NULL DEFAULT '[]',
+              verification_notes TEXT NOT NULL DEFAULT '[]',
+              last_verified_at TEXT,
+              updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS task_attempts (
+              id TEXT PRIMARY KEY,
+              task_id TEXT NOT NULL REFERENCES task_threads(id) ON DELETE CASCADE,
+              summary TEXT NOT NULL,
+              outcome TEXT NOT NULL,
+              applicability_context TEXT NOT NULL DEFAULT '{}',
+              evidence TEXT NOT NULL DEFAULT '[]',
+              created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_task_attempts_task_created
+              ON task_attempts(task_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS task_decisions (
+              id TEXT PRIMARY KEY,
+              task_id TEXT NOT NULL REFERENCES task_threads(id) ON DELETE CASCADE,
+              summary TEXT NOT NULL,
+              rationale TEXT NOT NULL DEFAULT '',
+              consequences TEXT NOT NULL DEFAULT '[]',
+              validity_context TEXT NOT NULL DEFAULT '{}',
+              created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_task_decisions_task_created
+              ON task_decisions(task_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS retrieval_traces (
+              id TEXT PRIMARY KEY,
+              task_id TEXT REFERENCES task_threads(id) ON DELETE SET NULL,
+              scope TEXT NOT NULL,
+              route TEXT NOT NULL DEFAULT '[]',
+              source_refs TEXT NOT NULL DEFAULT '[]',
+              verification TEXT NOT NULL DEFAULT '[]',
+              outcome TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_retrieval_traces_task_created
+              ON retrieval_traces(task_id, created_at DESC);
+          `);
           break;
       }
 

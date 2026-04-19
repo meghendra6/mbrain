@@ -131,6 +131,72 @@ const MIGRATIONS: Migration[] = [
       await backfillMissingPageEmbeddings(engine);
     },
   },
+  {
+    version: 8,
+    name: 'task_memory_foundations',
+    sql: `
+      CREATE TABLE IF NOT EXISTS task_threads (
+        id TEXT PRIMARY KEY,
+        scope TEXT NOT NULL,
+        title TEXT NOT NULL,
+        goal TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        repo_path TEXT,
+        branch_name TEXT,
+        current_summary TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_task_threads_status_updated ON task_threads(status, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_task_threads_scope_updated ON task_threads(scope, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS task_working_sets (
+        task_id TEXT PRIMARY KEY REFERENCES task_threads(id) ON DELETE CASCADE,
+        active_paths JSONB NOT NULL DEFAULT '[]',
+        active_symbols JSONB NOT NULL DEFAULT '[]',
+        blockers JSONB NOT NULL DEFAULT '[]',
+        open_questions JSONB NOT NULL DEFAULT '[]',
+        next_steps JSONB NOT NULL DEFAULT '[]',
+        verification_notes JSONB NOT NULL DEFAULT '[]',
+        last_verified_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS task_attempts (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES task_threads(id) ON DELETE CASCADE,
+        summary TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        applicability_context JSONB NOT NULL DEFAULT '{}',
+        evidence JSONB NOT NULL DEFAULT '[]',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_task_attempts_task_created ON task_attempts(task_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS task_decisions (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES task_threads(id) ON DELETE CASCADE,
+        summary TEXT NOT NULL,
+        rationale TEXT NOT NULL DEFAULT '',
+        consequences JSONB NOT NULL DEFAULT '[]',
+        validity_context JSONB NOT NULL DEFAULT '{}',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_task_decisions_task_created ON task_decisions(task_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS retrieval_traces (
+        id TEXT PRIMARY KEY,
+        task_id TEXT REFERENCES task_threads(id) ON DELETE SET NULL,
+        scope TEXT NOT NULL,
+        route JSONB NOT NULL DEFAULT '[]',
+        source_refs JSONB NOT NULL DEFAULT '[]',
+        verification JSONB NOT NULL DEFAULT '[]',
+        outcome TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_retrieval_traces_task_created ON retrieval_traces(task_id, created_at DESC);
+    `,
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS.length > 0
