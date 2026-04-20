@@ -12,7 +12,10 @@ import {
   buildStructuralContextMapEntry,
   CONTEXT_MAP_BUILD_MODE,
   CONTEXT_MAP_EXTRACTOR_VERSION,
+  CONTEXT_MAP_STALE_REASON_SOURCE_SET_CHANGED,
   WORKSPACE_CONTEXT_MAP_KIND,
+  getStructuralContextMapEntry,
+  listStructuralContextMapEntries,
   workspaceContextMapId,
 } from '../../src/core/services/context-map-service.ts';
 import { DEFAULT_NOTE_MANIFEST_SCOPE_ID } from '../../src/core/services/note-manifest-service.ts';
@@ -201,8 +204,8 @@ async function runCorrectnessWorkload(
   engine: BrainEngine,
   mapId: string,
 ): Promise<Extract<Phase2ContextMapWorkloadResult, { name: 'context_map_correctness' }>> {
-  const entry = await engine.getContextMapEntry(mapId);
-  const list = await engine.listContextMapEntries({
+  const entry = await getStructuralContextMapEntry(engine, mapId);
+  const list = await listStructuralContextMapEntries(engine, {
     scope_id: DEFAULT_NOTE_MANIFEST_SCOPE_ID,
     kind: WORKSPACE_CONTEXT_MAP_KIND,
     limit: 10,
@@ -211,6 +214,26 @@ async function runCorrectnessWorkload(
   const graph = entry?.graph_json as { nodes?: Array<Record<string, unknown>>; edges?: Array<Record<string, unknown>> } | undefined;
   const nodes = graph?.nodes ?? [];
   const edges = graph?.edges ?? [];
+  await importFromContent(engine, 'concepts/note-manifest', [
+    '---',
+    'type: concept',
+    'title: Note Manifest',
+    '---',
+    '# Purpose',
+    'Indexes [[systems/mbrain]] and validates stale refresh.',
+    '[Source: User, direct message, 2026-04-20 11:10 AM KST]',
+  ].join('\n'), { path: 'concepts/note-manifest.md' });
+
+  const staleEntry = await getStructuralContextMapEntry(engine, mapId);
+  const staleList = await listStructuralContextMapEntries(engine, {
+    scope_id: DEFAULT_NOTE_MANIFEST_SCOPE_ID,
+    kind: WORKSPACE_CONTEXT_MAP_KIND,
+    limit: 10,
+  });
+
+  const rebuilt = await buildStructuralContextMapEntry(engine);
+  const refreshedEntry = await getStructuralContextMapEntry(engine, mapId);
+
   const matches =
     entry?.id === mapId &&
     entry.scope_id === DEFAULT_NOTE_MANIFEST_SCOPE_ID &&
@@ -223,9 +246,21 @@ async function runCorrectnessWorkload(
     nodes.length === entry.node_count &&
     edges.length === entry.edge_count &&
     list.some((candidate) => candidate.id === mapId) &&
+    list.every((candidate) => candidate.status === 'ready') &&
     nodes.some((node) => node.node_id === 'page:systems/mbrain') &&
     nodes.some((node) => node.node_id === 'section:systems/mbrain#overview') &&
-    edges.some((edge) => edge.edge_kind === 'section_links_page');
+    edges.some((edge) => edge.edge_kind === 'section_links_page') &&
+    staleEntry?.status === 'stale' &&
+    staleEntry?.stale_reason === CONTEXT_MAP_STALE_REASON_SOURCE_SET_CHANGED &&
+    staleList.some((candidate) =>
+      candidate.id === mapId
+      && candidate.status === 'stale'
+      && candidate.stale_reason === CONTEXT_MAP_STALE_REASON_SOURCE_SET_CHANGED,
+    ) &&
+    rebuilt.status === 'ready' &&
+    rebuilt.stale_reason === null &&
+    refreshedEntry?.status === 'ready' &&
+    refreshedEntry?.stale_reason === null;
 
   return {
     name: 'context_map_correctness',

@@ -11,7 +11,11 @@ import { importFromContent } from './import-file.ts';
 import { serializeMarkdown } from './markdown.ts';
 import { hybridSearch } from './search/hybrid.ts';
 import { expandQuery } from './search/expansion.ts';
-import { buildStructuralContextMapEntry } from './services/context-map-service.ts';
+import {
+  buildStructuralContextMapEntry,
+  getStructuralContextMapEntry,
+  listStructuralContextMapEntries,
+} from './services/context-map-service.ts';
 import { DEFAULT_NOTE_MANIFEST_SCOPE_ID, rebuildNoteManifestEntries } from './services/note-manifest-service.ts';
 import { findStructuralPath, getStructuralNeighbors } from './services/note-structural-graph-service.ts';
 import { rebuildNoteSectionEntries } from './services/note-section-service.ts';
@@ -435,7 +439,7 @@ export function formatResult(
       const entries = result as any[];
       if (entries.length === 0) return 'No context map entries.\n';
       const rows = entries.map((entry) =>
-        `${entry.id}\t${entry.kind}\t${entry.generated_at?.toString().slice(0, 19) || '?'}\t${entry.node_count}/${entry.edge_count}`,
+        `${entry.id}\t${entry.kind}\t${entry.status}\t${entry.generated_at?.toString().slice(0, 19) || '?'}\t${entry.node_count}/${entry.edge_count}`,
       ).join('\n') + '\n';
       const requestedLimit = (params.limit as number) ?? 20;
       if (entries.length >= requestedLimit) {
@@ -1413,7 +1417,7 @@ const get_context_map_entry: Operation = {
     id: { type: 'string', required: true, description: 'Context map id' },
   },
   handler: async (ctx, p) => {
-    const entry = await ctx.engine.getContextMapEntry(String(p.id));
+    const entry = await getStructuralContextMapEntry(ctx.engine, String(p.id));
     if (!entry) {
       throw new OperationError(
         'page_not_found',
@@ -1435,7 +1439,7 @@ const list_context_map_entries: Operation = {
     limit: { type: 'number', description: 'Max results (default 20)' },
   },
   handler: async (ctx, p) => {
-    return ctx.engine.listContextMapEntries({
+    return listStructuralContextMapEntries(ctx.engine, {
       scope_id: String(p.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID),
       kind: p.kind as string | undefined,
       limit: (p.limit as number) ?? 20,

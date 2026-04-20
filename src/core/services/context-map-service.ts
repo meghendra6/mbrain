@@ -1,6 +1,11 @@
 import { createHash } from 'crypto';
 import type { BrainEngine } from '../engine.ts';
-import type { ContextMapEntry, NoteManifestEntry, NoteSectionEntry } from '../types.ts';
+import type {
+  ContextMapEntry,
+  ContextMapFilters,
+  NoteManifestEntry,
+  NoteSectionEntry,
+} from '../types.ts';
 import { buildStructuralGraphSnapshot } from './note-structural-graph-service.ts';
 import { DEFAULT_NOTE_MANIFEST_SCOPE_ID } from './note-manifest-service.ts';
 
@@ -8,6 +13,7 @@ export const WORKSPACE_CONTEXT_MAP_KIND = 'workspace';
 export const CONTEXT_MAP_BUILD_MODE = 'structural';
 export const CONTEXT_MAP_EXTRACTOR_VERSION = 'phase2-context-map-v1';
 export const WORKSPACE_CONTEXT_MAP_TITLE = 'Workspace Structural Map';
+export const CONTEXT_MAP_STALE_REASON_SOURCE_SET_CHANGED = 'source_set_changed';
 
 export function workspaceContextMapId(scopeId: string): string {
   return `context-map:workspace:${scopeId}`;
@@ -30,7 +36,7 @@ export async function buildStructuralContextMapEntry(
     title: WORKSPACE_CONTEXT_MAP_TITLE,
     build_mode: CONTEXT_MAP_BUILD_MODE,
     status: 'ready',
-    source_set_hash: hashSourceSet(manifests, sections),
+    source_set_hash: hashContextMapSourceSet(manifests, sections),
     extractor_version: CONTEXT_MAP_EXTRACTOR_VERSION,
     node_count: snapshot.nodes.length,
     edge_count: snapshot.edges.length,
@@ -44,7 +50,71 @@ export async function buildStructuralContextMapEntry(
   });
 }
 
-function hashSourceSet(
+export async function getStructuralContextMapEntry(
+  engine: BrainEngine,
+  id: string,
+): Promise<ContextMapEntry | null> {
+  const entry = await engine.getContextMapEntry(id);
+  if (!entry) return null;
+  return annotateContextMapFreshness(engine, entry);
+}
+
+export async function listStructuralContextMapEntries(
+  engine: BrainEngine,
+  filters?: ContextMapFilters,
+): Promise<ContextMapEntry[]> {
+  const entries = await engine.listContextMapEntries(filters);
+  const hashByScope = new Map<string, string>();
+
+  return Promise.all(entries.map(async (entry) => {
+    let currentHash = hashByScope.get(entry.scope_id);
+    if (!currentHash) {
+      currentHash = await computeContextMapSourceSetHash(engine, entry.scope_id);
+      hashByScope.set(entry.scope_id, currentHash);
+    }
+    return applyFreshness(entry, currentHash);
+  }));
+}
+
+export async function computeContextMapSourceSetHash(
+  engine: BrainEngine,
+  scopeId = DEFAULT_NOTE_MANIFEST_SCOPE_ID,
+): Promise<string> {
+  const [manifests, sections] = await Promise.all([
+    engine.listNoteManifestEntries({ scope_id: scopeId, limit: 10_000 }),
+    engine.listNoteSectionEntries({ scope_id: scopeId, limit: 10_000 }),
+  ]);
+  return hashContextMapSourceSet(manifests, sections);
+}
+
+async function annotateContextMapFreshness(
+  engine: BrainEngine,
+  entry: ContextMapEntry,
+): Promise<ContextMapEntry> {
+  const currentSourceSetHash = await computeContextMapSourceSetHash(engine, entry.scope_id);
+  return applyFreshness(entry, currentSourceSetHash);
+}
+
+function applyFreshness(
+  entry: ContextMapEntry,
+  currentSourceSetHash: string,
+): ContextMapEntry {
+  if (entry.source_set_hash === currentSourceSetHash) {
+    return {
+      ...entry,
+      status: 'ready',
+      stale_reason: null,
+    };
+  }
+
+  return {
+    ...entry,
+    status: 'stale',
+    stale_reason: CONTEXT_MAP_STALE_REASON_SOURCE_SET_CHANGED,
+  };
+}
+
+function hashContextMapSourceSet(
   manifests: NoteManifestEntry[],
   sections: NoteSectionEntry[],
 ): string {

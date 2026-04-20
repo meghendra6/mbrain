@@ -215,6 +215,8 @@ Expected:
 - context-map schema and persisted builder coverage pass on the local sqlite/pglite path
 - engine CRUD persists context-map rows across reopen
 - `map-build`, `map-get`, and `map-list` stay available through the shared operation surface
+- `map-get` and `map-list` mark persisted maps as `stale` after manifest/section source hashes change
+- explicit `map-build` returns stale maps to `ready`
 - persisted workspace maps are rebuildable from existing manifest and section rows
 
 ## Phase 2 context-map benchmark
@@ -229,7 +231,7 @@ Expected:
 
 - the report includes `context_map_build`, `context_map_get`, `context_map_list`, and `context_map_correctness`
 - latency workloads report positive `p50_ms` and `p95_ms`
-- `context_map_correctness.success_rate` is `100`
+- `context_map_correctness.success_rate` is `100`, including stale-read disclosure before explicit rebuild
 - `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
 - `acceptance.phase2_status` matches the local guardrail outcome without requiring an external baseline artifact
 
