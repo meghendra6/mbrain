@@ -4,6 +4,9 @@ import { runMigrations } from './migrate.ts';
 import { SCHEMA_SQL } from './schema-embedded.ts';
 import type {
   Page, PageInput, PageFilters, PageType,
+  NoteManifestEntry,
+  NoteManifestEntryInput,
+  NoteManifestFilters,
   Chunk, ChunkInput,
   SearchResult, SearchOpts,
   Link, GraphNode,
@@ -36,6 +39,7 @@ import {
   importContentHash,
   rowToPage,
   rowToChunk,
+  rowToNoteManifestEntry,
   rowToRetrievalTrace,
   rowToSearchResult,
   rowToTaskAttempt,
@@ -1025,6 +1029,104 @@ export class PostgresEngine implements BrainEngine {
       LIMIT ${opts?.limit ?? 20}
     `;
     return (rows as Record<string, unknown>[]).map(rowToRetrievalTrace);
+  }
+
+  async upsertNoteManifestEntry(input: NoteManifestEntryInput): Promise<NoteManifestEntry> {
+    const sql = this.sql;
+    const rows = await sql`
+      INSERT INTO note_manifest_entries (
+        scope_id, page_id, slug, path, page_type, title, frontmatter, aliases, tags,
+        outgoing_wikilinks, outgoing_urls, source_refs, heading_index, content_hash,
+        extractor_version, last_indexed_at
+      ) VALUES (
+        ${input.scope_id},
+        ${input.page_id},
+        ${validateSlug(input.slug)},
+        ${input.path},
+        ${input.page_type},
+        ${input.title},
+        ${JSON.stringify(input.frontmatter ?? {})}::jsonb,
+        ${JSON.stringify(input.aliases ?? [])}::jsonb,
+        ${JSON.stringify(input.tags ?? [])}::jsonb,
+        ${JSON.stringify(input.outgoing_wikilinks ?? [])}::jsonb,
+        ${JSON.stringify(input.outgoing_urls ?? [])}::jsonb,
+        ${JSON.stringify(input.source_refs ?? [])}::jsonb,
+        ${JSON.stringify(input.heading_index ?? [])}::jsonb,
+        ${input.content_hash},
+        ${input.extractor_version},
+        now()
+      )
+      ON CONFLICT (scope_id, page_id) DO UPDATE SET
+        slug = EXCLUDED.slug,
+        path = EXCLUDED.path,
+        page_type = EXCLUDED.page_type,
+        title = EXCLUDED.title,
+        frontmatter = EXCLUDED.frontmatter,
+        aliases = EXCLUDED.aliases,
+        tags = EXCLUDED.tags,
+        outgoing_wikilinks = EXCLUDED.outgoing_wikilinks,
+        outgoing_urls = EXCLUDED.outgoing_urls,
+        source_refs = EXCLUDED.source_refs,
+        heading_index = EXCLUDED.heading_index,
+        content_hash = EXCLUDED.content_hash,
+        extractor_version = EXCLUDED.extractor_version,
+        last_indexed_at = EXCLUDED.last_indexed_at
+      RETURNING scope_id, page_id, slug, path, page_type, title, frontmatter, aliases, tags,
+                outgoing_wikilinks, outgoing_urls, source_refs, heading_index, content_hash,
+                extractor_version, last_indexed_at
+    `;
+    return rowToNoteManifestEntry(rows[0] as Record<string, unknown>);
+  }
+
+  async getNoteManifestEntry(scopeId: string, slug: string): Promise<NoteManifestEntry | null> {
+    const sql = this.sql;
+    const rows = await sql`
+      SELECT scope_id, page_id, slug, path, page_type, title, frontmatter, aliases, tags,
+             outgoing_wikilinks, outgoing_urls, source_refs, heading_index, content_hash,
+             extractor_version, last_indexed_at
+      FROM note_manifest_entries
+      WHERE scope_id = ${scopeId} AND slug = ${validateSlug(slug)}
+    `;
+    if (rows.length === 0) return null;
+    return rowToNoteManifestEntry(rows[0] as Record<string, unknown>);
+  }
+
+  async listNoteManifestEntries(filters?: NoteManifestFilters): Promise<NoteManifestEntry[]> {
+    const sql = this.sql;
+    const limit = filters?.limit ?? 100;
+    const params: unknown[] = [];
+    const clauses: string[] = [];
+
+    if (filters?.scope_id) {
+      params.push(filters.scope_id);
+      clauses.push(`scope_id = $${params.length}`);
+    }
+    if (filters?.slug) {
+      params.push(validateSlug(filters.slug));
+      clauses.push(`slug = $${params.length}`);
+    }
+
+    params.push(limit);
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = await sql.unsafe(
+      `SELECT scope_id, page_id, slug, path, page_type, title, frontmatter, aliases, tags,
+              outgoing_wikilinks, outgoing_urls, source_refs, heading_index, content_hash,
+              extractor_version, last_indexed_at
+       FROM note_manifest_entries
+       ${whereClause}
+       ORDER BY last_indexed_at DESC, slug ASC
+       LIMIT $${params.length}`,
+      params,
+    );
+    return (rows as Record<string, unknown>[]).map(rowToNoteManifestEntry);
+  }
+
+  async deleteNoteManifestEntry(scopeId: string, slug: string): Promise<void> {
+    const sql = this.sql;
+    await sql`
+      DELETE FROM note_manifest_entries
+      WHERE scope_id = ${scopeId} AND slug = ${validateSlug(slug)}
+    `;
   }
 
   // Sync

@@ -2,6 +2,8 @@ import { createHash } from 'crypto';
 import type {
   Page,
   PageType,
+  NoteManifestEntry,
+  NoteManifestHeading,
   Chunk,
   SearchResult,
   TaskAttempt,
@@ -113,6 +115,27 @@ export function rowToSearchResult(row: Record<string, unknown>): SearchResult {
   };
 }
 
+export function rowToNoteManifestEntry(row: Record<string, unknown>): NoteManifestEntry {
+  return {
+    scope_id: row.scope_id as string,
+    page_id: Number(row.page_id),
+    slug: row.slug as string,
+    path: row.path as string,
+    page_type: row.page_type as PageType,
+    title: row.title as string,
+    frontmatter: parseJsonObject(row.frontmatter),
+    aliases: parseJsonStringArray(row.aliases),
+    tags: parseJsonStringArray(row.tags),
+    outgoing_wikilinks: parseJsonStringArray(row.outgoing_wikilinks),
+    outgoing_urls: parseJsonStringArray(row.outgoing_urls),
+    source_refs: parseJsonStringArray(row.source_refs),
+    heading_index: parseNoteManifestHeadings(row.heading_index),
+    content_hash: row.content_hash as string,
+    extractor_version: row.extractor_version as string,
+    last_indexed_at: new Date(row.last_indexed_at as string),
+  };
+}
+
 export function rowToTaskThread(row: Record<string, unknown>): TaskThread {
   return {
     id: row.id as string,
@@ -189,4 +212,17 @@ function parseJsonStringArray(value: unknown): string[] {
   if (!value) return [];
   if (typeof value === 'string') return JSON.parse(value) as string[];
   return value as string[];
+}
+
+function parseNoteManifestHeadings(value: unknown): NoteManifestHeading[] {
+  if (!value) return [];
+  const headings = typeof value === 'string'
+    ? JSON.parse(value) as Array<Record<string, unknown>>
+    : value as Array<Record<string, unknown>>;
+  return headings.map((heading) => ({
+    slug: String(heading.slug ?? ''),
+    text: String(heading.text ?? ''),
+    depth: Number(heading.depth ?? 0),
+    line_start: Number(heading.line_start ?? 0),
+  }));
 }

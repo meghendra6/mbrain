@@ -214,6 +214,34 @@ CREATE TABLE IF NOT EXISTS retrieval_traces (
 CREATE INDEX IF NOT EXISTS idx_retrieval_traces_task_created ON retrieval_traces(task_id, created_at DESC);
 
 -- ============================================================
+-- note_manifest_entries: deterministic structural extraction cache
+-- ============================================================
+CREATE TABLE IF NOT EXISTS note_manifest_entries (
+  scope_id           TEXT NOT NULL,
+  page_id            INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+  slug               TEXT NOT NULL,
+  path               TEXT NOT NULL,
+  page_type          TEXT NOT NULL,
+  title              TEXT NOT NULL,
+  frontmatter        JSONB NOT NULL DEFAULT '{}',
+  aliases            JSONB NOT NULL DEFAULT '[]',
+  tags               JSONB NOT NULL DEFAULT '[]',
+  outgoing_wikilinks JSONB NOT NULL DEFAULT '[]',
+  outgoing_urls      JSONB NOT NULL DEFAULT '[]',
+  source_refs        JSONB NOT NULL DEFAULT '[]',
+  heading_index      JSONB NOT NULL DEFAULT '[]',
+  content_hash       TEXT NOT NULL,
+  extractor_version  TEXT NOT NULL,
+  last_indexed_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (scope_id, page_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_note_manifest_scope_slug
+  ON note_manifest_entries(scope_id, slug);
+CREATE INDEX IF NOT EXISTS idx_note_manifest_scope_indexed
+  ON note_manifest_entries(scope_id, last_indexed_at DESC);
+
+-- ============================================================
 -- config: brain-level settings
 -- ============================================================
 CREATE TABLE IF NOT EXISTS config (

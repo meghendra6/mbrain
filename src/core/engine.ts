@@ -1,5 +1,8 @@
 import type {
   Page, PageInput, PageFilters,
+  NoteManifestEntry,
+  NoteManifestEntryInput,
+  NoteManifestFilters,
   Chunk, ChunkInput,
   SearchResult, SearchOpts,
   Link, GraphNode,
@@ -98,6 +101,12 @@ export interface BrainEngine {
   listTaskDecisions(taskId: string, opts?: { limit?: number }): Promise<TaskDecision[]>;
   putRetrievalTrace(input: RetrievalTraceInput): Promise<RetrievalTrace>;
   listRetrievalTraces(taskId: string, opts?: { limit?: number }): Promise<RetrievalTrace[]>;
+
+  // Note manifest
+  upsertNoteManifestEntry(input: NoteManifestEntryInput): Promise<NoteManifestEntry>;
+  getNoteManifestEntry(scopeId: string, slug: string): Promise<NoteManifestEntry | null>;
+  listNoteManifestEntries(filters?: NoteManifestFilters): Promise<NoteManifestEntry[]>;
+  deleteNoteManifestEntry(scopeId: string, slug: string): Promise<void>;
 
   // Sync
   updateSlug(oldSlug: string, newSlug: string): Promise<void>;

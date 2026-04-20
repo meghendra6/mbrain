@@ -11,6 +11,10 @@ import { searchLocalVectors } from './search/vector-local.ts';
 import { slugifyPath } from './sync.ts';
 import type {
   Page, PageInput, PageFilters, PageType,
+  NoteManifestEntry,
+  NoteManifestEntryInput,
+  NoteManifestFilters,
+  NoteManifestHeading,
   Chunk, ChunkInput,
   SearchResult, SearchOpts,
   Link, GraphNode,
@@ -223,6 +227,30 @@ CREATE TABLE IF NOT EXISTS retrieval_traces (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_retrieval_traces_task_created ON retrieval_traces(task_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS note_manifest_entries (
+  scope_id TEXT NOT NULL,
+  page_id INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+  slug TEXT NOT NULL,
+  path TEXT NOT NULL,
+  page_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  frontmatter TEXT NOT NULL DEFAULT '{}',
+  aliases TEXT NOT NULL DEFAULT '[]',
+  tags TEXT NOT NULL DEFAULT '[]',
+  outgoing_wikilinks TEXT NOT NULL DEFAULT '[]',
+  outgoing_urls TEXT NOT NULL DEFAULT '[]',
+  source_refs TEXT NOT NULL DEFAULT '[]',
+  heading_index TEXT NOT NULL DEFAULT '[]',
+  content_hash TEXT NOT NULL,
+  extractor_version TEXT NOT NULL,
+  last_indexed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (scope_id, page_id)
+);
+CREATE INDEX IF NOT EXISTS idx_note_manifest_scope_slug
+  ON note_manifest_entries(scope_id, slug);
+CREATE INDEX IF NOT EXISTS idx_note_manifest_scope_indexed
+  ON note_manifest_entries(scope_id, last_indexed_at DESC);
 
 CREATE TABLE IF NOT EXISTS access_tokens (
   id TEXT PRIMARY KEY,
@@ -1199,6 +1227,105 @@ export class SQLiteEngine implements BrainEngine {
     return rows.map(rowToRetrievalTrace);
   }
 
+  async upsertNoteManifestEntry(input: NoteManifestEntryInput): Promise<NoteManifestEntry> {
+    const timestamp = nowIso();
+    this.database.run(`
+      INSERT INTO note_manifest_entries (
+        scope_id, page_id, slug, path, page_type, title, frontmatter, aliases, tags,
+        outgoing_wikilinks, outgoing_urls, source_refs, heading_index, content_hash,
+        extractor_version, last_indexed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(scope_id, page_id) DO UPDATE SET
+        slug = excluded.slug,
+        path = excluded.path,
+        page_type = excluded.page_type,
+        title = excluded.title,
+        frontmatter = excluded.frontmatter,
+        aliases = excluded.aliases,
+        tags = excluded.tags,
+        outgoing_wikilinks = excluded.outgoing_wikilinks,
+        outgoing_urls = excluded.outgoing_urls,
+        source_refs = excluded.source_refs,
+        heading_index = excluded.heading_index,
+        content_hash = excluded.content_hash,
+        extractor_version = excluded.extractor_version,
+        last_indexed_at = excluded.last_indexed_at
+    `, [
+      input.scope_id,
+      input.page_id,
+      validateSlug(input.slug),
+      input.path,
+      input.page_type,
+      input.title,
+      JSON.stringify(input.frontmatter ?? {}),
+      JSON.stringify(input.aliases ?? []),
+      JSON.stringify(input.tags ?? []),
+      JSON.stringify(input.outgoing_wikilinks ?? []),
+      JSON.stringify(input.outgoing_urls ?? []),
+      JSON.stringify(input.source_refs ?? []),
+      JSON.stringify(input.heading_index ?? []),
+      input.content_hash,
+      input.extractor_version,
+      timestamp,
+    ]);
+
+    const row = this.database.query(`
+      SELECT scope_id, page_id, slug, path, page_type, title, frontmatter, aliases, tags,
+             outgoing_wikilinks, outgoing_urls, source_refs, heading_index, content_hash,
+             extractor_version, last_indexed_at
+      FROM note_manifest_entries
+      WHERE scope_id = ? AND page_id = ?
+    `).get(input.scope_id, input.page_id) as Record<string, unknown> | null;
+    if (!row) throw new Error(`Note manifest entry not found after upsert: ${input.scope_id}:${input.page_id}`);
+    return rowToNoteManifestEntry(row);
+  }
+
+  async getNoteManifestEntry(scopeId: string, slug: string): Promise<NoteManifestEntry | null> {
+    const row = this.database.query(`
+      SELECT scope_id, page_id, slug, path, page_type, title, frontmatter, aliases, tags,
+             outgoing_wikilinks, outgoing_urls, source_refs, heading_index, content_hash,
+             extractor_version, last_indexed_at
+      FROM note_manifest_entries
+      WHERE scope_id = ? AND slug = ?
+    `).get(scopeId, validateSlug(slug)) as Record<string, unknown> | null;
+    return row ? rowToNoteManifestEntry(row) : null;
+  }
+
+  async listNoteManifestEntries(filters?: NoteManifestFilters): Promise<NoteManifestEntry[]> {
+    const limit = filters?.limit ?? 100;
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (filters?.scope_id) {
+      clauses.push('scope_id = ?');
+      params.push(filters.scope_id);
+    }
+    if (filters?.slug) {
+      clauses.push('slug = ?');
+      params.push(validateSlug(filters.slug));
+    }
+
+    params.push(limit);
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = this.database.query(`
+      SELECT scope_id, page_id, slug, path, page_type, title, frontmatter, aliases, tags,
+             outgoing_wikilinks, outgoing_urls, source_refs, heading_index, content_hash,
+             extractor_version, last_indexed_at
+      FROM note_manifest_entries
+      ${whereClause}
+      ORDER BY last_indexed_at DESC, slug ASC
+      LIMIT ?
+    `).all(...params) as Record<string, unknown>[];
+    return rows.map(rowToNoteManifestEntry);
+  }
+
+  async deleteNoteManifestEntry(scopeId: string, slug: string): Promise<void> {
+    this.database.run(
+      `DELETE FROM note_manifest_entries WHERE scope_id = ? AND slug = ?`,
+      [scopeId, validateSlug(slug)],
+    );
+  }
+
   async updateSlug(oldSlug: string, newSlug: string): Promise<void> {
     this.database.run(`UPDATE pages SET slug = ?, updated_at = ? WHERE slug = ? OR lower(slug) = ?`, [
       validateSlug(newSlug),
@@ -1382,6 +1509,33 @@ export class SQLiteEngine implements BrainEngine {
             );
             CREATE INDEX IF NOT EXISTS idx_retrieval_traces_task_created
               ON retrieval_traces(task_id, created_at DESC);
+          `);
+          break;
+        case 9:
+          this.database.exec(`
+            CREATE TABLE IF NOT EXISTS note_manifest_entries (
+              scope_id TEXT NOT NULL,
+              page_id INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+              slug TEXT NOT NULL,
+              path TEXT NOT NULL,
+              page_type TEXT NOT NULL,
+              title TEXT NOT NULL,
+              frontmatter TEXT NOT NULL DEFAULT '{}',
+              aliases TEXT NOT NULL DEFAULT '[]',
+              tags TEXT NOT NULL DEFAULT '[]',
+              outgoing_wikilinks TEXT NOT NULL DEFAULT '[]',
+              outgoing_urls TEXT NOT NULL DEFAULT '[]',
+              source_refs TEXT NOT NULL DEFAULT '[]',
+              heading_index TEXT NOT NULL DEFAULT '[]',
+              content_hash TEXT NOT NULL,
+              extractor_version TEXT NOT NULL,
+              last_indexed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+              PRIMARY KEY (scope_id, page_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_note_manifest_scope_slug
+              ON note_manifest_entries(scope_id, slug);
+            CREATE INDEX IF NOT EXISTS idx_note_manifest_scope_indexed
+              ON note_manifest_entries(scope_id, last_indexed_at DESC);
           `);
           break;
       }
@@ -1804,6 +1958,27 @@ function rowToRetrievalTrace(row: Record<string, unknown>): RetrievalTrace {
   };
 }
 
+function rowToNoteManifestEntry(row: Record<string, unknown>): NoteManifestEntry {
+  return {
+    scope_id: String(row.scope_id),
+    page_id: Number(row.page_id),
+    slug: String(row.slug),
+    path: String(row.path),
+    page_type: row.page_type as PageType,
+    title: String(row.title),
+    frontmatter: parseJsonObject(row.frontmatter),
+    aliases: parseJsonArray(row.aliases),
+    tags: parseJsonArray(row.tags),
+    outgoing_wikilinks: parseJsonArray(row.outgoing_wikilinks),
+    outgoing_urls: parseJsonArray(row.outgoing_urls),
+    source_refs: parseJsonArray(row.source_refs),
+    heading_index: parseNoteManifestHeadingArray(row.heading_index),
+    content_hash: String(row.content_hash),
+    extractor_version: String(row.extractor_version),
+    last_indexed_at: new Date(String(row.last_indexed_at)),
+  };
+}
+
 /**
  * Extract a focused text snippet around matching query terms.
  * Returns ~300-char window centered on the first match, with ellipsis markers.
@@ -1940,4 +2115,23 @@ function parseJsonArray(value: unknown): string[] {
     return JSON.parse(value) as string[];
   }
   return [];
+}
+
+function parseNoteManifestHeadingArray(value: unknown): NoteManifestHeading[] {
+  if (Array.isArray(value)) {
+    return value.map((heading) => normalizeNoteManifestHeading(heading as Record<string, unknown>));
+  }
+  if (typeof value === 'string' && value.length > 0) {
+    return (JSON.parse(value) as Array<Record<string, unknown>>).map(normalizeNoteManifestHeading);
+  }
+  return [];
+}
+
+function normalizeNoteManifestHeading(heading: Record<string, unknown>): NoteManifestHeading {
+  return {
+    slug: String(heading.slug ?? ''),
+    text: String(heading.text ?? ''),
+    depth: Number(heading.depth ?? 0),
+    line_start: Number(heading.line_start ?? 0),
+  };
 }

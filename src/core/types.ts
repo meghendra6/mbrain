@@ -70,6 +70,56 @@ export interface PageFilters {
   offset?: number;
 }
 
+export interface NoteManifestHeading {
+  slug: string;
+  text: string;
+  depth: number;
+  line_start: number;
+}
+
+export interface NoteManifestEntry {
+  scope_id: string;
+  page_id: number;
+  slug: string;
+  path: string;
+  page_type: PageType;
+  title: string;
+  frontmatter: Record<string, unknown>;
+  aliases: string[];
+  tags: string[];
+  outgoing_wikilinks: string[];
+  outgoing_urls: string[];
+  source_refs: string[];
+  heading_index: NoteManifestHeading[];
+  content_hash: string;
+  extractor_version: string;
+  last_indexed_at: Date;
+}
+
+export interface NoteManifestEntryInput {
+  scope_id: string;
+  page_id: number;
+  slug: string;
+  path: string;
+  page_type: PageType;
+  title: string;
+  frontmatter: Record<string, unknown>;
+  aliases: string[];
+  tags: string[];
+  outgoing_wikilinks: string[];
+  outgoing_urls: string[];
+  source_refs: string[];
+  heading_index: NoteManifestHeading[];
+  content_hash: string;
+  extractor_version: string;
+}
+
+export interface NoteManifestFilters {
+  scope_id?: string;
+  slug?: string;
+  limit?: number;
+}
+
 // Chunks
 export interface Chunk {
   id: number;
