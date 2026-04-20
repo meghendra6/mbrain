@@ -11,6 +11,7 @@ import { importFromContent } from './import-file.ts';
 import { serializeMarkdown } from './markdown.ts';
 import { hybridSearch } from './search/hybrid.ts';
 import { expandQuery } from './search/expansion.ts';
+import { DEFAULT_NOTE_MANIFEST_SCOPE_ID, rebuildNoteManifestEntries } from './services/note-manifest-service.ts';
 import { buildTaskResumeCard } from './services/task-memory-service.ts';
 import * as db from './db.ts';
 import { getUnsupportedCapabilityReason } from './offline-profile.ts';
@@ -305,6 +306,42 @@ export function formatResult(
         return rows + `\n(result may be truncated at ${requestedLimit}; pass --limit N or -n N to change)\n`;
       }
       return rows;
+    }
+    case 'get_note_manifest_entry': {
+      const entry = result as any;
+      return [
+        `${entry.title} [${entry.page_type}]`,
+        `Slug: ${entry.slug}`,
+        `Path: ${entry.path}`,
+        `Scope: ${entry.scope_id}`,
+        `Aliases: ${(entry.aliases || []).join(', ') || 'none'}`,
+        `Tags: ${(entry.tags || []).join(', ') || 'none'}`,
+        `Wiki links: ${(entry.outgoing_wikilinks || []).join(', ') || 'none'}`,
+        `URLs: ${(entry.outgoing_urls || []).join(', ') || 'none'}`,
+        `Source refs: ${(entry.source_refs || []).join(', ') || 'none'}`,
+        `Headings: ${(entry.heading_index || []).map((heading: any) => `${'#'.repeat(heading.depth)} ${heading.text}`).join(' | ') || 'none'}`,
+        `Extractor: ${entry.extractor_version}`,
+        `Last indexed: ${new Date(entry.last_indexed_at).toISOString()}`,
+      ].join('\n') + '\n';
+    }
+    case 'list_note_manifest_entries': {
+      const entries = result as any[];
+      if (entries.length === 0) return 'No note manifest entries.\n';
+      const rows = entries.map((entry) =>
+        `${entry.slug}\t${entry.page_type}\t${entry.last_indexed_at?.toString().slice(0, 19) || '?'}\t${entry.title}`,
+      ).join('\n') + '\n';
+      const requestedLimit = (params.limit as number) ?? 20;
+      if (entries.length >= requestedLimit) {
+        return rows + `\n(result may be truncated at ${requestedLimit}; pass --limit N or -n N to change)\n`;
+      }
+      return rows;
+    }
+    case 'rebuild_note_manifest': {
+      const rebuild = result as any;
+      return [
+        `Rebuilt ${rebuild.rebuilt} note manifest entr${rebuild.rebuilt === 1 ? 'y' : 'ies'}.`,
+        `Slugs: ${(rebuild.slugs || []).join(', ') || 'none'}`,
+      ].join('\n') + '\n';
     }
     case 'search':
     case 'query': {
@@ -1031,6 +1068,86 @@ const get_task_working_set: Operation = {
   cliHints: { name: 'task-show', positional: ['task_id'] },
 };
 
+const get_note_manifest_entry: Operation = {
+  name: 'get_note_manifest_entry',
+  description: 'Read one derived note-manifest entry by slug for structural inspection.',
+  params: {
+    slug: { type: 'string', required: true, description: 'Canonical page slug' },
+    scope_id: { type: 'string', description: 'Manifest scope id (default: workspace:default)' },
+  },
+  handler: async (ctx, p) => {
+    const scopeId = String(p.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID);
+    const entry = await ctx.engine.getNoteManifestEntry(scopeId, String(p.slug));
+    if (!entry) {
+      throw new OperationError(
+        'page_not_found',
+        `Note manifest entry not found: ${String(p.slug)}`,
+        'Run manifest-rebuild for the slug, or verify the page exists.',
+      );
+    }
+    return entry;
+  },
+  cliHints: { name: 'manifest-get', positional: ['slug'] },
+};
+
+const list_note_manifest_entries: Operation = {
+  name: 'list_note_manifest_entries',
+  description: 'List derived note-manifest entries for structural inspection.',
+  params: {
+    scope_id: { type: 'string', description: 'Manifest scope id (default: workspace:default)' },
+    slug: { type: 'string', description: 'Filter to a single slug' },
+    limit: { type: 'number', description: 'Max results (default 20)' },
+  },
+  handler: async (ctx, p) => {
+    return ctx.engine.listNoteManifestEntries({
+      scope_id: String(p.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID),
+      slug: p.slug as string | undefined,
+      limit: (p.limit as number) ?? 20,
+    });
+  },
+  cliHints: { name: 'manifest-list', aliases: { n: 'limit' } },
+};
+
+const rebuild_note_manifest: Operation = {
+  name: 'rebuild_note_manifest',
+  description: 'Rebuild derived note-manifest entries from canonical page state.',
+  params: {
+    slug: { type: 'string', description: 'Optional slug to rebuild a single entry' },
+    scope_id: { type: 'string', description: 'Manifest scope id (default: workspace:default)' },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    const scopeId = String(p.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID);
+    const slug = p.slug as string | undefined;
+
+    if (ctx.dryRun) {
+      return { dry_run: true, action: 'rebuild_note_manifest', scope_id: scopeId, slug: slug ?? null };
+    }
+
+    try {
+      const entries = await rebuildNoteManifestEntries(ctx.engine, {
+        scope_id: scopeId,
+        slug,
+      });
+      return {
+        scope_id: scopeId,
+        rebuilt: entries.length,
+        slugs: entries.map((entry) => entry.slug),
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Page not found:')) {
+        throw new OperationError(
+          'page_not_found',
+          error.message,
+          'Check the slug or omit it to rebuild all entries.',
+        );
+      }
+      throw error;
+    }
+  },
+  cliHints: { name: 'manifest-rebuild' },
+};
+
 const record_retrieval_trace: Operation = {
   name: 'record_retrieval_trace',
   description: 'Record a retrieval trace for a task-scoped operational-memory flow.',
@@ -1502,6 +1619,8 @@ export const operations: Operation[] = [
   put_raw_data, get_raw_data,
   // Resolution & chunks
   resolve_slugs, get_chunks,
+  // Note manifest
+  get_note_manifest_entry, list_note_manifest_entries, rebuild_note_manifest,
   // Operational memory
   list_tasks, start_task, update_task, resume_task, get_task_working_set, record_retrieval_trace, list_task_traces, list_task_attempts, list_task_decisions, refresh_task_working_set, record_attempt, record_decision,
   // Ingest log

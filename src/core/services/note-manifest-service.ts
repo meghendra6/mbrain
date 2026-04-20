@@ -1,4 +1,5 @@
-import type { NoteManifestEntryInput, NoteManifestHeading, PageInput, PageType } from '../types.ts';
+import type { BrainEngine } from '../engine.ts';
+import type { NoteManifestEntry, NoteManifestEntryInput, NoteManifestHeading, Page, PageInput } from '../types.ts';
 import { slugifyPath } from '../sync.ts';
 import { importContentHash } from '../utils.ts';
 
@@ -51,6 +52,36 @@ export function buildNoteManifestEntry(input: BuildNoteManifestEntryInput): Note
       }),
     extractor_version: NOTE_MANIFEST_EXTRACTOR_VERSION,
   };
+}
+
+export async function rebuildNoteManifestEntries(
+  engine: BrainEngine,
+  input: {
+    scope_id?: string;
+    slug?: string;
+  } = {},
+): Promise<NoteManifestEntry[]> {
+  const scopeId = input.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID;
+  const pages = input.slug
+    ? [await requirePage(engine, input.slug)]
+    : await listAllPages(engine);
+
+  const rebuilt: NoteManifestEntry[] = [];
+  for (const page of pages) {
+    const tags = await engine.getTags(page.slug);
+    const existing = await engine.getNoteManifestEntry(scopeId, page.slug);
+    rebuilt.push(await engine.upsertNoteManifestEntry(buildNoteManifestEntry({
+      scope_id: scopeId,
+      page_id: page.id,
+      slug: page.slug,
+      path: existing?.path ?? `${page.slug}.md`,
+      tags,
+      content_hash: page.content_hash,
+      page,
+    })));
+  }
+
+  return rebuilt;
 }
 
 function normalizeManifestPath(path: string): string {
@@ -161,4 +192,26 @@ function uniqueStrings(values: string[]): string[] {
   }
 
   return result;
+}
+
+async function requirePage(engine: BrainEngine, slug: string): Promise<Page> {
+  const page = await engine.getPage(slug);
+  if (!page) {
+    throw new Error(`Page not found: ${slug}`);
+  }
+  return page;
+}
+
+async function listAllPages(engine: BrainEngine, batchSize = 500): Promise<Page[]> {
+  const pages: Page[] = [];
+
+  for (let offset = 0; ; offset += batchSize) {
+    const batch = await engine.listPages({ limit: batchSize, offset });
+    pages.push(...batch);
+    if (batch.length < batchSize) {
+      break;
+    }
+  }
+
+  return pages;
 }
