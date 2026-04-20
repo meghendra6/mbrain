@@ -1366,6 +1366,7 @@ export class SQLiteEngine implements BrainEngine {
 
   async listNoteManifestEntries(filters?: NoteManifestFilters): Promise<NoteManifestEntry[]> {
     const limit = filters?.limit ?? 100;
+    const offset = filters?.offset ?? 0;
     const clauses: string[] = [];
     const params: unknown[] = [];
 
@@ -1379,6 +1380,7 @@ export class SQLiteEngine implements BrainEngine {
     }
 
     params.push(limit);
+    params.push(offset);
     const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const rows = this.database.query(`
       SELECT scope_id, page_id, slug, path, page_type, title, frontmatter, aliases, tags,
@@ -1388,6 +1390,7 @@ export class SQLiteEngine implements BrainEngine {
       ${whereClause}
       ORDER BY last_indexed_at DESC, slug ASC
       LIMIT ?
+      OFFSET ?
     `).all(...params) as Record<string, unknown>[];
     return rows.map(rowToNoteManifestEntry);
   }
@@ -1463,6 +1466,7 @@ export class SQLiteEngine implements BrainEngine {
 
   async listNoteSectionEntries(filters?: NoteSectionFilters): Promise<NoteSectionEntry[]> {
     const limit = filters?.limit ?? 100;
+    const offset = filters?.offset ?? 0;
     const clauses: string[] = [];
     const params: unknown[] = [];
 
@@ -1480,6 +1484,7 @@ export class SQLiteEngine implements BrainEngine {
     }
 
     params.push(limit);
+    params.push(offset);
     const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const rows = this.database.query(`
       SELECT scope_id, page_id, page_slug, page_path, section_id, parent_section_id, heading_slug,
@@ -1489,6 +1494,7 @@ export class SQLiteEngine implements BrainEngine {
       ${whereClause}
       ORDER BY page_slug ASC, line_start ASC, section_id ASC
       LIMIT ?
+      OFFSET ?
     `).all(...params) as Record<string, unknown>[];
     return rows.map(rowToNoteSectionEntry);
   }

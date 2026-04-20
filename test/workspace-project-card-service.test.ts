@@ -86,3 +86,47 @@ test('workspace project-card service returns deterministic no-project fallback',
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('workspace project-card service finds projects beyond the top report-read limit', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-workspace-project-card-wide-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    for (let index = 0; index < 6; index += 1) {
+      await importFromContent(engine, `concepts/filler-${index}`, [
+        '---',
+        'type: concept',
+        `title: Filler ${index}`,
+        '---',
+        '# Overview',
+        `Filler page ${index}.`,
+      ].join('\n'), { path: `concepts/filler-${index}.md` });
+    }
+
+    await importFromContent(engine, 'projects/apollo', [
+      '---',
+      'type: project',
+      'title: Apollo',
+      'repo: meghendra6/apollo',
+      'status: active',
+      '---',
+      '# Overview',
+      'Project page beyond the first five reads.',
+    ].join('\n'), { path: 'projects/apollo.md' });
+
+    await buildStructuralContextMapEntry(engine);
+
+    const result = await getWorkspaceProjectCard(engine, {
+      scope_id: 'workspace:default',
+    });
+
+    expect(result.card?.project_slug).toBe('projects/apollo');
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

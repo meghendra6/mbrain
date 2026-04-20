@@ -65,7 +65,7 @@ async function buildMapReport(
   engine: BrainEngine,
   entry: ContextMapEntry,
 ): Promise<ContextMapReport> {
-  const recommendedReads = await resolveRecommendedReads(engine, entry);
+  const recommendedReads = await resolveContextMapReads(engine, entry);
   return {
     report_kind: 'structural',
     title: `${entry.title} Report`,
@@ -83,9 +83,10 @@ async function buildMapReport(
   };
 }
 
-async function resolveRecommendedReads(
+export async function resolveContextMapReads(
   engine: BrainEngine,
   entry: ContextMapEntry,
+  limit = REPORT_READ_LIMIT,
 ): Promise<ContextMapReportRead[]> {
   const graph = entry.graph_json as {
     nodes?: Array<{
@@ -100,9 +101,10 @@ async function resolveRecommendedReads(
   const prioritized = [
     ...nodes.filter((node) => node.node_kind === 'page'),
     ...nodes.filter((node) => node.node_kind === 'section'),
-  ].slice(0, REPORT_READ_LIMIT);
+  ];
+  const bounded = Number.isFinite(limit) ? prioritized.slice(0, limit) : prioritized;
 
-  const resolved = await Promise.all(prioritized.map((node) => resolveNode(engine, entry.scope_id, node)));
+  const resolved = await Promise.all(bounded.map((node) => resolveNode(engine, entry.scope_id, node)));
   return resolved.filter((candidate): candidate is ContextMapReportRead => candidate !== null);
 }
 

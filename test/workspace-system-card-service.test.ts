@@ -97,3 +97,48 @@ test('workspace system-card service returns deterministic no-system fallback', a
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('workspace system-card service finds systems beyond the top report-read limit', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-workspace-system-card-wide-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    for (let index = 0; index < 6; index += 1) {
+      await importFromContent(engine, `concepts/filler-${index}`, [
+        '---',
+        'type: concept',
+        `title: Filler ${index}`,
+        '---',
+        '# Overview',
+        `Filler page ${index}.`,
+      ].join('\n'), { path: `concepts/filler-${index}.md` });
+    }
+
+    await importFromContent(engine, 'systems/mbrain', [
+      '---',
+      'type: system',
+      'title: MBrain',
+      'repo: meghendra6/mbrain',
+      'build_command: bun run build',
+      'test_command: bun test',
+      '---',
+      '# Overview',
+      'System page beyond the first five reads.',
+    ].join('\n'), { path: 'systems/mbrain.md' });
+
+    await buildStructuralContextMapEntry(engine);
+
+    const result = await getWorkspaceSystemCard(engine, {
+      scope_id: 'workspace:default',
+    });
+
+    expect(result.card?.system_slug).toBe('systems/mbrain');
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -1,6 +1,7 @@
 import type { BrainEngine } from '../engine.ts';
 import type { WorkspaceProjectCard, WorkspaceProjectCardInput, WorkspaceProjectCardResult } from '../types.ts';
-import { getStructuralContextMapReport } from './context-map-report-service.ts';
+import { getStructuralContextMapReport, resolveContextMapReads } from './context-map-report-service.ts';
+import { getStructuralContextMapEntry } from './context-map-service.ts';
 import { DEFAULT_NOTE_MANIFEST_SCOPE_ID } from './note-manifest-service.ts';
 
 export async function getWorkspaceProjectCard(
@@ -16,7 +17,11 @@ export async function getWorkspaceProjectCard(
     };
   }
 
-  const target = reportResult.report.recommended_reads.find((read) => read.page_slug.startsWith('projects/'));
+  const mapEntry = await getStructuralContextMapEntry(engine, reportResult.report.map_id);
+  const reads = mapEntry
+    ? await resolveContextMapReads(engine, mapEntry, Number.POSITIVE_INFINITY)
+    : reportResult.report.recommended_reads;
+  const target = reads.find((read) => read.page_slug.startsWith('projects/'));
   if (!target) {
     return {
       selection_reason: 'no_project_read',

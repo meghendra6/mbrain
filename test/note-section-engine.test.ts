@@ -46,3 +46,50 @@ test('importFromContent refreshes deterministic note-section rows', async () => 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('note section engine honors limit and offset filters', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-note-section-engine-offset-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    const content = [
+      '---',
+      'type: concept',
+      'title: Refresh Sections',
+      '---',
+      '# One',
+      'Body',
+      '',
+      '# Two',
+      'Body',
+    ].join('\n');
+
+    await importFromContent(engine, 'concepts/refresh-sections-offset', content, {
+      path: 'concepts/refresh-sections-offset.md',
+    });
+
+    const first = await engine.listNoteSectionEntries({
+      scope_id: DEFAULT_NOTE_MANIFEST_SCOPE_ID,
+      page_slug: 'concepts/refresh-sections-offset',
+      limit: 1,
+      offset: 0,
+    });
+    const second = await engine.listNoteSectionEntries({
+      scope_id: DEFAULT_NOTE_MANIFEST_SCOPE_ID,
+      page_slug: 'concepts/refresh-sections-offset',
+      limit: 1,
+      offset: 1,
+    });
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(first[0]?.section_id).not.toBe(second[0]?.section_id);
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

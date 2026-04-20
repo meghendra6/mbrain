@@ -1058,6 +1058,7 @@ export class PGLiteEngine implements BrainEngine {
 
   async listNoteManifestEntries(filters?: NoteManifestFilters): Promise<NoteManifestEntry[]> {
     const limit = filters?.limit ?? 100;
+    const offset = filters?.offset ?? 0;
     const params: unknown[] = [];
     const clauses: string[] = [];
 
@@ -1071,6 +1072,7 @@ export class PGLiteEngine implements BrainEngine {
     }
 
     params.push(limit);
+    params.push(offset);
     const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const { rows } = await this.db.query(
       `SELECT scope_id, page_id, slug, path, page_type, title, frontmatter, aliases, tags,
@@ -1079,7 +1081,8 @@ export class PGLiteEngine implements BrainEngine {
        FROM note_manifest_entries
        ${whereClause}
        ORDER BY last_indexed_at DESC, slug ASC
-       LIMIT $${params.length}`,
+       LIMIT $${params.length - 1}
+       OFFSET $${params.length}`,
       params,
     );
     return (rows as Record<string, unknown>[]).map(rowToNoteManifestEntry);
@@ -1157,6 +1160,7 @@ export class PGLiteEngine implements BrainEngine {
 
   async listNoteSectionEntries(filters?: NoteSectionFilters): Promise<NoteSectionEntry[]> {
     const limit = filters?.limit ?? 100;
+    const offset = filters?.offset ?? 0;
     const params: unknown[] = [];
     const clauses: string[] = [];
 
@@ -1174,6 +1178,7 @@ export class PGLiteEngine implements BrainEngine {
     }
 
     params.push(limit);
+    params.push(offset);
     const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const { rows } = await this.db.query(
       `SELECT scope_id, page_id, page_slug, page_path, section_id, parent_section_id, heading_slug,
@@ -1182,7 +1187,8 @@ export class PGLiteEngine implements BrainEngine {
        FROM note_section_entries
        ${whereClause}
        ORDER BY page_slug ASC, line_start ASC, section_id ASC
-       LIMIT $${params.length}`,
+       LIMIT $${params.length - 1}
+       OFFSET $${params.length}`,
       params,
     );
     return (rows as Record<string, unknown>[]).map(rowToNoteSectionEntry);

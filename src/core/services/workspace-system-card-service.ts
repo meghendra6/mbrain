@@ -1,6 +1,7 @@
 import type { BrainEngine } from '../engine.ts';
 import type { SystemEntryPoint, WorkspaceSystemCard, WorkspaceSystemCardInput, WorkspaceSystemCardResult } from '../types.ts';
-import { getStructuralContextMapReport } from './context-map-report-service.ts';
+import { getStructuralContextMapReport, resolveContextMapReads } from './context-map-report-service.ts';
+import { getStructuralContextMapEntry } from './context-map-service.ts';
 
 export async function getWorkspaceSystemCard(
   engine: BrainEngine,
@@ -15,7 +16,11 @@ export async function getWorkspaceSystemCard(
     };
   }
 
-  const target = reportResult.report.recommended_reads.find((read) => read.page_slug.startsWith('systems/'));
+  const mapEntry = await getStructuralContextMapEntry(engine, reportResult.report.map_id);
+  const reads = mapEntry
+    ? await resolveContextMapReads(engine, mapEntry, Number.POSITIVE_INFINITY)
+    : reportResult.report.recommended_reads;
+  const target = reads.find((read) => read.page_slug.startsWith('systems/'));
   if (!target) {
     return {
       selection_reason: 'no_system_read',
@@ -23,7 +28,6 @@ export async function getWorkspaceSystemCard(
       card: null,
     };
   }
-
   const page = await engine.getPage(target.page_slug);
   if (!page) {
     return {

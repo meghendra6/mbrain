@@ -56,3 +56,36 @@ test('structural graph service derives deterministic neighbors and paths', async
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('structural graph service paginates manifests beyond 10_000 rows', async () => {
+  const manifests = Array.from({ length: 10_001 }, (_, index) => ({
+    scope_id: 'workspace:default',
+    page_id: index + 1,
+    slug: `concepts/page-${index}`,
+    path: `concepts/page-${index}.md`,
+    page_type: 'concept',
+    title: `Page ${index}`,
+    frontmatter: {},
+    aliases: [],
+    tags: [],
+    outgoing_wikilinks: [],
+    outgoing_urls: [],
+    source_refs: [],
+    heading_index: [],
+    content_hash: `hash-${index}`,
+    extractor_version: 'phase2-structural-v1',
+    last_indexed_at: new Date(0),
+  }));
+
+  const graph = await buildStructuralGraphSnapshot({
+    listNoteManifestEntries: async (filters?: any) => {
+      const offset = filters?.offset ?? 0;
+      const limit = filters?.limit ?? manifests.length;
+      return manifests.slice(offset, offset + limit);
+    },
+    listNoteSectionEntries: async () => [],
+  } as any);
+
+  expect(graph.nodes).toHaveLength(10_001);
+  expect(graph.nodes.at(-1)?.node_id).toBe('page:concepts/page-9999');
+});

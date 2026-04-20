@@ -1,6 +1,7 @@
 import type { BrainEngine } from '../engine.ts';
 import type { NoteManifestEntry, NoteSectionEntry } from '../types.ts';
 import { DEFAULT_NOTE_MANIFEST_SCOPE_ID } from './note-manifest-service.ts';
+import { listAllNoteManifestEntries, listAllNoteSectionEntries } from './structural-entry-pagination.ts';
 
 export type StructuralNodeId = `page:${string}` | `section:${string}`;
 export type StructuralEdgeKind = 'page_contains_section' | 'section_parent' | 'section_links_page';
@@ -43,14 +44,8 @@ export async function buildStructuralGraphSnapshot(
   engine: BrainEngine,
   scopeId = DEFAULT_NOTE_MANIFEST_SCOPE_ID,
 ): Promise<StructuralGraphSnapshot> {
-  const manifests = await engine.listNoteManifestEntries({
-    scope_id: scopeId,
-    limit: 10_000,
-  });
-  const sections = await engine.listNoteSectionEntries({
-    scope_id: scopeId,
-    limit: 10_000,
-  });
+  const manifests = await listAllNoteManifestEntries(engine, scopeId);
+  const sections = await listAllNoteSectionEntries(engine, scopeId);
 
   const manifestBySlug = new Map<string, NoteManifestEntry>(
     manifests.map((manifest) => [manifest.slug, manifest]),

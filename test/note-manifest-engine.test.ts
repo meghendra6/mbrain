@@ -124,6 +124,32 @@ for (const createHarness of [createSqliteHarness, createPgliteHarness]) {
   });
 }
 
+test('note manifest engines honor limit and offset filters', async () => {
+  const harness = await createSqliteHarness();
+
+  try {
+    await seedManifest(harness.engine, 'concepts/note-manifest-a', 'concepts/note-manifest-a.md');
+    await seedManifest(harness.engine, 'concepts/note-manifest-b', 'concepts/note-manifest-b.md');
+
+    const first = await harness.engine.listNoteManifestEntries({
+      scope_id: DEFAULT_NOTE_MANIFEST_SCOPE_ID,
+      limit: 1,
+      offset: 0,
+    });
+    const second = await harness.engine.listNoteManifestEntries({
+      scope_id: DEFAULT_NOTE_MANIFEST_SCOPE_ID,
+      limit: 1,
+      offset: 1,
+    });
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(first[0]?.slug).not.toBe(second[0]?.slug);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl) {
   test('postgres persists note manifest entries', async () => {

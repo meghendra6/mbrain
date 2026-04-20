@@ -8,6 +8,7 @@ import type {
 } from '../types.ts';
 import { buildStructuralGraphSnapshot } from './note-structural-graph-service.ts';
 import { DEFAULT_NOTE_MANIFEST_SCOPE_ID } from './note-manifest-service.ts';
+import { listAllNoteManifestEntries, listAllNoteSectionEntries } from './structural-entry-pagination.ts';
 
 export const WORKSPACE_CONTEXT_MAP_KIND = 'workspace';
 export const CONTEXT_MAP_BUILD_MODE = 'structural';
@@ -24,8 +25,8 @@ export async function buildStructuralContextMapEntry(
   scopeId = DEFAULT_NOTE_MANIFEST_SCOPE_ID,
 ): Promise<ContextMapEntry> {
   const [manifests, sections, snapshot] = await Promise.all([
-    engine.listNoteManifestEntries({ scope_id: scopeId, limit: 10_000 }),
-    engine.listNoteSectionEntries({ scope_id: scopeId, limit: 10_000 }),
+    listAllNoteManifestEntries(engine, scopeId),
+    listAllNoteSectionEntries(engine, scopeId),
     buildStructuralGraphSnapshot(engine, scopeId),
   ]);
 
@@ -81,8 +82,8 @@ export async function computeContextMapSourceSetHash(
   scopeId = DEFAULT_NOTE_MANIFEST_SCOPE_ID,
 ): Promise<string> {
   const [manifests, sections] = await Promise.all([
-    engine.listNoteManifestEntries({ scope_id: scopeId, limit: 10_000 }),
-    engine.listNoteSectionEntries({ scope_id: scopeId, limit: 10_000 }),
+    listAllNoteManifestEntries(engine, scopeId),
+    listAllNoteSectionEntries(engine, scopeId),
   ]);
   return hashContextMapSourceSet(manifests, sections);
 }
@@ -100,11 +101,7 @@ function applyFreshness(
   currentSourceSetHash: string,
 ): ContextMapEntry {
   if (entry.source_set_hash === currentSourceSetHash) {
-    return {
-      ...entry,
-      status: 'ready',
-      stale_reason: null,
-    };
+    return entry;
   }
 
   return {

@@ -118,6 +118,7 @@ export interface NoteManifestFilters {
   scope_id?: string;
   slug?: string;
   limit?: number;
+  offset?: number;
 }
 
 export interface NoteSectionEntry {
@@ -168,6 +169,7 @@ export interface NoteSectionFilters {
   page_slug?: string;
   section_id?: string;
   limit?: number;
+  offset?: number;
 }
 
 export interface ContextMapEntry {
