@@ -6,6 +6,9 @@ import type {
   NoteSectionEntry,
   NoteSectionEntryInput,
   NoteSectionFilters,
+  ContextMapEntry,
+  ContextMapEntryInput,
+  ContextMapFilters,
   Chunk, ChunkInput,
   SearchResult, SearchOpts,
   Link, GraphNode,
@@ -120,6 +123,12 @@ export interface BrainEngine {
   getNoteSectionEntry(scopeId: string, sectionId: string): Promise<NoteSectionEntry | null>;
   listNoteSectionEntries(filters?: NoteSectionFilters): Promise<NoteSectionEntry[]>;
   deleteNoteSectionEntries(scopeId: string, pageSlug: string): Promise<void>;
+
+  // Persisted context maps
+  upsertContextMapEntry(input: ContextMapEntryInput): Promise<ContextMapEntry>;
+  getContextMapEntry(id: string): Promise<ContextMapEntry | null>;
+  listContextMapEntries(filters?: ContextMapFilters): Promise<ContextMapEntry[]>;
+  deleteContextMapEntry(id: string): Promise<void>;
 
   // Sync
   updateSlug(oldSlug: string, newSlug: string): Promise<void>;

@@ -18,6 +18,9 @@ import type {
   NoteSectionEntry,
   NoteSectionEntryInput,
   NoteSectionFilters,
+  ContextMapEntry,
+  ContextMapEntryInput,
+  ContextMapFilters,
   Chunk, ChunkInput,
   SearchResult, SearchOpts,
   Link, GraphNode,
@@ -281,6 +284,27 @@ CREATE INDEX IF NOT EXISTS idx_note_sections_scope_page
   ON note_section_entries(scope_id, page_slug, line_start);
 CREATE INDEX IF NOT EXISTS idx_note_sections_scope_indexed
   ON note_section_entries(scope_id, last_indexed_at DESC);
+
+CREATE TABLE IF NOT EXISTS context_map_entries (
+  id TEXT PRIMARY KEY,
+  scope_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  build_mode TEXT NOT NULL,
+  status TEXT NOT NULL,
+  source_set_hash TEXT NOT NULL,
+  extractor_version TEXT NOT NULL,
+  node_count INTEGER NOT NULL,
+  edge_count INTEGER NOT NULL,
+  community_count INTEGER NOT NULL DEFAULT 0,
+  graph_json TEXT NOT NULL DEFAULT '{}',
+  generated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  stale_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_context_map_scope_generated
+  ON context_map_entries(scope_id, generated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_context_map_scope_kind
+  ON context_map_entries(scope_id, kind);
 
 CREATE TABLE IF NOT EXISTS access_tokens (
   id TEXT PRIMARY KEY,
@@ -1457,6 +1481,99 @@ export class SQLiteEngine implements BrainEngine {
     );
   }
 
+  async upsertContextMapEntry(input: ContextMapEntryInput): Promise<ContextMapEntry> {
+    const timestamp = nowIso();
+    this.database.run(`
+      INSERT INTO context_map_entries (
+        id, scope_id, kind, title, build_mode, status, source_set_hash,
+        extractor_version, node_count, edge_count, community_count, graph_json,
+        generated_at, stale_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        scope_id = excluded.scope_id,
+        kind = excluded.kind,
+        title = excluded.title,
+        build_mode = excluded.build_mode,
+        status = excluded.status,
+        source_set_hash = excluded.source_set_hash,
+        extractor_version = excluded.extractor_version,
+        node_count = excluded.node_count,
+        edge_count = excluded.edge_count,
+        community_count = excluded.community_count,
+        graph_json = excluded.graph_json,
+        generated_at = excluded.generated_at,
+        stale_reason = excluded.stale_reason
+    `, [
+      input.id,
+      input.scope_id,
+      input.kind,
+      input.title,
+      input.build_mode,
+      input.status,
+      input.source_set_hash,
+      input.extractor_version,
+      input.node_count,
+      input.edge_count,
+      input.community_count ?? 0,
+      JSON.stringify(input.graph_json ?? {}),
+      timestamp,
+      input.stale_reason ?? null,
+    ]);
+
+    const row = this.database.query(`
+      SELECT id, scope_id, kind, title, build_mode, status, source_set_hash,
+             extractor_version, node_count, edge_count, community_count, graph_json,
+             generated_at, stale_reason
+      FROM context_map_entries
+      WHERE id = ?
+    `).get(input.id) as Record<string, unknown> | null;
+    if (!row) throw new Error(`Context map entry not found after upsert: ${input.id}`);
+    return rowToContextMapEntry(row);
+  }
+
+  async getContextMapEntry(id: string): Promise<ContextMapEntry | null> {
+    const row = this.database.query(`
+      SELECT id, scope_id, kind, title, build_mode, status, source_set_hash,
+             extractor_version, node_count, edge_count, community_count, graph_json,
+             generated_at, stale_reason
+      FROM context_map_entries
+      WHERE id = ?
+    `).get(id) as Record<string, unknown> | null;
+    return row ? rowToContextMapEntry(row) : null;
+  }
+
+  async listContextMapEntries(filters?: ContextMapFilters): Promise<ContextMapEntry[]> {
+    const limit = filters?.limit ?? 100;
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (filters?.scope_id) {
+      clauses.push('scope_id = ?');
+      params.push(filters.scope_id);
+    }
+    if (filters?.kind) {
+      clauses.push('kind = ?');
+      params.push(filters.kind);
+    }
+
+    params.push(limit);
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = this.database.query(`
+      SELECT id, scope_id, kind, title, build_mode, status, source_set_hash,
+             extractor_version, node_count, edge_count, community_count, graph_json,
+             generated_at, stale_reason
+      FROM context_map_entries
+      ${whereClause}
+      ORDER BY generated_at DESC, id ASC
+      LIMIT ?
+    `).all(...params) as Record<string, unknown>[];
+    return rows.map(rowToContextMapEntry);
+  }
+
+  async deleteContextMapEntry(id: string): Promise<void> {
+    this.database.run(`DELETE FROM context_map_entries WHERE id = ?`, [id]);
+  }
+
   async updateSlug(oldSlug: string, newSlug: string): Promise<void> {
     this.database.run(`UPDATE pages SET slug = ?, updated_at = ? WHERE slug = ? OR lower(slug) = ?`, [
       validateSlug(newSlug),
@@ -1697,6 +1814,30 @@ export class SQLiteEngine implements BrainEngine {
               ON note_section_entries(scope_id, page_slug, line_start);
             CREATE INDEX IF NOT EXISTS idx_note_sections_scope_indexed
               ON note_section_entries(scope_id, last_indexed_at DESC);
+          `);
+          break;
+        case 11:
+          this.database.exec(`
+            CREATE TABLE IF NOT EXISTS context_map_entries (
+              id TEXT PRIMARY KEY,
+              scope_id TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              title TEXT NOT NULL,
+              build_mode TEXT NOT NULL,
+              status TEXT NOT NULL,
+              source_set_hash TEXT NOT NULL,
+              extractor_version TEXT NOT NULL,
+              node_count INTEGER NOT NULL,
+              edge_count INTEGER NOT NULL,
+              community_count INTEGER NOT NULL DEFAULT 0,
+              graph_json TEXT NOT NULL DEFAULT '{}',
+              generated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+              stale_reason TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_context_map_scope_generated
+              ON context_map_entries(scope_id, generated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_context_map_scope_kind
+              ON context_map_entries(scope_id, kind);
           `);
           break;
       }
@@ -2161,6 +2302,25 @@ function rowToNoteSectionEntry(row: Record<string, unknown>): NoteSectionEntry {
     content_hash: String(row.content_hash),
     extractor_version: String(row.extractor_version),
     last_indexed_at: new Date(String(row.last_indexed_at)),
+  };
+}
+
+function rowToContextMapEntry(row: Record<string, unknown>): ContextMapEntry {
+  return {
+    id: String(row.id),
+    scope_id: String(row.scope_id),
+    kind: String(row.kind),
+    title: String(row.title),
+    build_mode: String(row.build_mode),
+    status: String(row.status),
+    source_set_hash: String(row.source_set_hash),
+    extractor_version: String(row.extractor_version),
+    node_count: Number(row.node_count),
+    edge_count: Number(row.edge_count),
+    community_count: Number(row.community_count ?? 0),
+    graph_json: parseJsonObject(row.graph_json),
+    generated_at: new Date(String(row.generated_at)),
+    stale_reason: row.stale_reason == null ? null : String(row.stale_reason),
   };
 }
 

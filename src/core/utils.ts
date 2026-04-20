@@ -5,6 +5,7 @@ import type {
   NoteManifestEntry,
   NoteManifestHeading,
   NoteSectionEntry,
+  ContextMapEntry,
   Chunk,
   SearchResult,
   TaskAttempt,
@@ -158,6 +159,25 @@ export function rowToNoteSectionEntry(row: Record<string, unknown>): NoteSection
     content_hash: row.content_hash as string,
     extractor_version: row.extractor_version as string,
     last_indexed_at: new Date(row.last_indexed_at as string),
+  };
+}
+
+export function rowToContextMapEntry(row: Record<string, unknown>): ContextMapEntry {
+  return {
+    id: row.id as string,
+    scope_id: row.scope_id as string,
+    kind: row.kind as string,
+    title: row.title as string,
+    build_mode: row.build_mode as string,
+    status: row.status as string,
+    source_set_hash: row.source_set_hash as string,
+    extractor_version: row.extractor_version as string,
+    node_count: Number(row.node_count),
+    edge_count: Number(row.edge_count),
+    community_count: Number(row.community_count ?? 0),
+    graph_json: parseJsonObject(row.graph_json),
+    generated_at: new Date(row.generated_at as string),
+    stale_reason: row.stale_reason == null ? null : String(row.stale_reason),
   };
 }
 

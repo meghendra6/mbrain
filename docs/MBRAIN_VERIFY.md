@@ -202,6 +202,36 @@ Expected:
 - `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
 - `acceptance.phase2_status` matches the local guardrail outcome without requiring an external baseline artifact
 
+## Phase 2 context-map verification
+
+Run:
+
+```bash
+bun test test/context-map-schema.test.ts test/context-map-service.test.ts test/context-map-operations.test.ts test/phase2-context-map.test.ts
+```
+
+Expected:
+
+- context-map schema and persisted builder coverage pass on the local sqlite/pglite path
+- `map-build`, `map-get`, and `map-list` stay available through the shared operation surface
+- persisted workspace maps are rebuildable from existing manifest and section rows
+
+## Phase 2 context-map benchmark
+
+Run:
+
+```bash
+bun run bench:phase2-context-map --json
+```
+
+Expected:
+
+- the report includes `context_map_build`, `context_map_get`, `context_map_list`, and `context_map_correctness`
+- latency workloads report positive `p50_ms` and `p95_ms`
+- `context_map_correctness.success_rate` is `100`
+- `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
+- `acceptance.phase2_status` matches the local guardrail outcome without requiring an external baseline artifact
+
 ---
 
 ## 2. Skillpack Loaded

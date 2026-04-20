@@ -273,6 +273,31 @@ CREATE INDEX IF NOT EXISTS idx_note_sections_scope_indexed
   ON note_section_entries(scope_id, last_indexed_at DESC);
 
 -- ============================================================
+-- context_map_entries: persisted deterministic structural map artifacts
+-- ============================================================
+CREATE TABLE IF NOT EXISTS context_map_entries (
+  id                TEXT PRIMARY KEY,
+  scope_id          TEXT NOT NULL,
+  kind              TEXT NOT NULL,
+  title             TEXT NOT NULL,
+  build_mode        TEXT NOT NULL,
+  status            TEXT NOT NULL,
+  source_set_hash   TEXT NOT NULL,
+  extractor_version TEXT NOT NULL,
+  node_count        INTEGER NOT NULL,
+  edge_count        INTEGER NOT NULL,
+  community_count   INTEGER NOT NULL DEFAULT 0,
+  graph_json        JSONB NOT NULL DEFAULT '{}',
+  generated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  stale_reason      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_context_map_scope_generated
+  ON context_map_entries(scope_id, generated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_context_map_scope_kind
+  ON context_map_entries(scope_id, kind);
+
+-- ============================================================
 -- config: brain-level settings
 -- ============================================================
 CREATE TABLE IF NOT EXISTS config (

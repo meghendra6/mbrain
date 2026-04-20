@@ -11,6 +11,7 @@ import { importFromContent } from './import-file.ts';
 import { serializeMarkdown } from './markdown.ts';
 import { hybridSearch } from './search/hybrid.ts';
 import { expandQuery } from './search/expansion.ts';
+import { buildStructuralContextMapEntry } from './services/context-map-service.ts';
 import { DEFAULT_NOTE_MANIFEST_SCOPE_ID, rebuildNoteManifestEntries } from './services/note-manifest-service.ts';
 import { findStructuralPath, getStructuralNeighbors } from './services/note-structural-graph-service.ts';
 import { rebuildNoteSectionEntries } from './services/note-section-service.ts';
@@ -403,6 +404,44 @@ export function formatResult(
         `Hop count: ${path.hop_count}`,
         `Nodes: ${(path.node_ids || []).join(' -> ')}`,
       ].join('\n') + '\n';
+    }
+    case 'build_context_map': {
+      const map = result as any;
+      return [
+        `Built context map: ${map.id}`,
+        `Scope: ${map.scope_id}`,
+        `Kind: ${map.kind}`,
+        `Nodes: ${map.node_count}`,
+        `Edges: ${map.edge_count}`,
+      ].join('\n') + '\n';
+    }
+    case 'get_context_map_entry': {
+      const map = result as any;
+      return [
+        `${map.title} [${map.kind}]`,
+        `Id: ${map.id}`,
+        `Scope: ${map.scope_id}`,
+        `Mode: ${map.build_mode}`,
+        `Status: ${map.status}`,
+        `Source hash: ${map.source_set_hash}`,
+        `Nodes: ${map.node_count}`,
+        `Edges: ${map.edge_count}`,
+        `Communities: ${map.community_count}`,
+        `Generated: ${new Date(map.generated_at).toISOString()}`,
+        `Stale reason: ${map.stale_reason || 'none'}`,
+      ].join('\n') + '\n';
+    }
+    case 'list_context_map_entries': {
+      const entries = result as any[];
+      if (entries.length === 0) return 'No context map entries.\n';
+      const rows = entries.map((entry) =>
+        `${entry.id}\t${entry.kind}\t${entry.generated_at?.toString().slice(0, 19) || '?'}\t${entry.node_count}/${entry.edge_count}`,
+      ).join('\n') + '\n';
+      const requestedLimit = (params.limit as number) ?? 20;
+      if (entries.length >= requestedLimit) {
+        return rows + `\n(result may be truncated at ${requestedLimit}; pass --limit N or -n N to change)\n`;
+      }
+      return rows;
     }
     case 'search':
     case 'query': {
@@ -1350,6 +1389,61 @@ const find_note_structural_path: Operation = {
   cliHints: { name: 'section-path', positional: ['from_node_id', 'to_node_id'] },
 };
 
+const build_context_map: Operation = {
+  name: 'build_context_map',
+  description: 'Build or rebuild the persisted structural workspace context map.',
+  params: {
+    scope_id: { type: 'string', description: 'Context-map scope id (default: workspace:default)' },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    const scopeId = String(p.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID);
+    if (ctx.dryRun) {
+      return { dry_run: true, action: 'build_context_map', scope_id: scopeId };
+    }
+    return buildStructuralContextMapEntry(ctx.engine, scopeId);
+  },
+  cliHints: { name: 'map-build' },
+};
+
+const get_context_map_entry: Operation = {
+  name: 'get_context_map_entry',
+  description: 'Get one persisted structural context map by id.',
+  params: {
+    id: { type: 'string', required: true, description: 'Context map id' },
+  },
+  handler: async (ctx, p) => {
+    const entry = await ctx.engine.getContextMapEntry(String(p.id));
+    if (!entry) {
+      throw new OperationError(
+        'page_not_found',
+        `Context map entry not found: ${String(p.id)}`,
+        'Run map-build for the relevant scope first.',
+      );
+    }
+    return entry;
+  },
+  cliHints: { name: 'map-get', positional: ['id'] },
+};
+
+const list_context_map_entries: Operation = {
+  name: 'list_context_map_entries',
+  description: 'List persisted structural context map entries.',
+  params: {
+    scope_id: { type: 'string', description: 'Context-map scope id (default: workspace:default)' },
+    kind: { type: 'string', description: 'Optional context-map kind filter' },
+    limit: { type: 'number', description: 'Max results (default 20)' },
+  },
+  handler: async (ctx, p) => {
+    return ctx.engine.listContextMapEntries({
+      scope_id: String(p.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID),
+      kind: p.kind as string | undefined,
+      limit: (p.limit as number) ?? 20,
+    });
+  },
+  cliHints: { name: 'map-list', aliases: { n: 'limit' } },
+};
+
 const record_retrieval_trace: Operation = {
   name: 'record_retrieval_trace',
   description: 'Record a retrieval trace for a task-scoped operational-memory flow.',
@@ -1827,6 +1921,8 @@ export const operations: Operation[] = [
   get_note_section_entry, list_note_section_entries, rebuild_note_sections,
   // Structural graph
   get_note_structural_neighbors, find_note_structural_path,
+  // Persisted context maps
+  build_context_map, get_context_map_entry, list_context_map_entries,
   // Operational memory
   list_tasks, start_task, update_task, resume_task, get_task_working_set, record_retrieval_trace, list_task_traces, list_task_attempts, list_task_decisions, refresh_task_working_set, record_attempt, record_decision,
   // Ingest log

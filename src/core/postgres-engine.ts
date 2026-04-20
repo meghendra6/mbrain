@@ -10,6 +10,9 @@ import type {
   NoteSectionEntry,
   NoteSectionEntryInput,
   NoteSectionFilters,
+  ContextMapEntry,
+  ContextMapEntryInput,
+  ContextMapFilters,
   Chunk, ChunkInput,
   SearchResult, SearchOpts,
   Link, GraphNode,
@@ -42,6 +45,7 @@ import {
   importContentHash,
   rowToPage,
   rowToChunk,
+  rowToContextMapEntry,
   rowToNoteManifestEntry,
   rowToNoteSectionEntry,
   rowToRetrievalTrace,
@@ -1236,6 +1240,101 @@ export class PostgresEngine implements BrainEngine {
     await sql`
       DELETE FROM note_section_entries
       WHERE scope_id = ${scopeId} AND page_slug = ${validateSlug(pageSlug)}
+    `;
+  }
+
+  async upsertContextMapEntry(input: ContextMapEntryInput): Promise<ContextMapEntry> {
+    const sql = this.sql;
+    const rows = await sql`
+      INSERT INTO context_map_entries (
+        id, scope_id, kind, title, build_mode, status, source_set_hash,
+        extractor_version, node_count, edge_count, community_count, graph_json,
+        generated_at, stale_reason
+      ) VALUES (
+        ${input.id},
+        ${input.scope_id},
+        ${input.kind},
+        ${input.title},
+        ${input.build_mode},
+        ${input.status},
+        ${input.source_set_hash},
+        ${input.extractor_version},
+        ${input.node_count},
+        ${input.edge_count},
+        ${input.community_count ?? 0},
+        ${JSON.stringify(input.graph_json ?? {})}::jsonb,
+        now(),
+        ${input.stale_reason ?? null}
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        scope_id = EXCLUDED.scope_id,
+        kind = EXCLUDED.kind,
+        title = EXCLUDED.title,
+        build_mode = EXCLUDED.build_mode,
+        status = EXCLUDED.status,
+        source_set_hash = EXCLUDED.source_set_hash,
+        extractor_version = EXCLUDED.extractor_version,
+        node_count = EXCLUDED.node_count,
+        edge_count = EXCLUDED.edge_count,
+        community_count = EXCLUDED.community_count,
+        graph_json = EXCLUDED.graph_json,
+        generated_at = EXCLUDED.generated_at,
+        stale_reason = EXCLUDED.stale_reason
+      RETURNING id, scope_id, kind, title, build_mode, status, source_set_hash,
+                extractor_version, node_count, edge_count, community_count, graph_json,
+                generated_at, stale_reason
+    `;
+    return rowToContextMapEntry(rows[0] as Record<string, unknown>);
+  }
+
+  async getContextMapEntry(id: string): Promise<ContextMapEntry | null> {
+    const sql = this.sql;
+    const rows = await sql`
+      SELECT id, scope_id, kind, title, build_mode, status, source_set_hash,
+             extractor_version, node_count, edge_count, community_count, graph_json,
+             generated_at, stale_reason
+      FROM context_map_entries
+      WHERE id = ${id}
+    `;
+    if (rows.length === 0) return null;
+    return rowToContextMapEntry(rows[0] as Record<string, unknown>);
+  }
+
+  async listContextMapEntries(filters?: ContextMapFilters): Promise<ContextMapEntry[]> {
+    const sql = this.sql;
+    const limit = filters?.limit ?? 100;
+    const params: unknown[] = [];
+    const clauses: string[] = [];
+
+    if (filters?.scope_id) {
+      params.push(filters.scope_id);
+      clauses.push(`scope_id = $${params.length}`);
+    }
+    if (filters?.kind) {
+      params.push(filters.kind);
+      clauses.push(`kind = $${params.length}`);
+    }
+
+    params.push(limit);
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = await sql.unsafe(
+      `SELECT id, scope_id, kind, title, build_mode, status, source_set_hash,
+              extractor_version, node_count, edge_count, community_count, graph_json,
+              generated_at, stale_reason
+       FROM context_map_entries
+       ${whereClause}
+       ORDER BY generated_at DESC, id ASC
+       LIMIT $${params.length}`,
+      params,
+    );
+    return (rows as Record<string, unknown>[]).map(rowToContextMapEntry);
+  }
+
+  async deleteContextMapEntry(id: string): Promise<void> {
+    const sql = this.sql;
+    await sql`
+      DELETE FROM context_map_entries
+      WHERE id = ${id}
     `;
   }
 

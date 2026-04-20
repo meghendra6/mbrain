@@ -170,6 +170,45 @@ export interface NoteSectionFilters {
   limit?: number;
 }
 
+export interface ContextMapEntry {
+  id: string;
+  scope_id: string;
+  kind: string;
+  title: string;
+  build_mode: string;
+  status: string;
+  source_set_hash: string;
+  extractor_version: string;
+  node_count: number;
+  edge_count: number;
+  community_count: number;
+  graph_json: Record<string, unknown>;
+  generated_at: Date;
+  stale_reason: string | null;
+}
+
+export interface ContextMapEntryInput {
+  id: string;
+  scope_id: string;
+  kind: string;
+  title: string;
+  build_mode: string;
+  status: string;
+  source_set_hash: string;
+  extractor_version: string;
+  node_count: number;
+  edge_count: number;
+  community_count?: number;
+  graph_json: Record<string, unknown>;
+  stale_reason?: string | null;
+}
+
+export interface ContextMapFilters {
+  scope_id?: string;
+  kind?: string;
+  limit?: number;
+}
+
 // Chunks
 export interface Chunk {
   id: number;
