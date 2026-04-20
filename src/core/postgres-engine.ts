@@ -13,6 +13,9 @@ import type {
   ContextMapEntry,
   ContextMapEntryInput,
   ContextMapFilters,
+  ContextAtlasEntry,
+  ContextAtlasEntryInput,
+  ContextAtlasFilters,
   Chunk, ChunkInput,
   SearchResult, SearchOpts,
   Link, GraphNode,
@@ -45,6 +48,7 @@ import {
   importContentHash,
   rowToPage,
   rowToChunk,
+  rowToContextAtlasEntry,
   rowToContextMapEntry,
   rowToNoteManifestEntry,
   rowToNoteSectionEntry,
@@ -1334,6 +1338,83 @@ export class PostgresEngine implements BrainEngine {
     const sql = this.sql;
     await sql`
       DELETE FROM context_map_entries
+      WHERE id = ${id}
+    `;
+  }
+
+  async upsertContextAtlasEntry(input: ContextAtlasEntryInput): Promise<ContextAtlasEntry> {
+    const sql = this.sql;
+    const rows = await sql`
+      INSERT INTO context_atlas_entries (
+        id, map_id, scope_id, kind, title, freshness, entrypoints, budget_hint, generated_at
+      ) VALUES (
+        ${input.id},
+        ${input.map_id},
+        ${input.scope_id},
+        ${input.kind},
+        ${input.title},
+        ${input.freshness},
+        ${JSON.stringify(input.entrypoints ?? [])}::jsonb,
+        ${input.budget_hint},
+        now()
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        map_id = EXCLUDED.map_id,
+        scope_id = EXCLUDED.scope_id,
+        kind = EXCLUDED.kind,
+        title = EXCLUDED.title,
+        freshness = EXCLUDED.freshness,
+        entrypoints = EXCLUDED.entrypoints,
+        budget_hint = EXCLUDED.budget_hint,
+        generated_at = EXCLUDED.generated_at
+      RETURNING id, map_id, scope_id, kind, title, freshness, entrypoints, budget_hint, generated_at
+    `;
+    return rowToContextAtlasEntry(rows[0] as Record<string, unknown>);
+  }
+
+  async getContextAtlasEntry(id: string): Promise<ContextAtlasEntry | null> {
+    const sql = this.sql;
+    const rows = await sql`
+      SELECT id, map_id, scope_id, kind, title, freshness, entrypoints, budget_hint, generated_at
+      FROM context_atlas_entries
+      WHERE id = ${id}
+    `;
+    if (rows.length === 0) return null;
+    return rowToContextAtlasEntry(rows[0] as Record<string, unknown>);
+  }
+
+  async listContextAtlasEntries(filters?: ContextAtlasFilters): Promise<ContextAtlasEntry[]> {
+    const sql = this.sql;
+    const limit = filters?.limit ?? 100;
+    const params: unknown[] = [];
+    const clauses: string[] = [];
+
+    if (filters?.scope_id) {
+      params.push(filters.scope_id);
+      clauses.push(`scope_id = $${params.length}`);
+    }
+    if (filters?.kind) {
+      params.push(filters.kind);
+      clauses.push(`kind = $${params.length}`);
+    }
+
+    params.push(limit);
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = await sql.unsafe(
+      `SELECT id, map_id, scope_id, kind, title, freshness, entrypoints, budget_hint, generated_at
+       FROM context_atlas_entries
+       ${whereClause}
+       ORDER BY generated_at DESC, id ASC
+       LIMIT $${params.length}`,
+      params,
+    );
+    return (rows as Record<string, unknown>[]).map(rowToContextAtlasEntry);
+  }
+
+  async deleteContextAtlasEntry(id: string): Promise<void> {
+    const sql = this.sql;
+    await sql`
+      DELETE FROM context_atlas_entries
       WHERE id = ${id}
     `;
   }

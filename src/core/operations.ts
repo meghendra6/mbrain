@@ -12,6 +12,11 @@ import { serializeMarkdown } from './markdown.ts';
 import { hybridSearch } from './search/hybrid.ts';
 import { expandQuery } from './search/expansion.ts';
 import {
+  buildStructuralContextAtlasEntry,
+  getStructuralContextAtlasEntry,
+  listStructuralContextAtlasEntries,
+} from './services/context-atlas-service.ts';
+import {
   buildStructuralContextMapEntry,
   getStructuralContextMapEntry,
   listStructuralContextMapEntries,
@@ -440,6 +445,41 @@ export function formatResult(
       if (entries.length === 0) return 'No context map entries.\n';
       const rows = entries.map((entry) =>
         `${entry.id}\t${entry.kind}\t${entry.status}\t${entry.generated_at?.toString().slice(0, 19) || '?'}\t${entry.node_count}/${entry.edge_count}`,
+      ).join('\n') + '\n';
+      const requestedLimit = (params.limit as number) ?? 20;
+      if (entries.length >= requestedLimit) {
+        return rows + `\n(result may be truncated at ${requestedLimit}; pass --limit N or -n N to change)\n`;
+      }
+      return rows;
+    }
+    case 'build_context_atlas': {
+      const atlas = result as any;
+      return [
+        `Built context atlas: ${atlas.id}`,
+        `Map: ${atlas.map_id}`,
+        `Scope: ${atlas.scope_id}`,
+        `Freshness: ${atlas.freshness}`,
+        `Entrypoints: ${(atlas.entrypoints || []).join(', ') || 'none'}`,
+      ].join('\n') + '\n';
+    }
+    case 'get_context_atlas_entry': {
+      const atlas = result as any;
+      return [
+        `${atlas.title} [${atlas.kind}]`,
+        `Id: ${atlas.id}`,
+        `Map: ${atlas.map_id}`,
+        `Scope: ${atlas.scope_id}`,
+        `Freshness: ${atlas.freshness}`,
+        `Entrypoints: ${(atlas.entrypoints || []).join(', ') || 'none'}`,
+        `Budget hint: ${atlas.budget_hint}`,
+        `Generated: ${new Date(atlas.generated_at).toISOString()}`,
+      ].join('\n') + '\n';
+    }
+    case 'list_context_atlas_entries': {
+      const entries = result as any[];
+      if (entries.length === 0) return 'No context atlas entries.\n';
+      const rows = entries.map((entry) =>
+        `${entry.id}\t${entry.kind}\t${entry.freshness}\t${entry.generated_at?.toString().slice(0, 19) || '?'}\t${entry.map_id}`,
       ).join('\n') + '\n';
       const requestedLimit = (params.limit as number) ?? 20;
       if (entries.length >= requestedLimit) {
@@ -1448,6 +1488,61 @@ const list_context_map_entries: Operation = {
   cliHints: { name: 'map-list', aliases: { n: 'limit' } },
 };
 
+const build_context_atlas: Operation = {
+  name: 'build_context_atlas',
+  description: 'Build or rebuild the persisted workspace atlas registry entry.',
+  params: {
+    scope_id: { type: 'string', description: 'Atlas scope id (default: workspace:default)' },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    const scopeId = String(p.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID);
+    if (ctx.dryRun) {
+      return { dry_run: true, action: 'build_context_atlas', scope_id: scopeId };
+    }
+    return buildStructuralContextAtlasEntry(ctx.engine, scopeId);
+  },
+  cliHints: { name: 'atlas-build' },
+};
+
+const get_context_atlas_entry: Operation = {
+  name: 'get_context_atlas_entry',
+  description: 'Get one persisted atlas registry entry by id.',
+  params: {
+    id: { type: 'string', required: true, description: 'Atlas entry id' },
+  },
+  handler: async (ctx, p) => {
+    const entry = await getStructuralContextAtlasEntry(ctx.engine, String(p.id));
+    if (!entry) {
+      throw new OperationError(
+        'page_not_found',
+        `Context atlas entry not found: ${String(p.id)}`,
+        'Run atlas-build for the relevant scope first.',
+      );
+    }
+    return entry;
+  },
+  cliHints: { name: 'atlas-get', positional: ['id'] },
+};
+
+const list_context_atlas_entries: Operation = {
+  name: 'list_context_atlas_entries',
+  description: 'List persisted atlas registry entries.',
+  params: {
+    scope_id: { type: 'string', description: 'Atlas scope id (default: workspace:default)' },
+    kind: { type: 'string', description: 'Optional atlas kind filter' },
+    limit: { type: 'number', description: 'Max results (default 20)' },
+  },
+  handler: async (ctx, p) => {
+    return listStructuralContextAtlasEntries(ctx.engine, {
+      scope_id: String(p.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID),
+      kind: p.kind as string | undefined,
+      limit: (p.limit as number) ?? 20,
+    });
+  },
+  cliHints: { name: 'atlas-list', aliases: { n: 'limit' } },
+};
+
 const record_retrieval_trace: Operation = {
   name: 'record_retrieval_trace',
   description: 'Record a retrieval trace for a task-scoped operational-memory flow.',
@@ -1927,6 +2022,8 @@ export const operations: Operation[] = [
   get_note_structural_neighbors, find_note_structural_path,
   // Persisted context maps
   build_context_map, get_context_map_entry, list_context_map_entries,
+  // Context atlas registry
+  build_context_atlas, get_context_atlas_entry, list_context_atlas_entries,
   // Operational memory
   list_tasks, start_task, update_task, resume_task, get_task_working_set, record_retrieval_trace, list_task_traces, list_task_attempts, list_task_decisions, refresh_task_working_set, record_attempt, record_decision,
   // Ingest log

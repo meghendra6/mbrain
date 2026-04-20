@@ -25,6 +25,7 @@
   "bench:phase2-sections": "bun run ./scripts/bench/phase2-note-sections.ts",
   "bench:phase2-structural-paths": "bun run ./scripts/bench/phase2-structural-paths.ts",
   "bench:phase2-context-map": "bun run ./scripts/bench/phase2-context-map.ts",
+  "bench:phase2-context-atlas": "bun run ./scripts/bench/phase2-context-atlas.ts",
   "test": "bun test",
   "test:phase1": "bun test test/task-memory-schema.test.ts test/task-memory-engine.test.ts test/task-memory-service.test.ts test/task-memory-operations.test.ts test/phase1-operational-memory.test.ts test/sqlite-engine.test.ts test/pglite-engine.test.ts test/postgres-engine.test.ts test/phase0-contract-parity.test.ts",
   "test:e2e": "bun test test/e2e/",

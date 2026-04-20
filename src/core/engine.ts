@@ -9,6 +9,9 @@ import type {
   ContextMapEntry,
   ContextMapEntryInput,
   ContextMapFilters,
+  ContextAtlasEntry,
+  ContextAtlasEntryInput,
+  ContextAtlasFilters,
   Chunk, ChunkInput,
   SearchResult, SearchOpts,
   Link, GraphNode,
@@ -129,6 +132,12 @@ export interface BrainEngine {
   getContextMapEntry(id: string): Promise<ContextMapEntry | null>;
   listContextMapEntries(filters?: ContextMapFilters): Promise<ContextMapEntry[]>;
   deleteContextMapEntry(id: string): Promise<void>;
+
+  // Persisted context atlas registry
+  upsertContextAtlasEntry(input: ContextAtlasEntryInput): Promise<ContextAtlasEntry>;
+  getContextAtlasEntry(id: string): Promise<ContextAtlasEntry | null>;
+  listContextAtlasEntries(filters?: ContextAtlasFilters): Promise<ContextAtlasEntry[]>;
+  deleteContextAtlasEntry(id: string): Promise<void>;
 
   // Sync
   updateSlug(oldSlug: string, newSlug: string): Promise<void>;

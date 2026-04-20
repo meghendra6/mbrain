@@ -6,6 +6,7 @@ import type {
   NoteManifestHeading,
   NoteSectionEntry,
   ContextMapEntry,
+  ContextAtlasEntry,
   Chunk,
   SearchResult,
   TaskAttempt,
@@ -178,6 +179,20 @@ export function rowToContextMapEntry(row: Record<string, unknown>): ContextMapEn
     graph_json: parseJsonObject(row.graph_json),
     generated_at: new Date(row.generated_at as string),
     stale_reason: row.stale_reason == null ? null : String(row.stale_reason),
+  };
+}
+
+export function rowToContextAtlasEntry(row: Record<string, unknown>): ContextAtlasEntry {
+  return {
+    id: row.id as string,
+    map_id: row.map_id as string,
+    scope_id: row.scope_id as string,
+    kind: row.kind as string,
+    title: row.title as string,
+    freshness: row.freshness as string,
+    entrypoints: parseJsonStringArray(row.entrypoints),
+    budget_hint: Number(row.budget_hint),
+    generated_at: new Date(row.generated_at as string),
   };
 }
 

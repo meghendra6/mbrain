@@ -21,6 +21,9 @@ import type {
   ContextMapEntry,
   ContextMapEntryInput,
   ContextMapFilters,
+  ContextAtlasEntry,
+  ContextAtlasEntryInput,
+  ContextAtlasFilters,
   Chunk, ChunkInput,
   SearchResult, SearchOpts,
   Link, GraphNode,
@@ -305,6 +308,22 @@ CREATE INDEX IF NOT EXISTS idx_context_map_scope_generated
   ON context_map_entries(scope_id, generated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_context_map_scope_kind
   ON context_map_entries(scope_id, kind);
+
+CREATE TABLE IF NOT EXISTS context_atlas_entries (
+  id TEXT PRIMARY KEY,
+  map_id TEXT NOT NULL REFERENCES context_map_entries(id) ON DELETE CASCADE,
+  scope_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  freshness TEXT NOT NULL,
+  entrypoints TEXT NOT NULL DEFAULT '[]',
+  budget_hint INTEGER NOT NULL,
+  generated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_context_atlas_scope_generated
+  ON context_atlas_entries(scope_id, generated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_context_atlas_scope_kind
+  ON context_atlas_entries(scope_id, kind);
 
 CREATE TABLE IF NOT EXISTS access_tokens (
   id TEXT PRIMARY KEY,
@@ -1574,6 +1593,81 @@ export class SQLiteEngine implements BrainEngine {
     this.database.run(`DELETE FROM context_map_entries WHERE id = ?`, [id]);
   }
 
+  async upsertContextAtlasEntry(input: ContextAtlasEntryInput): Promise<ContextAtlasEntry> {
+    const timestamp = nowIso();
+    this.database.run(`
+      INSERT INTO context_atlas_entries (
+        id, map_id, scope_id, kind, title, freshness, entrypoints, budget_hint, generated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        map_id = excluded.map_id,
+        scope_id = excluded.scope_id,
+        kind = excluded.kind,
+        title = excluded.title,
+        freshness = excluded.freshness,
+        entrypoints = excluded.entrypoints,
+        budget_hint = excluded.budget_hint,
+        generated_at = excluded.generated_at
+    `, [
+      input.id,
+      input.map_id,
+      input.scope_id,
+      input.kind,
+      input.title,
+      input.freshness,
+      JSON.stringify(input.entrypoints ?? []),
+      input.budget_hint,
+      timestamp,
+    ]);
+
+    const row = this.database.query(`
+      SELECT id, map_id, scope_id, kind, title, freshness, entrypoints, budget_hint, generated_at
+      FROM context_atlas_entries
+      WHERE id = ?
+    `).get(input.id) as Record<string, unknown> | null;
+    if (!row) throw new Error(`Context atlas entry not found after upsert: ${input.id}`);
+    return rowToContextAtlasEntry(row);
+  }
+
+  async getContextAtlasEntry(id: string): Promise<ContextAtlasEntry | null> {
+    const row = this.database.query(`
+      SELECT id, map_id, scope_id, kind, title, freshness, entrypoints, budget_hint, generated_at
+      FROM context_atlas_entries
+      WHERE id = ?
+    `).get(id) as Record<string, unknown> | null;
+    return row ? rowToContextAtlasEntry(row) : null;
+  }
+
+  async listContextAtlasEntries(filters?: ContextAtlasFilters): Promise<ContextAtlasEntry[]> {
+    const limit = filters?.limit ?? 100;
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (filters?.scope_id) {
+      clauses.push('scope_id = ?');
+      params.push(filters.scope_id);
+    }
+    if (filters?.kind) {
+      clauses.push('kind = ?');
+      params.push(filters.kind);
+    }
+
+    params.push(limit);
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = this.database.query(`
+      SELECT id, map_id, scope_id, kind, title, freshness, entrypoints, budget_hint, generated_at
+      FROM context_atlas_entries
+      ${whereClause}
+      ORDER BY generated_at DESC, id ASC
+      LIMIT ?
+    `).all(...params) as Record<string, unknown>[];
+    return rows.map(rowToContextAtlasEntry);
+  }
+
+  async deleteContextAtlasEntry(id: string): Promise<void> {
+    this.database.run(`DELETE FROM context_atlas_entries WHERE id = ?`, [id]);
+  }
+
   async updateSlug(oldSlug: string, newSlug: string): Promise<void> {
     this.database.run(`UPDATE pages SET slug = ?, updated_at = ? WHERE slug = ? OR lower(slug) = ?`, [
       validateSlug(newSlug),
@@ -1838,6 +1932,25 @@ export class SQLiteEngine implements BrainEngine {
               ON context_map_entries(scope_id, generated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_context_map_scope_kind
               ON context_map_entries(scope_id, kind);
+          `);
+          break;
+        case 12:
+          this.database.exec(`
+            CREATE TABLE IF NOT EXISTS context_atlas_entries (
+              id TEXT PRIMARY KEY,
+              map_id TEXT NOT NULL REFERENCES context_map_entries(id) ON DELETE CASCADE,
+              scope_id TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              title TEXT NOT NULL,
+              freshness TEXT NOT NULL,
+              entrypoints TEXT NOT NULL DEFAULT '[]',
+              budget_hint INTEGER NOT NULL,
+              generated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_context_atlas_scope_generated
+              ON context_atlas_entries(scope_id, generated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_context_atlas_scope_kind
+              ON context_atlas_entries(scope_id, kind);
           `);
           break;
       }
@@ -2321,6 +2434,20 @@ function rowToContextMapEntry(row: Record<string, unknown>): ContextMapEntry {
     graph_json: parseJsonObject(row.graph_json),
     generated_at: new Date(String(row.generated_at)),
     stale_reason: row.stale_reason == null ? null : String(row.stale_reason),
+  };
+}
+
+function rowToContextAtlasEntry(row: Record<string, unknown>): ContextAtlasEntry {
+  return {
+    id: String(row.id),
+    map_id: String(row.map_id),
+    scope_id: String(row.scope_id),
+    kind: String(row.kind),
+    title: String(row.title),
+    freshness: String(row.freshness),
+    entrypoints: parseJsonArray(row.entrypoints),
+    budget_hint: Number(row.budget_hint),
+    generated_at: new Date(String(row.generated_at)),
   };
 }
 

@@ -209,6 +209,35 @@ export interface ContextMapFilters {
   limit?: number;
 }
 
+export interface ContextAtlasEntry {
+  id: string;
+  map_id: string;
+  scope_id: string;
+  kind: string;
+  title: string;
+  freshness: string;
+  entrypoints: string[];
+  budget_hint: number;
+  generated_at: Date;
+}
+
+export interface ContextAtlasEntryInput {
+  id: string;
+  map_id: string;
+  scope_id: string;
+  kind: string;
+  title: string;
+  freshness: string;
+  entrypoints: string[];
+  budget_hint: number;
+}
+
+export interface ContextAtlasFilters {
+  scope_id?: string;
+  kind?: string;
+  limit?: number;
+}
+
 // Chunks
 export interface Chunk {
   id: number;

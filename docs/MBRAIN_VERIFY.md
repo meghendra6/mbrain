@@ -235,6 +235,37 @@ Expected:
 - `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
 - `acceptance.phase2_status` matches the local guardrail outcome without requiring an external baseline artifact
 
+## Phase 2 context-atlas verification
+
+Run:
+
+```bash
+bun test test/context-atlas-schema.test.ts test/context-atlas-engine.test.ts test/context-atlas-service.test.ts test/context-atlas-operations.test.ts test/phase2-context-atlas.test.ts
+```
+
+Expected:
+
+- context-atlas schema and engine persistence coverage pass on the local sqlite/pglite path
+- `atlas-build`, `atlas-get`, and `atlas-list` stay available through the shared operation surface
+- atlas reads mirror underlying context-map freshness
+- explicit rebuild returns atlas freshness to `fresh`
+
+## Phase 2 context-atlas benchmark
+
+Run:
+
+```bash
+bun run bench:phase2-context-atlas --json
+```
+
+Expected:
+
+- the report includes `context_atlas_build`, `context_atlas_get`, `context_atlas_list`, and `context_atlas_correctness`
+- latency workloads report positive `p50_ms` and `p95_ms`
+- `context_atlas_correctness.success_rate` is `100`, including stale-to-fresh recovery
+- `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
+- `acceptance.phase2_status` matches the local guardrail outcome without requiring an external baseline artifact
+
 ---
 
 ## 2. Skillpack Loaded

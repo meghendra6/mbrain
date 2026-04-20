@@ -282,6 +282,26 @@ CREATE INDEX IF NOT EXISTS idx_context_map_scope_kind
   ON context_map_entries(scope_id, kind);
 
 -- ============================================================
+-- context_atlas_entries: persisted registry over context maps
+-- ============================================================
+CREATE TABLE IF NOT EXISTS context_atlas_entries (
+  id           TEXT PRIMARY KEY,
+  map_id       TEXT NOT NULL REFERENCES context_map_entries(id) ON DELETE CASCADE,
+  scope_id     TEXT NOT NULL,
+  kind         TEXT NOT NULL,
+  title        TEXT NOT NULL,
+  freshness    TEXT NOT NULL,
+  entrypoints  JSONB NOT NULL DEFAULT '[]',
+  budget_hint  INTEGER NOT NULL,
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_context_atlas_scope_generated
+  ON context_atlas_entries(scope_id, generated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_context_atlas_scope_kind
+  ON context_atlas_entries(scope_id, kind);
+
+-- ============================================================
 -- config: brain-level settings
 -- ============================================================
 CREATE TABLE IF NOT EXISTS config (
