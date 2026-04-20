@@ -276,6 +276,21 @@ export interface ContextAtlasOverviewResult {
   overview: ContextAtlasOverviewArtifact | null;
 }
 
+export interface ContextAtlasReport {
+  report_kind: 'structural';
+  title: string;
+  entry_id: string;
+  freshness: string;
+  summary_lines: string[];
+  recommended_reads: ContextAtlasOverviewRead[];
+}
+
+export interface ContextAtlasReportResult {
+  selection_reason: string;
+  candidate_count: number;
+  report: ContextAtlasReport | null;
+}
+
 // Chunks
 export interface Chunk {
   id: number;
