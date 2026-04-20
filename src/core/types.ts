@@ -291,6 +291,36 @@ export interface ContextAtlasReportResult {
   report: ContextAtlasReport | null;
 }
 
+export interface ContextMapReportRead {
+  node_id: string;
+  node_kind: 'page' | 'section';
+  label: string;
+  page_slug: string;
+  path: string;
+  section_id?: string;
+}
+
+export interface ContextMapReport {
+  report_kind: 'structural';
+  title: string;
+  map_id: string;
+  status: string;
+  summary_lines: string[];
+  recommended_reads: ContextMapReportRead[];
+}
+
+export interface ContextMapReportInput {
+  map_id?: string;
+  scope_id?: string;
+  kind?: string;
+}
+
+export interface ContextMapReportResult {
+  selection_reason: string;
+  candidate_count: number;
+  report: ContextMapReport | null;
+}
+
 // Chunks
 export interface Chunk {
   id: number;

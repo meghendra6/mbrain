@@ -525,6 +525,19 @@ describe('CLI dispatch integration', () => {
     expect(exitCode).toBe(0);
   });
 
+  test('map-report --help prints usage without DB connection', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'map-report', '--help'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(stdout).toContain('Usage: mbrain map-report');
+    expect(exitCode).toBe(0);
+  });
+
   test('task-attempts and task-decisions execute against the shared task-memory contract', async () => {
     const initProc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'init', '--local', '--json'], {
       cwd: repoRoot,

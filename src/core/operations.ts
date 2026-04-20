@@ -19,6 +19,7 @@ import {
 } from './services/context-atlas-service.ts';
 import { getStructuralContextAtlasOverview } from './services/context-atlas-overview-service.ts';
 import { getStructuralContextAtlasReport } from './services/context-atlas-report-service.ts';
+import { getStructuralContextMapReport } from './services/context-map-report-service.ts';
 import {
   buildStructuralContextMapEntry,
   getStructuralContextMapEntry,
@@ -547,6 +548,26 @@ export function formatResult(
       return [
         report.title,
         `Entry: ${report.entry_id}`,
+        `Reason: ${resultValue.selection_reason}`,
+        `Candidates: ${resultValue.candidate_count}`,
+        ...report.summary_lines,
+        'Recommended reads:',
+        ...report.recommended_reads.map((item: any) => `- ${item.node_id} | ${item.label} | ${item.path}`),
+      ].join('\n') + '\n';
+    }
+    case 'get_context_map_report': {
+      const resultValue = result as any;
+      if (!resultValue.report) {
+        return [
+          'No context map report available.',
+          `Reason: ${resultValue.selection_reason}`,
+          `Candidates: ${resultValue.candidate_count}`,
+        ].join('\n') + '\n';
+      }
+      const report = resultValue.report;
+      return [
+        report.title,
+        `Map: ${report.map_id}`,
         `Reason: ${resultValue.selection_reason}`,
         `Candidates: ${resultValue.candidate_count}`,
         ...report.summary_lines,
@@ -1674,6 +1695,24 @@ const get_context_atlas_report: Operation = {
   cliHints: { name: 'atlas-report' },
 };
 
+const get_context_map_report: Operation = {
+  name: 'get_context_map_report',
+  description: 'Render a compact human-readable report for a persisted context map.',
+  params: {
+    map_id: { type: 'string', description: 'Optional context map id for a direct read' },
+    scope_id: { type: 'string', description: 'Map scope id (default: workspace:default)' },
+    kind: { type: 'string', description: 'Optional map kind filter when map_id is omitted' },
+  },
+  handler: async (ctx, p) => {
+    return getStructuralContextMapReport(ctx.engine, {
+      map_id: typeof p.map_id === 'string' ? p.map_id : undefined,
+      scope_id: String(p.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID),
+      kind: p.kind as string | undefined,
+    });
+  },
+  cliHints: { name: 'map-report' },
+};
+
 const record_retrieval_trace: Operation = {
   name: 'record_retrieval_trace',
   description: 'Record a retrieval trace for a task-scoped operational-memory flow.',
@@ -2152,7 +2191,7 @@ export const operations: Operation[] = [
   // Structural graph
   get_note_structural_neighbors, find_note_structural_path,
   // Persisted context maps
-  build_context_map, get_context_map_entry, list_context_map_entries,
+  build_context_map, get_context_map_entry, list_context_map_entries, get_context_map_report,
   // Context atlas registry
   build_context_atlas, get_context_atlas_entry, list_context_atlas_entries, select_context_atlas_entry, get_context_atlas_overview, get_context_atlas_report,
   // Operational memory

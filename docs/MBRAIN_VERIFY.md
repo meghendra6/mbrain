@@ -320,6 +320,24 @@ Expected:
 - `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
 - `acceptance.phase2_status` matches the local guardrail outcome without introducing an external baseline artifact
 
+## Phase 2 context-map report
+
+Run:
+
+```bash
+bun test test/context-map-report-service.test.ts test/context-map-report-operations.test.ts test/phase2-context-map-report.test.ts
+bun test test/cli.test.ts -t "map-report --help"
+bun run bench:phase2-context-map-report --json
+```
+
+Expected:
+
+- map report tests pass
+- `map-report` stays available through the shared operation surface
+- benchmark reports `context_map_report` and `context_map_report_correctness`
+- `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
+- `acceptance.phase2_status` matches the local guardrail outcome without introducing an external baseline artifact
+
 ---
 
 ## 2. Skillpack Loaded
