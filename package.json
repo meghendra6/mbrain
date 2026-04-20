@@ -21,6 +21,7 @@
   "build:edge": "bun run build:schema && bun build src/edge-entry.ts --format=esm --outfile=supabase/functions/mbrain-mcp/mbrain-core.js --external=postgres --external=openai --external=fs --external=os --external=path --external=crypto --external=child_process --external=@aws-sdk/client-s3 --external=@anthropic-ai/sdk --external=gray-matter --minify",
   "bench:phase0": "bun run ./scripts/bench/phase0-baseline.ts",
   "bench:phase1": "bun run ./scripts/bench/phase1-operational-memory.ts",
+  "bench:phase2": "bun run ./scripts/bench/phase2-note-manifest.ts",
   "test": "bun test",
   "test:phase1": "bun test test/task-memory-schema.test.ts test/task-memory-engine.test.ts test/task-memory-service.test.ts test/task-memory-operations.test.ts test/phase1-operational-memory.test.ts test/sqlite-engine.test.ts test/pglite-engine.test.ts test/postgres-engine.test.ts test/phase0-contract-parity.test.ts",
   "test:e2e": "bun test test/e2e/",

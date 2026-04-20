@@ -110,6 +110,37 @@ Expected:
 - the same payload is written to the requested file
 - the file can later be passed back through `--baseline`
 
+## Phase 2 note-manifest verification
+
+Run:
+
+```bash
+bun test test/note-manifest-schema.test.ts test/note-manifest-service.test.ts test/note-manifest-engine.test.ts test/note-manifest-operations.test.ts test/phase2-note-manifest.test.ts
+```
+
+Expected:
+
+- note-manifest schema and service coverage pass on the local sqlite/pglite path
+- import refresh keeps note-manifest rows in sync with canonical note writes
+- `manifest-get`, `manifest-list`, and `manifest-rebuild` stay available through the shared operation surface
+
+## Phase 2 note-manifest benchmark
+
+Run:
+
+```bash
+bun run bench:phase2 --json
+```
+
+Expected:
+
+- the report includes `manifest_get`, `manifest_list`, `manifest_rebuild`, and `structural_projection`
+- latency workloads report positive `p50_ms` and `p95_ms`
+- `structural_projection.success_rate` is `100` on the published fixture workload
+- `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
+- `acceptance.phase2_status` matches the local guardrail outcome without requiring an external baseline artifact
+- the benchmark stays local and uses the same sqlite execution envelope as the earlier phase runners
+
 ---
 
 ## 2. Skillpack Loaded
