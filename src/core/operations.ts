@@ -17,6 +17,7 @@ import {
   listStructuralContextAtlasEntries,
   selectStructuralContextAtlasEntry,
 } from './services/context-atlas-service.ts';
+import { getStructuralContextAtlasOverview } from './services/context-atlas-overview-service.ts';
 import {
   buildStructuralContextMapEntry,
   getStructuralContextMapEntry,
@@ -506,6 +507,30 @@ export function formatResult(
         `Scope: ${atlas.scope_id}`,
         `Freshness: ${atlas.freshness}`,
         `Budget hint: ${atlas.budget_hint}`,
+      ].join('\n') + '\n';
+    }
+    case 'get_context_atlas_overview': {
+      const resultValue = result as any;
+      if (!resultValue.overview) {
+        return [
+          'No context atlas overview available.',
+          `Reason: ${resultValue.selection_reason}`,
+          `Candidates: ${resultValue.candidate_count}`,
+        ].join('\n') + '\n';
+      }
+      const overview = resultValue.overview;
+      const reads = (overview.recommended_reads || [])
+        .map((item: any) => `- ${item.node_id} | ${item.label} | ${item.path}`)
+        .join('\n');
+      return [
+        `${overview.entry.title} [${overview.entry.kind}]`,
+        `Atlas: ${overview.entry.id}`,
+        `Reason: ${resultValue.selection_reason}`,
+        `Candidates: ${resultValue.candidate_count}`,
+        `Freshness: ${overview.entry.freshness}`,
+        `Overview kind: ${overview.overview_kind}`,
+        `Recommended reads:`,
+        reads || '- none',
       ].join('\n') + '\n';
     }
     case 'search':
@@ -1584,6 +1609,28 @@ const select_context_atlas_entry: Operation = {
   cliHints: { name: 'atlas-select' },
 };
 
+const get_context_atlas_overview: Operation = {
+  name: 'get_context_atlas_overview',
+  description: 'Render a compact overview artifact for a persisted atlas entry.',
+  params: {
+    atlas_id: { type: 'string', description: 'Optional atlas entry id for a direct read' },
+    scope_id: { type: 'string', description: 'Atlas scope id (default: workspace:default)' },
+    kind: { type: 'string', description: 'Optional atlas kind filter when atlas_id is omitted' },
+    max_budget_hint: { type: 'number', description: 'Optional maximum allowed budget hint for selection' },
+    allow_stale: { type: 'boolean', description: 'Allow stale atlas entries when atlas_id is omitted' },
+  },
+  handler: async (ctx, p) => {
+    return getStructuralContextAtlasOverview(ctx.engine, {
+      atlas_id: typeof p.atlas_id === 'string' ? p.atlas_id : undefined,
+      scope_id: String(p.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID),
+      kind: p.kind as string | undefined,
+      max_budget_hint: typeof p.max_budget_hint === 'number' ? p.max_budget_hint : undefined,
+      allow_stale: p.allow_stale === true,
+    });
+  },
+  cliHints: { name: 'atlas-overview' },
+};
+
 const record_retrieval_trace: Operation = {
   name: 'record_retrieval_trace',
   description: 'Record a retrieval trace for a task-scoped operational-memory flow.',
@@ -2064,7 +2111,7 @@ export const operations: Operation[] = [
   // Persisted context maps
   build_context_map, get_context_map_entry, list_context_map_entries,
   // Context atlas registry
-  build_context_atlas, get_context_atlas_entry, list_context_atlas_entries, select_context_atlas_entry,
+  build_context_atlas, get_context_atlas_entry, list_context_atlas_entries, select_context_atlas_entry, get_context_atlas_overview,
   // Operational memory
   list_tasks, start_task, update_task, resume_task, get_task_working_set, record_retrieval_trace, list_task_traces, list_task_attempts, list_task_decisions, refresh_task_working_set, record_attempt, record_decision,
   // Ingest log

@@ -284,6 +284,24 @@ Expected:
 - `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
 - `acceptance.phase2_status` matches the local guardrail outcome without introducing an external baseline artifact
 
+## Phase 2 context-atlas overview
+
+Run:
+
+```bash
+bun test test/context-atlas-overview-service.test.ts test/context-atlas-overview-operations.test.ts test/phase2-context-atlas-overview.test.ts
+bun test test/cli.test.ts -t "atlas-overview --help"
+bun run bench:phase2-context-atlas-overview --json
+```
+
+Expected:
+
+- overview tests pass
+- `atlas-overview` stays available through the shared operation surface
+- benchmark reports `context_atlas_overview` and `context_atlas_overview_correctness`
+- `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
+- `acceptance.phase2_status` matches the local guardrail outcome without introducing an external baseline artifact
+
 ---
 
 ## 2. Skillpack Loaded

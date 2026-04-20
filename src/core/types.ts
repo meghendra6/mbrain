@@ -251,6 +251,31 @@ export interface ContextAtlasSelection {
   candidate_count: number;
 }
 
+export interface ContextAtlasOverviewInput extends ContextAtlasSelectionInput {
+  atlas_id?: string;
+}
+
+export interface ContextAtlasOverviewRead {
+  node_id: string;
+  node_kind: 'page' | 'section';
+  label: string;
+  page_slug: string;
+  path: string;
+  section_id?: string;
+}
+
+export interface ContextAtlasOverviewArtifact {
+  overview_kind: 'structural';
+  entry: ContextAtlasEntry;
+  recommended_reads: ContextAtlasOverviewRead[];
+}
+
+export interface ContextAtlasOverviewResult {
+  selection_reason: string;
+  candidate_count: number;
+  overview: ContextAtlasOverviewArtifact | null;
+}
+
 // Chunks
 export interface Chunk {
   id: number;
