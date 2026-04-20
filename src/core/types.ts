@@ -321,6 +321,29 @@ export interface ContextMapReportResult {
   report: ContextMapReport | null;
 }
 
+export interface WorkspaceSystemCard {
+  card_kind: 'workspace_system';
+  system_slug: string;
+  title: string;
+  repo?: string;
+  build_command?: string;
+  test_command?: string;
+  entry_points: SystemEntryPoint[];
+  summary_lines: string[];
+}
+
+export interface WorkspaceSystemCardInput {
+  map_id?: string;
+  scope_id?: string;
+  kind?: string;
+}
+
+export interface WorkspaceSystemCardResult {
+  selection_reason: string;
+  candidate_count: number;
+  card: WorkspaceSystemCard | null;
+}
+
 // Chunks
 export interface Chunk {
   id: number;
