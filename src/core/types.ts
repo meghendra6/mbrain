@@ -533,6 +533,7 @@ export interface RetrievalRouteSelection {
 export interface RetrievalRouteSelectorInput {
   intent: RetrievalRouteIntent;
   task_id?: string;
+  persist_trace?: boolean;
   map_id?: string;
   scope_id?: string;
   kind?: string;
@@ -547,6 +548,7 @@ export interface RetrievalRouteSelectorResult {
   selection_reason: string;
   candidate_count: number;
   route: RetrievalRouteSelection | null;
+  trace?: RetrievalTrace | null;
 }
 
 export interface WorkspaceSystemCard {

@@ -569,6 +569,23 @@ Expected:
 - `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
 - `acceptance.phase3_status` matches the local guardrail outcome without introducing a baseline artifact
 
+## Phase 3 retrieval-route trace
+
+Run:
+
+```bash
+bun test test/retrieval-route-trace-service.test.ts test/retrieval-route-trace-operations.test.ts test/phase3-retrieval-route-trace.test.ts
+bun run bench:phase3-retrieval-route-trace --json
+```
+
+Expected:
+
+- retrieval-route trace tests pass
+- `retrieval-route` can persist a task-scoped trace when explicitly requested
+- benchmark reports `retrieval_route_trace` and `retrieval_route_trace_correctness`
+- `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
+- `acceptance.phase3_status` matches the local guardrail outcome without introducing a baseline artifact
+
 ---
 
 ## 2. Skillpack Loaded

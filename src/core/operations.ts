@@ -758,6 +758,7 @@ export function formatResult(
           `Intent: ${resultValue.selected_intent}`,
           `Reason: ${resultValue.selection_reason}`,
           `Candidates: ${resultValue.candidate_count}`,
+          `Trace: ${resultValue.trace?.id || 'none'}`,
         ].join('\n') + '\n';
       }
       const route = resultValue.route;
@@ -766,6 +767,7 @@ export function formatResult(
         `Route kind: ${route.route_kind}`,
         `Reason: ${resultValue.selection_reason}`,
         `Candidates: ${resultValue.candidate_count}`,
+        `Trace: ${resultValue.trace?.id || 'none'}`,
         ...route.summary_lines,
         `Route steps: ${(route.retrieval_route || []).join(' -> ')}`,
       ].join('\n') + '\n';
@@ -2155,6 +2157,7 @@ const select_retrieval_route: Operation = {
   params: {
     intent: { type: 'string', required: true, description: 'One of task_resume, broad_synthesis, precision_lookup' },
     task_id: { type: 'string', description: 'Task id for task_resume intent' },
+    persist_trace: { type: 'boolean', description: 'Persist a task-scoped Retrieval Trace for the selected route' },
     map_id: { type: 'string', description: 'Optional context map id for broad_synthesis intent' },
     scope_id: { type: 'string', description: 'Scope id for delegated route selection' },
     kind: { type: 'string', description: 'Optional map kind filter for broad_synthesis intent' },
@@ -2177,10 +2180,14 @@ const select_retrieval_route: Operation = {
     if (intent === 'precision_lookup' && typeof p.slug !== 'string' && typeof p.section_id !== 'string') {
       throw new OperationError('invalid_params', 'precision_lookup intent requires slug or section_id.');
     }
+    if (p.persist_trace === true && typeof p.task_id !== 'string') {
+      throw new OperationError('invalid_params', 'persist_trace requires task_id.');
+    }
 
     return selectRetrievalRoute(ctx.engine, {
       intent,
       task_id: typeof p.task_id === 'string' ? p.task_id : undefined,
+      persist_trace: p.persist_trace === true,
       map_id: typeof p.map_id === 'string' ? p.map_id : undefined,
       scope_id: String(p.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID),
       kind: p.kind as string | undefined,

@@ -2,6 +2,7 @@ import type { BrainEngine } from '../engine.ts';
 import type {
   BroadSynthesisRoute,
   PrecisionLookupRoute,
+  RetrievalTrace,
   RetrievalRouteSelection,
   RetrievalRouteSelectorInput,
   RetrievalRouteSelectorResult,
@@ -14,14 +15,25 @@ export async function selectRetrievalRoute(
   engine: BrainEngine,
   input: RetrievalRouteSelectorInput,
 ): Promise<RetrievalRouteSelectorResult> {
-  switch (input.intent) {
+  const selected = await (async (): Promise<RetrievalRouteSelectorResult> => {
+    switch (input.intent) {
     case 'task_resume':
       return selectTaskResumeRoute(engine, input.task_id);
     case 'broad_synthesis':
       return selectBroadSynthesisRoute(engine, input);
     case 'precision_lookup':
       return selectPrecisionLookupRoute(engine, input);
+    }
+  })();
+
+  if (!input.persist_trace || !input.task_id) {
+    return selected;
   }
+
+  return {
+    ...selected,
+    trace: await persistSelectedRouteTrace(engine, input.task_id, selected),
+  };
 }
 
 async function selectTaskResumeRoute(
@@ -120,4 +132,59 @@ function buildDelegatedSelection(
     summary_lines: payload.summary_lines,
     payload,
   };
+}
+
+async function persistSelectedRouteTrace(
+  engine: BrainEngine,
+  taskId: string,
+  selected: RetrievalRouteSelectorResult,
+): Promise<RetrievalTrace> {
+  const thread = await engine.getTaskThread(taskId);
+  if (!thread) {
+    throw new Error(`Task thread not found: ${taskId}`);
+  }
+
+  return engine.putRetrievalTrace({
+    id: crypto.randomUUID(),
+    task_id: taskId,
+    scope: thread.scope,
+    route: selected.route?.retrieval_route ?? [],
+    source_refs: collectSourceRefs(selected.route),
+    verification: [
+      `intent:${selected.selected_intent}`,
+      `selection_reason:${selected.selection_reason}`,
+    ],
+    outcome: selected.route
+      ? `${selected.selected_intent} route selected`
+      : `${selected.selected_intent} route unavailable`,
+  });
+}
+
+function collectSourceRefs(route: RetrievalRouteSelection | null): string[] {
+  if (!route) return [];
+  const payload = route.payload as {
+    recommended_reads?: Array<{
+      node_kind?: 'page' | 'section';
+      page_slug?: string;
+      section_id?: string;
+    }>;
+    task_id?: string;
+  };
+
+  if (route.route_kind === 'task_resume' && payload.task_id) {
+    return [`task-thread:${payload.task_id}`];
+  }
+
+  const refs = payload.recommended_reads ?? [];
+  const collected = refs.map((read) => {
+    if (read.node_kind === 'section' && read.section_id) {
+      return `section:${read.section_id}`;
+    }
+    if (read.page_slug) {
+      return `page:${read.page_slug}`;
+    }
+    return null;
+  }).filter((value): value is string => value !== null);
+
+  return [...new Set(collected)];
 }
