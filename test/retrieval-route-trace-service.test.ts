@@ -113,3 +113,59 @@ test('retrieval route selector persists a degraded task-scoped trace for no-matc
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('retrieval route selector persists a section-scoped trace for anchored precision lookup paths', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-route-trace-section-path-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    await engine.createTaskThread({
+      id: 'task-1',
+      scope: 'work',
+      title: 'Traceable selector',
+      goal: 'Persist retrieval traces',
+      status: 'active',
+      repo_path: '/repo',
+      branch_name: 'phase2-note-manifest',
+      current_summary: 'Need durable explainability',
+    });
+
+    await importFromContent(engine, 'systems/mbrain', [
+      '---',
+      'type: system',
+      'title: MBrain',
+      '---',
+      '# Overview',
+      'Coordinates structural extraction.',
+      '',
+      '## Runtime',
+      'Owns exact retrieval routing.',
+    ].join('\n'), { path: 'systems/mbrain.md' });
+
+    const result = await selectRetrievalRoute(engine, {
+      intent: 'precision_lookup',
+      task_id: 'task-1',
+      path: 'systems/mbrain.md#overview/runtime',
+      persist_trace: true,
+    });
+
+    expect(result.selected_intent).toBe('precision_lookup');
+    expect(result.selection_reason).toBe('direct_section_path_match');
+    expect(result.trace?.task_id).toBe('task-1');
+    expect(result.trace?.route).toEqual([
+      'direct_canonical_artifact',
+      'minimal_supporting_reads',
+    ]);
+    expect(result.trace?.source_refs).toContain('section:systems/mbrain#overview/runtime');
+    expect(result.trace?.source_refs).toContain('page:systems/mbrain');
+    expect(result.trace?.verification).toContain('selection_reason:direct_section_path_match');
+    expect(result.trace?.outcome).toBe('precision_lookup route selected');
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -39,6 +39,9 @@ test('retrieval route operation persists a trace when requested', async () => {
       '---',
       '# Overview',
       'See [[concepts/note-manifest]].',
+      '',
+      '## Runtime',
+      'Owns exact retrieval routing.',
     ].join('\n'), { path: 'systems/mbrain.md' });
     await importFromContent(engine, 'concepts/note-manifest', [
       '---',
@@ -65,6 +68,23 @@ test('retrieval route operation persists a trace when requested', async () => {
     expect((result as any).selected_intent).toBe('broad_synthesis');
     expect((result as any).trace?.task_id).toBe('task-1');
     expect((result as any).trace?.outcome).toBe('broad_synthesis route selected');
+
+    const precision = await route.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      intent: 'precision_lookup',
+      task_id: 'task-1',
+      path: 'systems/mbrain.md#overview/runtime',
+      persist_trace: true,
+    });
+
+    expect((precision as any).selected_intent).toBe('precision_lookup');
+    expect((precision as any).selection_reason).toBe('direct_section_path_match');
+    expect((precision as any).trace?.source_refs).toContain('section:systems/mbrain#overview/runtime');
+    expect((precision as any).trace?.outcome).toBe('precision_lookup route selected');
   } finally {
     await engine.disconnect();
     rmSync(dir, { recursive: true, force: true });

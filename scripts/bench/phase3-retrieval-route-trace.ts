@@ -111,6 +111,9 @@ async function seedFixtures(engine: BrainEngine): Promise<void> {
     '---',
     '# Overview',
     'See [[concepts/note-manifest]].',
+    '',
+    '## Runtime',
+    'Owns exact retrieval routing.',
   ].join('\n'), { path: 'systems/mbrain.md' });
   await importFromContent(engine, 'concepts/note-manifest', [
     '---',
@@ -181,6 +184,21 @@ async function runCorrectnessWorkload(
     miss.trace?.task_id === 'task-1'
     && miss.trace.outcome === 'precision_lookup route unavailable'
     && miss.trace.route.length === 0
+  ) {
+    passes += 1;
+  }
+
+  const sectionPath = await selectRetrievalRoute(engine, {
+    intent: 'precision_lookup',
+    task_id: 'task-1',
+    path: 'systems/mbrain.md#overview/runtime',
+    persist_trace: true,
+  });
+  checks += 1;
+  if (
+    sectionPath.selection_reason === 'direct_section_path_match'
+    && sectionPath.trace?.outcome === 'precision_lookup route selected'
+    && sectionPath.trace.source_refs.includes('section:systems/mbrain#overview/runtime')
   ) {
     passes += 1;
   }
