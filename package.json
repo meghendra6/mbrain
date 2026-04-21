@@ -33,6 +33,7 @@
   "bench:phase2-atlas-orientation-bundle": "bun run ./scripts/bench/phase2-atlas-orientation-bundle.ts",
   "bench:phase2-acceptance": "bun run ./scripts/bench/phase2-acceptance-pack.ts",
   "bench:phase2-context-map-report": "bun run ./scripts/bench/phase2-context-map-report.ts",
+  "bench:phase3-context-map-explain": "bun run ./scripts/bench/phase3-context-map-explain.ts",
   "bench:phase2-workspace-system-card": "bun run ./scripts/bench/phase2-workspace-system-card.ts",
   "bench:phase2-workspace-project-card": "bun run ./scripts/bench/phase2-workspace-project-card.ts",
   "bench:phase2-workspace-orientation-bundle": "bun run ./scripts/bench/phase2-workspace-orientation-bundle.ts",

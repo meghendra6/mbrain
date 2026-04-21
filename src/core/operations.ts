@@ -21,6 +21,7 @@ import { getAtlasOrientationCard } from './services/atlas-orientation-card-servi
 import { getAtlasOrientationBundle } from './services/atlas-orientation-bundle-service.ts';
 import { getStructuralContextAtlasOverview } from './services/context-atlas-overview-service.ts';
 import { getStructuralContextAtlasReport } from './services/context-atlas-report-service.ts';
+import { getStructuralContextMapExplanation } from './services/context-map-explain-service.ts';
 import { getStructuralContextMapReport } from './services/context-map-report-service.ts';
 import { getWorkspaceCorpusCard } from './services/workspace-corpus-card-service.ts';
 import { getWorkspaceOrientationBundle } from './services/workspace-orientation-bundle-service.ts';
@@ -626,6 +627,29 @@ export function formatResult(
         ...report.summary_lines,
         'Recommended reads:',
         ...report.recommended_reads.map((item: any) => `- ${item.node_id} | ${item.label} | ${item.path}`),
+      ].join('\n') + '\n';
+    }
+    case 'get_context_map_explanation': {
+      const resultValue = result as any;
+      if (!resultValue.explanation) {
+        return [
+          'No context map explanation available.',
+          `Reason: ${resultValue.selection_reason}`,
+          `Candidates: ${resultValue.candidate_count}`,
+        ].join('\n') + '\n';
+      }
+      const explanation = resultValue.explanation;
+      return [
+        explanation.title,
+        `Map: ${explanation.map_id}`,
+        `Node: ${explanation.node_id}`,
+        `Reason: ${resultValue.selection_reason}`,
+        `Candidates: ${resultValue.candidate_count}`,
+        ...explanation.summary_lines,
+        'Neighbor edges:',
+        ...(explanation.neighbor_edges || []).map((edge: any) => `- ${edge.edge_kind} | ${edge.from_node_id} -> ${edge.to_node_id}`),
+        'Recommended reads:',
+        ...(explanation.recommended_reads || []).map((item: any) => `- ${item.node_id} | ${item.label} | ${item.path}`),
       ].join('\n') + '\n';
     }
     case 'get_workspace_system_card': {
@@ -1901,6 +1925,26 @@ const get_context_map_report: Operation = {
   cliHints: { name: 'map-report' },
 };
 
+const get_context_map_explanation: Operation = {
+  name: 'get_context_map_explanation',
+  description: 'Render a bounded local explanation for one node inside a persisted context map.',
+  params: {
+    map_id: { type: 'string', description: 'Optional context map id for a direct read' },
+    scope_id: { type: 'string', description: 'Map scope id (default: workspace:default)' },
+    kind: { type: 'string', description: 'Optional map kind filter when map_id is omitted' },
+    node_id: { type: 'string', required: true, description: 'Exact structural node id to explain' },
+  },
+  handler: async (ctx, p) => {
+    return getStructuralContextMapExplanation(ctx.engine, {
+      map_id: typeof p.map_id === 'string' ? p.map_id : undefined,
+      scope_id: String(p.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID),
+      kind: p.kind as string | undefined,
+      node_id: String(p.node_id),
+    });
+  },
+  cliHints: { name: 'map-explain' },
+};
+
 const get_workspace_system_card: Operation = {
   name: 'get_workspace_system_card',
   description: 'Render a compact workspace system card from the current context-map report.',
@@ -2451,7 +2495,7 @@ export const operations: Operation[] = [
   // Structural graph
   get_note_structural_neighbors, find_note_structural_path,
   // Persisted context maps
-  build_context_map, get_context_map_entry, list_context_map_entries, get_context_map_report, get_workspace_system_card, get_workspace_project_card, get_workspace_orientation_bundle, get_workspace_corpus_card,
+  build_context_map, get_context_map_entry, list_context_map_entries, get_context_map_report, get_context_map_explanation, get_workspace_system_card, get_workspace_project_card, get_workspace_orientation_bundle, get_workspace_corpus_card,
   // Context atlas registry
   build_context_atlas, get_context_atlas_entry, list_context_atlas_entries, select_context_atlas_entry, get_context_atlas_overview, get_context_atlas_report, get_atlas_orientation_card, get_atlas_orientation_bundle,
   // Operational memory

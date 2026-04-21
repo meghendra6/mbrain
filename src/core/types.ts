@@ -323,6 +323,49 @@ export interface ContextMapReportResult {
   report: ContextMapReport | null;
 }
 
+export interface ContextMapExplanationNeighborEdge {
+  edge_kind: string;
+  from_node_id: string;
+  to_node_id: string;
+  source_page_slug: string;
+  source_section_id?: string;
+}
+
+export interface ContextMapExplanationRead {
+  node_id: string;
+  node_kind: 'page' | 'section';
+  label: string;
+  page_slug: string;
+  path: string;
+  section_id?: string;
+}
+
+export interface ContextMapExplanation {
+  explanation_kind: 'structural';
+  title: string;
+  map_id: string;
+  node_id: string;
+  node_kind: 'page' | 'section';
+  label: string;
+  status: string;
+  summary_lines: string[];
+  neighbor_edges: ContextMapExplanationNeighborEdge[];
+  recommended_reads: ContextMapExplanationRead[];
+}
+
+export interface ContextMapExplanationInput {
+  map_id?: string;
+  scope_id?: string;
+  kind?: string;
+  node_id: string;
+}
+
+export interface ContextMapExplanationResult {
+  selection_reason: string;
+  candidate_count: number;
+  explanation: ContextMapExplanation | null;
+}
+
 export interface WorkspaceSystemCard {
   card_kind: 'workspace_system';
   system_slug: string;

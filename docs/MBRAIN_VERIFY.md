@@ -461,6 +461,24 @@ Expected:
 - `bench:phase2-acceptance` summarizes every published Phase 2 benchmark slice
 - the acceptance summary reports `readiness_status: pass` and `phase2_status: pass` only when every child benchmark passes
 
+## Phase 3 context-map explain
+
+Run:
+
+```bash
+bun test test/context-map-explain-service.test.ts test/context-map-explain-operations.test.ts test/phase3-context-map-explain.test.ts
+bun test test/cli.test.ts -t "map-explain --help"
+bun run bench:phase3-context-map-explain --json
+```
+
+Expected:
+
+- context-map explain tests pass
+- `map-explain` stays available through the shared operation surface
+- benchmark reports `context_map_explain` and `context_map_explain_correctness`
+- `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
+- `acceptance.phase3_status` matches the local guardrail outcome without introducing a baseline artifact
+
 ---
 
 ## 2. Skillpack Loaded
