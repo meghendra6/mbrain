@@ -407,6 +407,51 @@ export interface ContextMapQueryResult {
   result: ContextMapQueryResultPayload | null;
 }
 
+export interface ContextMapPathEdge {
+  edge_kind: string;
+  from_node_id: string;
+  to_node_id: string;
+  source_page_slug: string;
+  source_section_id?: string;
+}
+
+export interface ContextMapPathRead {
+  node_id: string;
+  node_kind: 'page' | 'section';
+  label: string;
+  page_slug: string;
+  path: string;
+  section_id?: string;
+}
+
+export interface ContextMapPathResultPayload {
+  path_kind: 'structural';
+  map_id: string;
+  from_node_id: string;
+  to_node_id: string;
+  status: string;
+  hop_count: number;
+  node_ids: string[];
+  edges: ContextMapPathEdge[];
+  summary_lines: string[];
+  recommended_reads: ContextMapPathRead[];
+}
+
+export interface ContextMapPathInput {
+  map_id?: string;
+  scope_id?: string;
+  kind?: string;
+  from_node_id: string;
+  to_node_id: string;
+  max_depth?: number;
+}
+
+export interface ContextMapPathResult {
+  selection_reason: string;
+  candidate_count: number;
+  path: ContextMapPathResultPayload | null;
+}
+
 export interface WorkspaceSystemCard {
   card_kind: 'workspace_system';
   system_slug: string;

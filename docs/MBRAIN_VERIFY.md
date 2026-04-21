@@ -497,6 +497,24 @@ Expected:
 - `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
 - `acceptance.phase3_status` matches the local guardrail outcome without introducing a baseline artifact
 
+## Phase 3 context-map path
+
+Run:
+
+```bash
+bun test test/context-map-path-service.test.ts test/context-map-path-operations.test.ts test/phase3-context-map-path.test.ts
+bun test test/cli.test.ts -t "map-path --help"
+bun run bench:phase3-context-map-path --json
+```
+
+Expected:
+
+- context-map path tests pass
+- `map-path` stays available through the shared operation surface
+- benchmark reports `context_map_path` and `context_map_path_correctness`
+- `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
+- `acceptance.phase3_status` matches the local guardrail outcome without introducing a baseline artifact
+
 ---
 
 ## 2. Skillpack Loaded
