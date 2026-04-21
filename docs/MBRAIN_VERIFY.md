@@ -515,6 +515,24 @@ Expected:
 - `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
 - `acceptance.phase3_status` matches the local guardrail outcome without introducing a baseline artifact
 
+## Phase 3 broad-synthesis route
+
+Run:
+
+```bash
+bun test test/broad-synthesis-route-service.test.ts test/broad-synthesis-route-operations.test.ts test/phase3-broad-synthesis-route.test.ts
+bun test test/cli.test.ts -t "broad-synthesis-route --help"
+bun run bench:phase3-broad-synthesis-route --json
+```
+
+Expected:
+
+- broad-synthesis route tests pass
+- `broad-synthesis-route` stays available through the shared operation surface
+- benchmark reports `broad_synthesis_route` and `broad_synthesis_route_correctness`
+- `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
+- `acceptance.phase3_status` matches the local guardrail outcome without introducing a baseline artifact
+
 ---
 
 ## 2. Skillpack Loaded

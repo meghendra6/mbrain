@@ -452,6 +452,41 @@ export interface ContextMapPathResult {
   path: ContextMapPathResultPayload | null;
 }
 
+export interface BroadSynthesisRouteRead {
+  node_id: string;
+  node_kind: 'page' | 'section';
+  label: string;
+  page_slug: string;
+  path: string;
+  section_id?: string;
+}
+
+export interface BroadSynthesisRoute {
+  route_kind: 'broad_synthesis';
+  map_id: string;
+  query: string;
+  status: string;
+  retrieval_route: string[];
+  focal_node_id: string | null;
+  summary_lines: string[];
+  matched_nodes: ContextMapQueryMatch[];
+  recommended_reads: BroadSynthesisRouteRead[];
+}
+
+export interface BroadSynthesisRouteInput {
+  map_id?: string;
+  scope_id?: string;
+  kind?: string;
+  query: string;
+  limit?: number;
+}
+
+export interface BroadSynthesisRouteResult {
+  selection_reason: string;
+  candidate_count: number;
+  route: BroadSynthesisRoute | null;
+}
+
 export interface WorkspaceSystemCard {
   card_kind: 'workspace_system';
   system_slug: string;

@@ -36,6 +36,7 @@
   "bench:phase3-context-map-explain": "bun run ./scripts/bench/phase3-context-map-explain.ts",
   "bench:phase3-context-map-query": "bun run ./scripts/bench/phase3-context-map-query.ts",
   "bench:phase3-context-map-path": "bun run ./scripts/bench/phase3-context-map-path.ts",
+  "bench:phase3-broad-synthesis-route": "bun run ./scripts/bench/phase3-broad-synthesis-route.ts",
   "bench:phase2-workspace-system-card": "bun run ./scripts/bench/phase2-workspace-system-card.ts",
   "bench:phase2-workspace-project-card": "bun run ./scripts/bench/phase2-workspace-project-card.ts",
   "bench:phase2-workspace-orientation-bundle": "bun run ./scripts/bench/phase2-workspace-orientation-bundle.ts",

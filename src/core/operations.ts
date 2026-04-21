@@ -21,6 +21,7 @@ import { getAtlasOrientationCard } from './services/atlas-orientation-card-servi
 import { getAtlasOrientationBundle } from './services/atlas-orientation-bundle-service.ts';
 import { getStructuralContextAtlasOverview } from './services/context-atlas-overview-service.ts';
 import { getStructuralContextAtlasReport } from './services/context-atlas-report-service.ts';
+import { getBroadSynthesisRoute } from './services/broad-synthesis-route-service.ts';
 import { getStructuralContextMapExplanation } from './services/context-map-explain-service.ts';
 import { findStructuralContextMapPath } from './services/context-map-path-service.ts';
 import { queryStructuralContextMap } from './services/context-map-query-service.ts';
@@ -698,6 +699,31 @@ export function formatResult(
         ...(path.edges || []).map((edge: any) => `- ${edge.edge_kind} | ${edge.from_node_id} -> ${edge.to_node_id}`),
         'Recommended reads:',
         ...(path.recommended_reads || []).map((item: any) => `- ${item.node_id} | ${item.label} | ${item.path}`),
+      ].join('\n') + '\n';
+    }
+    case 'get_broad_synthesis_route': {
+      const resultValue = result as any;
+      if (!resultValue.route) {
+        return [
+          'No broad synthesis route available.',
+          `Reason: ${resultValue.selection_reason}`,
+          `Candidates: ${resultValue.candidate_count}`,
+        ].join('\n') + '\n';
+      }
+      const route = resultValue.route;
+      return [
+        `Broad synthesis route: ${route.query}`,
+        `Map: ${route.map_id}`,
+        `Status: ${route.status}`,
+        `Reason: ${resultValue.selection_reason}`,
+        `Candidates: ${resultValue.candidate_count}`,
+        ...route.summary_lines,
+        `Retrieval route: ${(route.retrieval_route || []).join(' -> ')}`,
+        `Focal node: ${route.focal_node_id || 'none'}`,
+        'Matched nodes:',
+        ...(route.matched_nodes || []).map((node: any) => `- ${node.node_id} | ${node.label} | score=${node.score}`),
+        'Recommended reads:',
+        ...(route.recommended_reads || []).map((item: any) => `- ${item.node_id} | ${item.label} | ${item.path}`),
       ].join('\n') + '\n';
     }
     case 'get_workspace_system_card': {
@@ -2039,6 +2065,28 @@ const find_context_map_path: Operation = {
   cliHints: { name: 'map-path', positional: ['from_node_id', 'to_node_id'] },
 };
 
+const get_broad_synthesis_route: Operation = {
+  name: 'get_broad_synthesis_route',
+  description: 'Compose report, structural query, and optional explain into one bounded broad-synthesis route.',
+  params: {
+    map_id: { type: 'string', description: 'Optional context map id for a direct read' },
+    scope_id: { type: 'string', description: 'Map scope id (default: workspace:default)' },
+    kind: { type: 'string', description: 'Optional map kind filter when map_id is omitted' },
+    query: { type: 'string', required: true, description: 'Plain-text route query string' },
+    limit: { type: 'number', description: 'Max matched nodes to inspect while composing the route (default 5)' },
+  },
+  handler: async (ctx, p) => {
+    return getBroadSynthesisRoute(ctx.engine, {
+      map_id: typeof p.map_id === 'string' ? p.map_id : undefined,
+      scope_id: String(p.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID),
+      kind: p.kind as string | undefined,
+      query: String(p.query),
+      limit: typeof p.limit === 'number' ? p.limit : undefined,
+    });
+  },
+  cliHints: { name: 'broad-synthesis-route', aliases: { n: 'limit' } },
+};
+
 const get_workspace_system_card: Operation = {
   name: 'get_workspace_system_card',
   description: 'Render a compact workspace system card from the current context-map report.',
@@ -2589,7 +2637,7 @@ export const operations: Operation[] = [
   // Structural graph
   get_note_structural_neighbors, find_note_structural_path,
   // Persisted context maps
-  build_context_map, get_context_map_entry, list_context_map_entries, get_context_map_report, get_context_map_explanation, query_context_map, find_context_map_path, get_workspace_system_card, get_workspace_project_card, get_workspace_orientation_bundle, get_workspace_corpus_card,
+  build_context_map, get_context_map_entry, list_context_map_entries, get_context_map_report, get_context_map_explanation, query_context_map, find_context_map_path, get_broad_synthesis_route, get_workspace_system_card, get_workspace_project_card, get_workspace_orientation_bundle, get_workspace_corpus_card,
   // Context atlas registry
   build_context_atlas, get_context_atlas_entry, list_context_atlas_entries, select_context_atlas_entry, get_context_atlas_overview, get_context_atlas_report, get_atlas_orientation_card, get_atlas_orientation_bundle,
   // Operational memory
