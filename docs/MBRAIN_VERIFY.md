@@ -446,6 +446,21 @@ Expected:
 - `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
 - `acceptance.phase2_status` matches the local guardrail outcome without introducing an external baseline artifact
 
+## Phase 2 acceptance pack
+
+Run:
+
+```bash
+bun run test:phase2
+bun run bench:phase2-acceptance --json
+```
+
+Expected:
+
+- `test:phase2` executes the published Phase 2 schema, service, engine, operations, and benchmark-shape tests as one umbrella command
+- `bench:phase2-acceptance` summarizes every published Phase 2 benchmark slice
+- the acceptance summary reports `readiness_status: pass` and `phase2_status: pass` only when every child benchmark passes
+
 ---
 
 ## 2. Skillpack Loaded
