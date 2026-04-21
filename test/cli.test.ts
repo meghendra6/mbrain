@@ -538,6 +538,19 @@ describe('CLI dispatch integration', () => {
     expect(exitCode).toBe(0);
   });
 
+  test('atlas-orientation-bundle --help prints usage without DB connection', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'atlas-orientation-bundle', '--help'], {
+      cwd: repoRoot,
+      env: { ...process.env, HOME: tempHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(stdout).toContain('Usage: mbrain atlas-orientation-bundle');
+    expect(exitCode).toBe(0);
+  });
+
   test('map-report --help prints usage without DB connection', async () => {
     const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'map-report', '--help'], {
       cwd: repoRoot,

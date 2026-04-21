@@ -440,6 +440,31 @@ export interface AtlasOrientationCardResult {
   card: AtlasOrientationCard | null;
 }
 
+export interface AtlasOrientationBundle {
+  bundle_kind: 'atlas_orientation';
+  title: string;
+  atlas_entry_id: string;
+  freshness: string;
+  budget_hint: number;
+  summary_lines: string[];
+  report: ContextAtlasReport;
+  card: AtlasOrientationCard;
+}
+
+export interface AtlasOrientationBundleInput {
+  atlas_id?: string;
+  scope_id?: string;
+  kind?: string;
+  max_budget_hint?: number;
+  allow_stale?: boolean;
+}
+
+export interface AtlasOrientationBundleResult {
+  selection_reason: string;
+  candidate_count: number;
+  bundle: AtlasOrientationBundle | null;
+}
+
 // Chunks
 export interface Chunk {
   id: number;

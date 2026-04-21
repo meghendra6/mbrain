@@ -30,6 +30,7 @@
   "bench:phase2-context-atlas-overview": "bun run ./scripts/bench/phase2-context-atlas-overview.ts",
   "bench:phase2-context-atlas-report": "bun run ./scripts/bench/phase2-context-atlas-report.ts",
   "bench:phase2-atlas-orientation-card": "bun run ./scripts/bench/phase2-atlas-orientation-card.ts",
+  "bench:phase2-atlas-orientation-bundle": "bun run ./scripts/bench/phase2-atlas-orientation-bundle.ts",
   "bench:phase2-context-map-report": "bun run ./scripts/bench/phase2-context-map-report.ts",
   "bench:phase2-workspace-system-card": "bun run ./scripts/bench/phase2-workspace-system-card.ts",
   "bench:phase2-workspace-project-card": "bun run ./scripts/bench/phase2-workspace-project-card.ts",
