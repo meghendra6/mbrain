@@ -410,6 +410,24 @@ Expected:
 - `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
 - `acceptance.phase2_status` matches the local guardrail outcome without introducing an external baseline artifact
 
+## Phase 2 atlas-orientation-card
+
+Run:
+
+```bash
+bun test test/atlas-orientation-card-service.test.ts test/atlas-orientation-card-operations.test.ts test/phase2-atlas-orientation-card.test.ts
+bun test test/cli.test.ts -t "atlas-orientation-card --help"
+bun run bench:phase2-atlas-orientation-card --json
+```
+
+Expected:
+
+- atlas-orientation-card tests pass
+- `atlas-orientation-card` stays available through the shared operation surface
+- benchmark reports `atlas_orientation_card` and `atlas_orientation_card_correctness`
+- `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
+- `acceptance.phase2_status` matches the local guardrail outcome without introducing an external baseline artifact
+
 ---
 
 ## 2. Skillpack Loaded

@@ -414,6 +414,32 @@ export interface WorkspaceCorpusCardResult {
   card: WorkspaceCorpusCard | null;
 }
 
+export interface AtlasOrientationCard {
+  card_kind: 'atlas_orientation';
+  title: string;
+  atlas_entry_id: string;
+  map_id: string;
+  freshness: string;
+  budget_hint: number;
+  anchor_slugs: string[];
+  recommended_reads: ContextMapReportRead[];
+  summary_lines: string[];
+}
+
+export interface AtlasOrientationCardInput {
+  atlas_id?: string;
+  scope_id?: string;
+  kind?: string;
+  max_budget_hint?: number;
+  allow_stale?: boolean;
+}
+
+export interface AtlasOrientationCardResult {
+  selection_reason: string;
+  candidate_count: number;
+  card: AtlasOrientationCard | null;
+}
+
 // Chunks
 export interface Chunk {
   id: number;

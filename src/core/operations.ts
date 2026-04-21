@@ -17,6 +17,7 @@ import {
   listStructuralContextAtlasEntries,
   selectStructuralContextAtlasEntry,
 } from './services/context-atlas-service.ts';
+import { getAtlasOrientationCard } from './services/atlas-orientation-card-service.ts';
 import { getStructuralContextAtlasOverview } from './services/context-atlas-overview-service.ts';
 import { getStructuralContextAtlasReport } from './services/context-atlas-report-service.ts';
 import { getStructuralContextMapReport } from './services/context-map-report-service.ts';
@@ -557,6 +558,31 @@ export function formatResult(
         ...report.summary_lines,
         'Recommended reads:',
         ...report.recommended_reads.map((item: any) => `- ${item.node_id} | ${item.label} | ${item.path}`),
+      ].join('\n') + '\n';
+    }
+    case 'get_atlas_orientation_card': {
+      const resultValue = result as any;
+      if (!resultValue.card) {
+        return [
+          'No atlas orientation card available.',
+          `Reason: ${resultValue.selection_reason}`,
+          `Candidates: ${resultValue.candidate_count}`,
+        ].join('\n') + '\n';
+      }
+      const card = resultValue.card;
+      return [
+        `${card.title} [atlas_orientation]`,
+        `Atlas entry: ${card.atlas_entry_id}`,
+        `Map: ${card.map_id}`,
+        `Freshness: ${card.freshness}`,
+        `Budget: ${card.budget_hint}`,
+        `Reason: ${resultValue.selection_reason}`,
+        `Candidates: ${resultValue.candidate_count}`,
+        ...(card.summary_lines || []),
+        'Anchor slugs:',
+        ...(card.anchor_slugs || []).map((item: any) => `- ${item}`),
+        'Recommended reads:',
+        ...(card.recommended_reads || []).map((item: any) => `- ${item.node_id} | ${item.label} | ${item.path}`),
       ].join('\n') + '\n';
     }
     case 'get_context_map_report': {
@@ -1790,6 +1816,28 @@ const get_context_atlas_report: Operation = {
   cliHints: { name: 'atlas-report' },
 };
 
+const get_atlas_orientation_card: Operation = {
+  name: 'get_atlas_orientation_card',
+  description: 'Render a compact orientation card from atlas selection and the workspace corpus card.',
+  params: {
+    atlas_id: { type: 'string', description: 'Optional atlas entry id for a direct read' },
+    scope_id: { type: 'string', description: 'Atlas scope id (default: workspace:default)' },
+    kind: { type: 'string', description: 'Optional atlas kind filter when atlas_id is omitted' },
+    max_budget_hint: { type: 'number', description: 'Optional maximum allowed budget hint for selection' },
+    allow_stale: { type: 'boolean', description: 'Allow stale atlas entries when atlas_id is omitted' },
+  },
+  handler: async (ctx, p) => {
+    return getAtlasOrientationCard(ctx.engine, {
+      atlas_id: typeof p.atlas_id === 'string' ? p.atlas_id : undefined,
+      scope_id: String(p.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID),
+      kind: p.kind as string | undefined,
+      max_budget_hint: typeof p.max_budget_hint === 'number' ? p.max_budget_hint : undefined,
+      allow_stale: p.allow_stale === true,
+    });
+  },
+  cliHints: { name: 'atlas-orientation-card' },
+};
+
 const get_context_map_report: Operation = {
   name: 'get_context_map_report',
   description: 'Render a compact human-readable report for a persisted context map.',
@@ -2360,7 +2408,7 @@ export const operations: Operation[] = [
   // Persisted context maps
   build_context_map, get_context_map_entry, list_context_map_entries, get_context_map_report, get_workspace_system_card, get_workspace_project_card, get_workspace_orientation_bundle, get_workspace_corpus_card,
   // Context atlas registry
-  build_context_atlas, get_context_atlas_entry, list_context_atlas_entries, select_context_atlas_entry, get_context_atlas_overview, get_context_atlas_report,
+  build_context_atlas, get_context_atlas_entry, list_context_atlas_entries, select_context_atlas_entry, get_context_atlas_overview, get_context_atlas_report, get_atlas_orientation_card,
   // Operational memory
   list_tasks, start_task, update_task, resume_task, get_task_working_set, record_retrieval_trace, list_task_traces, list_task_attempts, list_task_decisions, refresh_task_working_set, record_attempt, record_decision,
   // Ingest log
