@@ -1,6 +1,7 @@
 import type { BrainEngine } from '../engine.ts';
 import type {
   BroadSynthesisRoute,
+  MixedScopeBridgeRoute,
   PersonalEpisodeLookupRoute,
   PersonalProfileLookupRoute,
   PrecisionLookupRoute,
@@ -11,6 +12,7 @@ import type {
   RetrievalRouteSelectorResult,
 } from '../types.ts';
 import { getBroadSynthesisRoute } from './broad-synthesis-route-service.ts';
+import { getMixedScopeBridge } from './mixed-scope-bridge-service.ts';
 import { getPersonalEpisodeLookupRoute } from './personal-episode-lookup-route-service.ts';
 import { getPersonalProfileLookupRoute } from './personal-profile-lookup-route-service.ts';
 import { getPrecisionLookupRoute } from './precision-lookup-route-service.ts';
@@ -21,9 +23,11 @@ export async function selectRetrievalRoute(
   engine: BrainEngine,
   input: RetrievalRouteSelectorInput,
 ): Promise<RetrievalRouteSelectorResult> {
-  const shouldEvaluateScopeGate = input.requested_scope !== undefined
+  const shouldEvaluateScopeGate = input.intent !== 'mixed_scope_bridge' && (
+    input.requested_scope !== undefined
     || input.intent === 'personal_profile_lookup'
-    || input.intent === 'personal_episode_lookup';
+    || input.intent === 'personal_episode_lookup'
+  );
   const scopeGate = shouldEvaluateScopeGate
     ? await evaluateScopeGate(engine, {
       intent: input.intent,
@@ -62,6 +66,8 @@ export async function selectRetrievalRoute(
       return selectBroadSynthesisRoute(engine, input);
     case 'precision_lookup':
       return selectPrecisionLookupRoute(engine, input);
+    case 'mixed_scope_bridge':
+      return selectMixedScopeBridgeRoute(engine, input);
     case 'personal_profile_lookup':
       return selectPersonalProfileLookupRoute(engine, input);
     case 'personal_episode_lookup':
@@ -153,6 +159,39 @@ async function selectPrecisionLookupRoute(
   };
 }
 
+async function selectMixedScopeBridgeRoute(
+  engine: BrainEngine,
+  input: RetrievalRouteSelectorInput,
+): Promise<RetrievalRouteSelectorResult> {
+  if (!input.query || !input.subject) {
+    return {
+      selected_intent: 'mixed_scope_bridge',
+      selection_reason: 'no_match',
+      candidate_count: 0,
+      route: null,
+    };
+  }
+
+  const result = await getMixedScopeBridge(engine, {
+    requested_scope: input.requested_scope,
+    map_id: input.map_id,
+    scope_id: input.scope_id,
+    kind: input.kind,
+    query: input.query,
+    limit: input.limit,
+    subject: input.subject,
+    profile_type: input.profile_type,
+  });
+
+  return {
+    selected_intent: 'mixed_scope_bridge',
+    selection_reason: result.selection_reason,
+    candidate_count: result.candidate_count,
+    route: result.route ? buildDelegatedSelection('mixed_scope_bridge', result.route) : null,
+    scope_gate: result.scope_gate,
+  };
+}
+
 async function selectPersonalProfileLookupRoute(
   engine: BrainEngine,
   input: RetrievalRouteSelectorInput,
@@ -224,8 +263,8 @@ function buildTaskResumeSelection(card: TaskResumeCard): RetrievalRouteSelection
 }
 
 function buildDelegatedSelection(
-  routeKind: 'broad_synthesis' | 'precision_lookup' | 'personal_profile_lookup' | 'personal_episode_lookup',
-  payload: BroadSynthesisRoute | PrecisionLookupRoute | PersonalProfileLookupRoute | PersonalEpisodeLookupRoute,
+  routeKind: 'broad_synthesis' | 'precision_lookup' | 'mixed_scope_bridge' | 'personal_profile_lookup' | 'personal_episode_lookup',
+  payload: BroadSynthesisRoute | PrecisionLookupRoute | MixedScopeBridgeRoute | PersonalProfileLookupRoute | PersonalEpisodeLookupRoute,
 ): RetrievalRouteSelection {
   return {
     route_kind: routeKind,
@@ -284,10 +323,26 @@ function collectSourceRefs(route: RetrievalRouteSelection | null): string[] {
     task_id?: string;
     profile_memory_id?: string;
     personal_episode_id?: string;
+    work_route?: BroadSynthesisRoute;
+    personal_route?: PersonalProfileLookupRoute;
   };
 
   if (route.route_kind === 'task_resume' && payload.task_id) {
     return [`task-thread:${payload.task_id}`];
+  }
+
+  if (route.route_kind === 'mixed_scope_bridge' && payload.work_route && payload.personal_route) {
+    const workRefs = payload.work_route.recommended_reads.map((read) => {
+      if (read.node_kind === 'section' && read.section_id) {
+        return `section:${read.section_id}`;
+      }
+      return `page:${read.page_slug}`;
+    });
+
+    return [...new Set([
+      ...workRefs,
+      `profile-memory:${payload.personal_route.profile_memory_id}`,
+    ])];
   }
 
   if (route.route_kind === 'personal_profile_lookup' && payload.profile_memory_id) {

@@ -22,6 +22,7 @@ import { getAtlasOrientationBundle } from './services/atlas-orientation-bundle-s
 import { getStructuralContextAtlasOverview } from './services/context-atlas-overview-service.ts';
 import { getStructuralContextAtlasReport } from './services/context-atlas-report-service.ts';
 import { getBroadSynthesisRoute } from './services/broad-synthesis-route-service.ts';
+import { getMixedScopeBridge } from './services/mixed-scope-bridge-service.ts';
 import { getStructuralContextMapExplanation } from './services/context-map-explain-service.ts';
 import { findStructuralContextMapPath } from './services/context-map-path-service.ts';
 import { queryStructuralContextMap } from './services/context-map-query-service.ts';
@@ -2466,6 +2467,38 @@ const get_precision_lookup_route: Operation = {
   cliHints: { name: 'precision-lookup-route' },
 };
 
+const get_mixed_scope_bridge: Operation = {
+  name: 'get_mixed_scope_bridge',
+  description: 'Resolve the published explicit mixed-scope bridge across one work route and one personal route.',
+  params: {
+    requested_scope: { type: 'string', description: 'Explicit scope override; must be mixed for this route', enum: ['work', 'personal', 'mixed'] },
+    map_id: { type: 'string', description: 'Optional context map id for the work-side broad synthesis route' },
+    scope_id: { type: 'string', description: 'Work-side scope id for broad synthesis (default: workspace:default)' },
+    kind: { type: 'string', description: 'Optional map kind filter for the work-side route' },
+    query: { type: 'string', required: true, description: 'Work-side broad synthesis query' },
+    limit: { type: 'number', description: 'Optional work-side match limit' },
+    subject: { type: 'string', required: true, description: 'Exact personal profile subject for the personal-side route' },
+    profile_type: {
+      type: 'string',
+      description: 'Optional exact personal profile-memory type filter',
+      enum: ['preference', 'routine', 'personal_project', 'stable_fact', 'relationship_boundary', 'other'],
+    },
+  },
+  handler: async (ctx, p) => {
+    return getMixedScopeBridge(ctx.engine, {
+      requested_scope: typeof p.requested_scope === 'string' ? p.requested_scope as any : undefined,
+      map_id: typeof p.map_id === 'string' ? p.map_id : undefined,
+      scope_id: String(p.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID),
+      kind: typeof p.kind === 'string' ? p.kind : undefined,
+      query: String(p.query),
+      limit: typeof p.limit === 'number' ? p.limit : undefined,
+      subject: String(p.subject),
+      profile_type: typeof p.profile_type === 'string' ? p.profile_type as any : undefined,
+    });
+  },
+  cliHints: { name: 'mixed-scope-bridge' },
+};
+
 const get_personal_profile_lookup_route: Operation = {
   name: 'get_personal_profile_lookup_route',
   description: 'Resolve an exact personal profile-memory route for personal/profile lookup intent.',
@@ -2562,7 +2595,7 @@ const evaluate_scope_gate: Operation = {
   name: 'evaluate_scope_gate',
   description: 'Evaluate the deterministic scope gate for the current published retrieval stack.',
   params: {
-    intent: { type: 'string', required: true, description: 'One of task_resume, broad_synthesis, precision_lookup, personal_profile_lookup, personal_episode_lookup' },
+    intent: { type: 'string', required: true, description: 'One of task_resume, broad_synthesis, precision_lookup, mixed_scope_bridge, personal_profile_lookup, personal_episode_lookup' },
     requested_scope: { type: 'string', description: 'Optional explicit scope override', enum: ['work', 'personal', 'mixed'] },
     task_id: { type: 'string', description: 'Task id used to derive task scope when present' },
     query: { type: 'string', description: 'Optional plain-text request used for signal detection' },
@@ -2576,10 +2609,11 @@ const evaluate_scope_gate: Operation = {
       intent !== 'task_resume'
       && intent !== 'broad_synthesis'
       && intent !== 'precision_lookup'
+      && intent !== 'mixed_scope_bridge'
       && intent !== 'personal_profile_lookup'
       && intent !== 'personal_episode_lookup'
     ) {
-      throw new OperationError('invalid_params', 'intent must be one of task_resume, broad_synthesis, precision_lookup, personal_profile_lookup, personal_episode_lookup.');
+      throw new OperationError('invalid_params', 'intent must be one of task_resume, broad_synthesis, precision_lookup, mixed_scope_bridge, personal_profile_lookup, personal_episode_lookup.');
     }
 
     return evaluateScopeGate(ctx.engine, {
@@ -2599,7 +2633,7 @@ const select_retrieval_route: Operation = {
   name: 'select_retrieval_route',
   description: 'Select one published retrieval route by explicit intent.',
   params: {
-    intent: { type: 'string', required: true, description: 'One of task_resume, broad_synthesis, precision_lookup, personal_profile_lookup, personal_episode_lookup' },
+    intent: { type: 'string', required: true, description: 'One of task_resume, broad_synthesis, precision_lookup, mixed_scope_bridge, personal_profile_lookup, personal_episode_lookup' },
     task_id: { type: 'string', description: 'Task id for task_resume intent' },
     persist_trace: { type: 'boolean', description: 'Persist a task-scoped Retrieval Trace for the selected route' },
     requested_scope: { type: 'string', description: 'Optional explicit scope override', enum: ['work', 'personal', 'mixed'] },
@@ -2631,16 +2665,23 @@ const select_retrieval_route: Operation = {
       intent !== 'task_resume'
       && intent !== 'broad_synthesis'
       && intent !== 'precision_lookup'
+      && intent !== 'mixed_scope_bridge'
       && intent !== 'personal_profile_lookup'
       && intent !== 'personal_episode_lookup'
     ) {
-      throw new OperationError('invalid_params', 'intent must be one of task_resume, broad_synthesis, precision_lookup, personal_profile_lookup, personal_episode_lookup.');
+      throw new OperationError('invalid_params', 'intent must be one of task_resume, broad_synthesis, precision_lookup, mixed_scope_bridge, personal_profile_lookup, personal_episode_lookup.');
     }
     if (intent === 'task_resume' && typeof p.task_id !== 'string') {
       throw new OperationError('invalid_params', 'task_resume intent requires task_id.');
     }
     if (intent === 'broad_synthesis' && typeof p.query !== 'string') {
       throw new OperationError('invalid_params', 'broad_synthesis intent requires query.');
+    }
+    if (intent === 'mixed_scope_bridge' && typeof p.query !== 'string') {
+      throw new OperationError('invalid_params', 'mixed_scope_bridge intent requires query.');
+    }
+    if (intent === 'mixed_scope_bridge' && typeof p.subject !== 'string') {
+      throw new OperationError('invalid_params', 'mixed_scope_bridge intent requires subject.');
     }
     if (intent === 'personal_profile_lookup' && typeof p.subject !== 'string') {
       throw new OperationError('invalid_params', 'personal_profile_lookup intent requires subject.');
@@ -3240,7 +3281,7 @@ export const operations: Operation[] = [
   // Structural graph
   get_note_structural_neighbors, find_note_structural_path,
   // Persisted context maps
-  build_context_map, get_context_map_entry, list_context_map_entries, get_context_map_report, get_context_map_explanation, query_context_map, find_context_map_path, get_broad_synthesis_route, get_precision_lookup_route, get_personal_profile_lookup_route, get_personal_episode_lookup_route, select_personal_write_target, preview_personal_export, evaluate_scope_gate, select_retrieval_route, get_workspace_system_card, get_workspace_project_card, get_workspace_orientation_bundle, get_workspace_corpus_card,
+  build_context_map, get_context_map_entry, list_context_map_entries, get_context_map_report, get_context_map_explanation, query_context_map, find_context_map_path, get_broad_synthesis_route, get_precision_lookup_route, get_mixed_scope_bridge, get_personal_profile_lookup_route, get_personal_episode_lookup_route, select_personal_write_target, preview_personal_export, evaluate_scope_gate, select_retrieval_route, get_workspace_system_card, get_workspace_project_card, get_workspace_orientation_bundle, get_workspace_corpus_card,
   // Context atlas registry
   build_context_atlas, get_context_atlas_entry, list_context_atlas_entries, select_context_atlas_entry, get_context_atlas_overview, get_context_atlas_report, get_atlas_orientation_card, get_atlas_orientation_bundle,
   // Operational memory

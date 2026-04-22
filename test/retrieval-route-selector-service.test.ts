@@ -316,3 +316,84 @@ test('retrieval route selector dispatches personal episode lookup intent', async
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('retrieval route selector dispatches mixed-scope bridge intent and can persist a trace', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-route-selector-mixed-bridge-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    await engine.createTaskThread({
+      id: 'task-mixed',
+      scope: 'mixed',
+      title: 'Connect routines to project planning',
+      goal: 'Bridge work and personal context explicitly',
+      status: 'active',
+      repo_path: '/repo',
+      branch_name: 'phase2-note-manifest',
+      current_summary: 'Need explicit mixed retrieval only',
+    });
+
+    await importFromContent(engine, 'systems/mbrain', [
+      '---',
+      'type: system',
+      'title: MBrain',
+      '---',
+      '# Overview',
+      'See [[concepts/note-manifest]].',
+    ].join('\n'), { path: 'systems/mbrain.md' });
+    await importFromContent(engine, 'concepts/note-manifest', [
+      '---',
+      'type: concept',
+      'title: Note Manifest',
+      '---',
+      '# Purpose',
+      'Indexes [[systems/mbrain]].',
+    ].join('\n'), { path: 'concepts/note-manifest.md' });
+    await buildStructuralContextMapEntry(engine);
+
+    await engine.upsertProfileMemoryEntry({
+      id: 'profile-1',
+      scope_id: 'personal:default',
+      profile_type: 'routine',
+      subject: 'daily routine',
+      content: 'Wake at 7 AM, review priorities, then write.',
+      source_refs: ['User, direct message, 2026-04-22 9:05 AM KST'],
+      sensitivity: 'personal',
+      export_status: 'private_only',
+      last_confirmed_at: new Date('2026-04-22T00:05:00.000Z'),
+      superseded_by: null,
+    });
+
+    const result = await selectRetrievalRoute(engine, {
+      intent: 'mixed_scope_bridge',
+      task_id: 'task-mixed',
+      persist_trace: true,
+      requested_scope: 'mixed',
+      query: 'mbrain',
+      subject: 'daily routine',
+    } as any);
+
+    expect(result.selected_intent).toBe('mixed_scope_bridge');
+    expect(result.selection_reason).toBe('direct_mixed_scope_bridge');
+    expect(result.scope_gate?.resolved_scope).toBe('mixed');
+    expect(result.scope_gate?.policy).toBe('allow');
+    expect(result.route?.route_kind).toBe('mixed_scope_bridge');
+    expect((result.route?.payload as any)?.bridge_reason).toBe('explicit_mixed_scope');
+    expect(result.trace?.task_id).toBe('task-mixed');
+    expect(result.trace?.route).toEqual([
+      'mixed_scope_gate',
+      'work_broad_synthesis',
+      'personal_profile_lookup',
+      'bounded_cross_scope_bridge',
+    ]);
+    expect(result.trace?.source_refs).toContain('profile-memory:profile-1');
+    expect(result.trace?.source_refs).toContain('page:systems/mbrain');
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

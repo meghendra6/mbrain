@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import { operations } from '../src/core/operations.ts';
 import { SQLiteEngine } from '../src/core/sqlite-engine.ts';
 import { importFromContent } from '../src/core/import-file.ts';
+import { buildStructuralContextMapEntry } from '../src/core/services/context-map-service.ts';
 
 test('retrieval route selector operation is registered with CLI hints', () => {
   const route = operations.find((operation) => operation.name === 'select_retrieval_route');
@@ -140,6 +141,7 @@ test('retrieval route selector operation dispatches task and precision intents',
       'Owns cache invalidation.',
       '[Source: User, direct message, 2026-04-22 12:31 PM KST]',
     ].join('\n'), { path: 'systems/brain-cache.md' });
+    await buildStructuralContextMapEntry(engine);
 
     const ambiguous = await route.handler({
       engine,
@@ -232,6 +234,38 @@ test('retrieval route selector operation dispatches task and precision intents',
     expect((episode as any).scope_gate?.resolved_scope).toBe('personal');
     expect((episode as any).scope_gate?.policy).toBe('allow');
     expect((episode as any).route?.route_kind).toBe('personal_episode_lookup');
+
+    await engine.createTaskThread({
+      id: 'task-mixed',
+      scope: 'mixed',
+      title: 'Connect routines to project planning',
+      goal: 'Bridge work and personal context explicitly',
+      status: 'active',
+      repo_path: '/repo',
+      branch_name: 'phase2-note-manifest',
+      current_summary: 'Need explicit mixed retrieval only',
+    });
+
+    const mixed = await route.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      intent: 'mixed_scope_bridge',
+      task_id: 'task-mixed',
+      persist_trace: true,
+      requested_scope: 'mixed',
+      query: 'mbrain',
+      subject: 'daily routine',
+    });
+
+    expect((mixed as any).selected_intent).toBe('mixed_scope_bridge');
+    expect((mixed as any).selection_reason).toBe('direct_mixed_scope_bridge');
+    expect((mixed as any).scope_gate?.resolved_scope).toBe('mixed');
+    expect((mixed as any).scope_gate?.policy).toBe('allow');
+    expect((mixed as any).route?.route_kind).toBe('mixed_scope_bridge');
+    expect((mixed as any).trace?.task_id).toBe('task-mixed');
   } finally {
     await engine.disconnect();
     rmSync(dir, { recursive: true, force: true });
