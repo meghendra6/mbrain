@@ -75,6 +75,32 @@ test('memory inbox service advances candidate to staged_for_review with review m
   }
 });
 
+test('memory inbox service preserves explicit null reviewed_at when staging for review', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-service-null-reviewed-at-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+    await seedCandidate(engine, 'candidate-2b', 'candidate');
+
+    const updated = await advanceMemoryCandidateStatus(engine, {
+      id: 'candidate-2b',
+      next_status: 'staged_for_review',
+      reviewed_at: null,
+      review_reason: 'Escalated without stamping review time yet.',
+    });
+
+    expect(updated.status).toBe('staged_for_review');
+    expect(updated.reviewed_at).toBeNull();
+    expect(updated.review_reason).toBe('Escalated without stamping review time yet.');
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('memory inbox service rejects skipped transitions', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-service-skip-'));
   const databasePath = join(dir, 'brain.db');

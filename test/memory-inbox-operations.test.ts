@@ -31,6 +31,9 @@ test('memory inbox operations are registered with CLI hints', () => {
   expect(get?.cliHints?.name).toBe('get-memory-candidate');
   expect(list?.cliHints?.name).toBe('list-memory-candidates');
   expect(advance?.cliHints?.name).toBe('advance-memory-candidate-status');
+  expect(create?.params.status?.enum).toEqual(['captured', 'candidate', 'staged_for_review']);
+  expect(list?.params.status?.enum).toEqual(['captured', 'candidate', 'staged_for_review']);
+  expect(advance?.params.next_status?.description).toContain('depends on the current stored status');
 });
 
 test('memory inbox operations expose dry-run, direct get, filtered list, and bounded advance behavior', async () => {
@@ -123,6 +126,116 @@ test('memory inbox operations expose dry-run, direct get, filtered list, and bou
 
     expect((advanced as any).id).toBe('candidate-1');
     expect((advanced as any).status).toBe('candidate');
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('memory inbox create accepts source_refs arrays and rejects future-only statuses', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-op-source-refs-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+  const create = operations.find((operation) => operation.name === 'create_memory_candidate_entry');
+
+  if (!create) {
+    throw new Error('create memory candidate operation is missing');
+  }
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    const created = await create.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      id: 'candidate-multi-source',
+      candidate_type: 'fact',
+      proposed_content: 'Multiple provenance strings stay attached to one candidate.',
+      source_refs: [
+        'User, direct message, 2026-04-23 1:15 PM KST',
+        'Meeting notes, Architecture Sync, 2026-04-23 1:20 PM KST',
+      ],
+    });
+
+    expect((created as any).source_refs).toEqual([
+      'User, direct message, 2026-04-23 1:15 PM KST',
+      'Meeting notes, Architecture Sync, 2026-04-23 1:20 PM KST',
+    ]);
+
+    await expect(create.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      id: 'candidate-invalid-status',
+      candidate_type: 'fact',
+      proposed_content: 'Future-only statuses should stay hidden in Phase 5.',
+      status: 'promoted',
+    })).rejects.toBeInstanceOf(OperationError);
+
+    await expect(create.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      id: 'candidate-invalid-status',
+      candidate_type: 'fact',
+      proposed_content: 'Future-only statuses should stay hidden in Phase 5.',
+      status: 'promoted',
+    })).rejects.toMatchObject({
+      code: 'invalid_params',
+    });
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('memory inbox list caps oversized limits', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-op-limit-cap-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+  const create = operations.find((operation) => operation.name === 'create_memory_candidate_entry');
+  const list = operations.find((operation) => operation.name === 'list_memory_candidate_entries');
+
+  if (!create || !list) {
+    throw new Error('memory inbox create/list operations are missing');
+  }
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    for (let index = 0; index < 105; index++) {
+      await create.handler({
+        engine,
+        config: {} as any,
+        logger: console,
+        dryRun: false,
+      }, {
+        id: `candidate-cap-${index}`,
+        candidate_type: 'fact',
+        proposed_content: `Candidate ${index}`,
+      });
+    }
+
+    const listed = await list.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      scope_id: 'workspace:default',
+      limit: 999,
+    });
+
+    expect((listed as any[])).toHaveLength(100);
   } finally {
     await engine.disconnect();
     rmSync(dir, { recursive: true, force: true });

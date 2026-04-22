@@ -719,10 +719,7 @@ export type MemoryCandidateSensitivity =
 export type MemoryCandidateStatus =
   | 'captured'
   | 'candidate'
-  | 'staged_for_review'
-  | 'promoted'
-  | 'rejected'
-  | 'superseded';
+  | 'staged_for_review';
 
 export type MemoryCandidateTargetObjectType =
   | 'curated_note'

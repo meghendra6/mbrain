@@ -17,6 +17,13 @@
 - [ ] Do not grow `src/core/operations.ts` with another large inline block. Extract memory inbox operation definitions into a domain file and re-export from `operations.ts`.
 - [ ] Keep benchmark-launch tests explicitly contract-focused. They should verify bench entrypoints and acceptance JSON, not duplicate service behavior tests.
 - [ ] Carry one open blocker on PR `#32`: fix the missing `replaceNoteSectionEntries` mock in `test/import-service.test.ts` before that PR is merged.
+- [ ] Keep the publicly reachable Phase 5 status surface bounded to `captured`, `candidate`, and `staged_for_review`. Do not expose `promoted`, `rejected`, or `superseded` before a later governance PR actually implements those transitions.
+- [ ] Push enum invariants down into migration `15` with DB-level `CHECK` constraints for every enum-like TEXT column in `memory_candidate_entries`.
+- [ ] Remove `as any` enum casts from `operations-memory-inbox.ts` by validating/coercing runtime strings against explicit allowed-value lists.
+- [ ] Give memory inbox its own default scope constant instead of borrowing the note-manifest default constant, even if both currently resolve to `workspace:default`.
+- [ ] Preserve explicit `reviewed_at: null` in the status-advance service. Only auto-stamp review time when the caller leaves `reviewed_at` undefined.
+- [ ] Let operation callers pass multiple provenance strings through `source_refs`, while keeping single `source_ref` input as a backward-compatible convenience.
+- [ ] Bound list reads with an explicit max cap and document that `next_status` metadata is intentionally narrower than the full transition rule, which still depends on the current stored status.
 
 ---
 

@@ -35,6 +35,54 @@ describe('memory-inbox schema', () => {
 
     expect(rows.map((row) => row.name)).toEqual(['memory_candidate_entries']);
 
+    const schema = db
+      .query(
+        `SELECT sql
+         FROM sqlite_master
+         WHERE type = 'table'
+           AND name = 'memory_candidate_entries'`,
+      )
+      .get() as { sql: string };
+
+    expect(schema.sql).toContain("candidate_type TEXT NOT NULL CHECK");
+    expect(schema.sql).toContain("generated_by TEXT NOT NULL CHECK");
+    expect(schema.sql).toContain("extraction_kind TEXT NOT NULL CHECK");
+    expect(schema.sql).toContain("sensitivity TEXT NOT NULL CHECK");
+    expect(schema.sql).toContain("status TEXT NOT NULL CHECK");
+    expect(schema.sql).toContain("target_object_type TEXT CHECK");
+
+    expect(() => {
+      db.query(`
+        INSERT INTO memory_candidate_entries (
+          id,
+          scope_id,
+          candidate_type,
+          proposed_content,
+          source_refs,
+          generated_by,
+          extraction_kind,
+          confidence_score,
+          importance_score,
+          recurrence_score,
+          sensitivity,
+          status
+        ) VALUES (
+          'bad-status',
+          'workspace:default',
+          'fact',
+          'Invalid status should fail at the DB layer.',
+          '[]',
+          'manual',
+          'manual',
+          0.5,
+          0.5,
+          0,
+          'work',
+          'promoted'
+        )
+      `).run();
+    }).toThrow();
+
     await engine.disconnect();
   });
 
@@ -56,6 +104,36 @@ describe('memory-inbox schema', () => {
     expect(result.rows.map((row: { table_name: string }) => row.table_name)).toEqual([
       'memory_candidate_entries',
     ]);
+
+    await expect((engine as any).db.query(`
+      INSERT INTO memory_candidate_entries (
+        id,
+        scope_id,
+        candidate_type,
+        proposed_content,
+        source_refs,
+        generated_by,
+        extraction_kind,
+        confidence_score,
+        importance_score,
+        recurrence_score,
+        sensitivity,
+        status
+      ) VALUES (
+        'bad-status',
+        'workspace:default',
+        'fact',
+        'Invalid status should fail at the DB layer.',
+        '[]',
+        'manual',
+        'manual',
+        0.5,
+        0.5,
+        0,
+        'work',
+        'promoted'
+      )
+    `)).rejects.toThrow();
 
     await engine.disconnect();
   });

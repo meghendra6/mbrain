@@ -19,7 +19,7 @@ import {
 } from './services/context-atlas-service.ts';
 import { getAtlasOrientationCard } from './services/atlas-orientation-card-service.ts';
 import { getAtlasOrientationBundle } from './services/atlas-orientation-bundle-service.ts';
-import { createMemoryInboxOperations } from './operations-memory-inbox.ts';
+import { createMemoryInboxOperations, DEFAULT_MEMORY_INBOX_SCOPE_ID } from './operations-memory-inbox.ts';
 import { getStructuralContextAtlasOverview } from './services/context-atlas-overview-service.ts';
 import { getStructuralContextAtlasReport } from './services/context-atlas-report-service.ts';
 import { getBroadSynthesisRoute } from './services/broad-synthesis-route-service.ts';
@@ -1639,7 +1639,7 @@ const record_personal_episode: Operation = {
 };
 
 const memoryInboxOperations = createMemoryInboxOperations({
-  defaultScopeId: DEFAULT_NOTE_MANIFEST_SCOPE_ID,
+  defaultScopeId: DEFAULT_MEMORY_INBOX_SCOPE_ID,
   OperationError,
 });
 

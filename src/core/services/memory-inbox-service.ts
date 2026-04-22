@@ -5,9 +5,6 @@ const ALLOWED_TRANSITIONS: Record<MemoryCandidateStatus, MemoryCandidateStatus |
   captured: 'candidate',
   candidate: 'staged_for_review',
   staged_for_review: null,
-  promoted: null,
-  rejected: null,
-  superseded: null,
 };
 
 export class MemoryInboxServiceError extends Error {
@@ -49,9 +46,9 @@ export async function advanceMemoryCandidateStatus(
 
   return engine.updateMemoryCandidateEntryStatus(entry.id, {
     status: input.next_status,
-    reviewed_at: input.reviewed_at ?? (
-      input.next_status === 'staged_for_review' ? new Date() : null
-    ),
+    reviewed_at: input.reviewed_at !== undefined
+      ? input.reviewed_at
+      : (input.next_status === 'staged_for_review' ? new Date() : null),
     review_reason: input.review_reason ?? null,
   });
 }
