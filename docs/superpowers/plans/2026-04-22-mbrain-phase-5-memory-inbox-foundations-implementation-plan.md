@@ -10,6 +10,16 @@
 
 ---
 
+## Review-Driven Constraints
+
+- [ ] Publish Phase 5 from a separate branch/PR only. Freeze PR `#32` at Phase 2-4 scope except for merge-blocking fixes already on that branch.
+- [ ] Keep this PR bounded to `memory inbox foundations` only: migration `15`, inbox schema/engine/service/operations, and Phase 5 benchmark/acceptance wiring.
+- [ ] Do not grow `src/core/operations.ts` with another large inline block. Extract memory inbox operation definitions into a domain file and re-export from `operations.ts`.
+- [ ] Keep benchmark-launch tests explicitly contract-focused. They should verify bench entrypoints and acceptance JSON, not duplicate service behavior tests.
+- [ ] Carry one open blocker on PR `#32`: fix the missing `replaceNoteSectionEntries` mock in `test/import-service.test.ts` before that PR is merged.
+
+---
+
 ## File Map
 
 - Modify: `src/core/types.ts`
@@ -18,6 +28,7 @@
 - Modify: `src/core/pglite-engine.ts`
 - Modify: `src/core/postgres-engine.ts`
 - Modify: `src/core/operations.ts`
+- Create: `src/core/operations/memory-inbox-operations.ts`
 - Create: `src/core/services/memory-inbox-service.ts`
 - Create: `test/memory-inbox-schema.test.ts`
 - Create: `test/memory-inbox-engine.test.ts`
@@ -48,6 +59,7 @@
 ## Task 3: Shared Operations
 
 - [ ] Add failing operation tests for create/get/list/advance behavior.
+- [ ] Extract memory inbox operation definitions into `src/core/operations/memory-inbox-operations.ts` and re-export them from `src/core/operations.ts`.
 - [ ] Expose `create-memory-candidate`, `get-memory-candidate`,
       `list-memory-candidates`, and `advance-memory-candidate-status`.
 - [ ] Keep CLI/MCP behavior thin over the service and engine layer.
@@ -58,6 +70,7 @@
 - [ ] Add failing benchmark tests for `phase5-memory-inbox-foundations` and
       `phase5-acceptance-pack`.
 - [ ] Implement the benchmark script with correctness and latency workloads.
+- [ ] Keep benchmark tests scoped to entrypoint/JSON contract checks and leave detailed behavior coverage to service/engine/operations tests.
 - [ ] Add `bench:phase5-memory-inbox-foundations`, `bench:phase5-acceptance`,
       and `test:phase5`.
 - [ ] Update `docs/MBRAIN_VERIFY.md`.
