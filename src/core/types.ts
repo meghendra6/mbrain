@@ -518,6 +518,30 @@ export interface MixedScopeBridgeResult {
   scope_gate: ScopeGateDecisionResult;
 }
 
+export type MixedScopeDisclosureVisibility =
+  | 'profile_content_disclosed'
+  | 'profile_metadata_only'
+  | 'profile_withheld'
+  | 'episode_metadata_only';
+
+export interface MixedScopeDisclosure {
+  disclosure_kind: 'mixed_scope_bridge';
+  personal_route_kind: 'profile' | 'episode';
+  personal_visibility: MixedScopeDisclosureVisibility;
+  work_summary_lines: string[];
+  personal_summary_lines: string[];
+  recommended_reads: BroadSynthesisRouteRead[];
+}
+
+export type MixedScopeDisclosureInput = MixedScopeBridgeInput;
+
+export interface MixedScopeDisclosureResult {
+  selection_reason: string;
+  candidate_count: number;
+  scope_gate: ScopeGateDecisionResult;
+  disclosure: MixedScopeDisclosure | null;
+}
+
 export interface PrecisionLookupRouteRead {
   node_id: string;
   node_kind: 'page' | 'section';
