@@ -1453,6 +1453,97 @@ const get_chunks: Operation = {
   },
 };
 
+// --- Profile Memory ---
+
+const get_profile_memory_entry: Operation = {
+  name: 'get_profile_memory_entry',
+  description: 'Get one canonical profile-memory entry by id.',
+  params: {
+    id: { type: 'string', required: true, description: 'Profile-memory entry id' },
+  },
+  handler: async (ctx, p) => {
+    return ctx.engine.getProfileMemoryEntry(String(p.id));
+  },
+  cliHints: { name: 'profile-memory-get' },
+};
+
+const list_profile_memory_entries: Operation = {
+  name: 'list_profile_memory_entries',
+  description: 'List canonical profile-memory entries.',
+  params: {
+    scope_id: { type: 'string', description: 'Profile-memory scope id (default: personal:default)' },
+    subject: { type: 'string', description: 'Exact profile-memory subject filter' },
+    profile_type: {
+      type: 'string',
+      description: 'Optional exact profile-memory type filter',
+      enum: ['preference', 'routine', 'personal_project', 'stable_fact', 'relationship_boundary', 'other'],
+    },
+    limit: { type: 'number', description: 'Max results (default 20)' },
+    offset: { type: 'number', description: 'Offset for pagination (default 0)' },
+  },
+  handler: async (ctx, p) => {
+    return ctx.engine.listProfileMemoryEntries({
+      scope_id: String(p.scope_id ?? DEFAULT_PROFILE_MEMORY_SCOPE_ID),
+      subject: typeof p.subject === 'string' ? p.subject : undefined,
+      profile_type: typeof p.profile_type === 'string' ? p.profile_type as any : undefined,
+      limit: typeof p.limit === 'number' ? p.limit : 20,
+      offset: typeof p.offset === 'number' ? p.offset : 0,
+    });
+  },
+  cliHints: { name: 'profile-memory-list', aliases: { n: 'limit' } },
+};
+
+const upsert_profile_memory_entry: Operation = {
+  name: 'upsert_profile_memory_entry',
+  description: 'Create or update one canonical personal profile-memory entry.',
+  params: {
+    id: { type: 'string', description: 'Optional profile-memory entry id (generated when omitted)' },
+    scope_id: { type: 'string', description: 'Profile-memory scope id (default: personal:default)' },
+    profile_type: {
+      type: 'string',
+      required: true,
+      description: 'Canonical profile-memory type',
+      enum: ['preference', 'routine', 'personal_project', 'stable_fact', 'relationship_boundary', 'other'],
+    },
+    subject: { type: 'string', required: true, description: 'Exact profile-memory subject' },
+    content: { type: 'string', required: true, description: 'Canonical profile-memory content' },
+    source_ref: { type: 'string', description: 'Optional single provenance string' },
+    sensitivity: { type: 'string', description: 'Sensitivity classification', enum: ['public', 'personal', 'secret'] },
+    export_status: { type: 'string', description: 'Export visibility status', enum: ['private_only', 'exportable'] },
+    last_confirmed_at: { type: 'string', description: 'Optional ISO timestamp for last confirmation' },
+    superseded_by: { type: 'string', description: 'Optional id of a newer superseding entry' },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    const id = typeof p.id === 'string' ? p.id : crypto.randomUUID();
+    const scopeId = String(p.scope_id ?? DEFAULT_PROFILE_MEMORY_SCOPE_ID);
+    if (ctx.dryRun) {
+      return {
+        dry_run: true,
+        action: 'upsert_profile_memory_entry',
+        id,
+        scope_id: scopeId,
+        profile_type: p.profile_type,
+        subject: p.subject,
+      };
+    }
+
+    return ctx.engine.upsertProfileMemoryEntry({
+      id,
+      scope_id: scopeId,
+      profile_type: String(p.profile_type) as any,
+      subject: String(p.subject),
+      content: String(p.content),
+      source_refs: typeof p.source_ref === 'string' ? [p.source_ref] : [],
+      sensitivity: String(p.sensitivity ?? 'personal') as any,
+      export_status: String(p.export_status ?? 'private_only') as any,
+      last_confirmed_at: typeof p.last_confirmed_at === 'string' ? p.last_confirmed_at : null,
+      superseded_by: typeof p.superseded_by === 'string' ? p.superseded_by : null,
+    });
+  },
+  cliHints: { name: 'profile-memory-upsert' },
+};
+
 // --- Operational Memory ---
 
 const list_tasks: Operation = {
@@ -2829,6 +2920,8 @@ export const operations: Operation[] = [
   put_raw_data, get_raw_data,
   // Resolution & chunks
   resolve_slugs, get_chunks,
+  // Profile memory
+  get_profile_memory_entry, list_profile_memory_entries, upsert_profile_memory_entry,
   // Note manifest
   get_note_manifest_entry, list_note_manifest_entries, rebuild_note_manifest,
   // Note sections
