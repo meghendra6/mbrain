@@ -67,6 +67,38 @@ describe('memory-inbox schema', () => {
           sensitivity,
           status
         ) VALUES (
+          'rejected-status',
+          'workspace:default',
+          'fact',
+          'Rejected should be valid in the rejection slice.',
+          '[]',
+          'manual',
+          'manual',
+          0.5,
+          0.5,
+          0,
+          'work',
+          'rejected'
+        )
+      `).run();
+    }).not.toThrow();
+
+    expect(() => {
+      db.query(`
+        INSERT INTO memory_candidate_entries (
+          id,
+          scope_id,
+          candidate_type,
+          proposed_content,
+          source_refs,
+          generated_by,
+          extraction_kind,
+          confidence_score,
+          importance_score,
+          recurrence_score,
+          sensitivity,
+          status
+        ) VALUES (
           'bad-status',
           'workspace:default',
           'fact',
@@ -104,6 +136,36 @@ describe('memory-inbox schema', () => {
     expect(result.rows.map((row: { table_name: string }) => row.table_name)).toEqual([
       'memory_candidate_entries',
     ]);
+
+    await expect((engine as any).db.query(`
+      INSERT INTO memory_candidate_entries (
+        id,
+        scope_id,
+        candidate_type,
+        proposed_content,
+        source_refs,
+        generated_by,
+        extraction_kind,
+        confidence_score,
+        importance_score,
+        recurrence_score,
+        sensitivity,
+        status
+      ) VALUES (
+        'rejected-status',
+        'workspace:default',
+        'fact',
+        'Rejected should be valid in the rejection slice.',
+        '[]',
+        'manual',
+        'manual',
+        0.5,
+        0.5,
+        0,
+        'work',
+        'rejected'
+      )
+    `)).resolves.toBeDefined();
 
     await expect((engine as any).db.query(`
       INSERT INTO memory_candidate_entries (

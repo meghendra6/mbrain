@@ -18,6 +18,7 @@ test('memory inbox operations can be built from a dedicated domain module', () =
     'list_memory_candidate_entries',
     'create_memory_candidate_entry',
     'advance_memory_candidate_status',
+    'reject_memory_candidate_entry',
   ]);
 });
 
@@ -26,13 +27,15 @@ test('memory inbox operations are registered with CLI hints', () => {
   const get = operations.find((operation) => operation.name === 'get_memory_candidate_entry');
   const list = operations.find((operation) => operation.name === 'list_memory_candidate_entries');
   const advance = operations.find((operation) => operation.name === 'advance_memory_candidate_status');
+  const reject = operations.find((operation) => operation.name === 'reject_memory_candidate_entry');
 
   expect(create?.cliHints?.name).toBe('create-memory-candidate');
   expect(get?.cliHints?.name).toBe('get-memory-candidate');
   expect(list?.cliHints?.name).toBe('list-memory-candidates');
   expect(advance?.cliHints?.name).toBe('advance-memory-candidate-status');
+  expect(reject?.cliHints?.name).toBe('reject-memory-candidate');
   expect(create?.params.status?.enum).toEqual(['captured', 'candidate', 'staged_for_review']);
-  expect(list?.params.status?.enum).toEqual(['captured', 'candidate', 'staged_for_review']);
+  expect(list?.params.status?.enum).toEqual(['captured', 'candidate', 'staged_for_review', 'rejected']);
   expect(advance?.params.next_status?.description).toContain('depends on the current stored status');
 });
 
@@ -44,8 +47,9 @@ test('memory inbox operations expose dry-run, direct get, filtered list, and bou
   const get = operations.find((operation) => operation.name === 'get_memory_candidate_entry');
   const list = operations.find((operation) => operation.name === 'list_memory_candidate_entries');
   const advance = operations.find((operation) => operation.name === 'advance_memory_candidate_status');
+  const reject = operations.find((operation) => operation.name === 'reject_memory_candidate_entry');
 
-  if (!create || !get || !list || !advance) {
+  if (!create || !get || !list || !advance || !reject) {
     throw new Error('memory inbox operations are missing');
   }
 
@@ -126,6 +130,32 @@ test('memory inbox operations expose dry-run, direct get, filtered list, and bou
 
     expect((advanced as any).id).toBe('candidate-1');
     expect((advanced as any).status).toBe('candidate');
+
+    const staged = await advance.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      id: 'candidate-1',
+      next_status: 'staged_for_review',
+      review_reason: 'Prepared for explicit decision.',
+    });
+
+    expect((staged as any).status).toBe('staged_for_review');
+
+    const rejected = await reject.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      id: 'candidate-1',
+      review_reason: 'Insufficient provenance for durable memory.',
+    });
+
+    expect((rejected as any).id).toBe('candidate-1');
+    expect((rejected as any).status).toBe('rejected');
   } finally {
     await engine.disconnect();
     rmSync(dir, { recursive: true, force: true });

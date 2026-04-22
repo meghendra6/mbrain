@@ -803,6 +803,23 @@ Expected:
 - benchmark reports `memory_inbox_foundations` and `memory_inbox_foundations_correctness`
 - `acceptance.phase5_status` matches the local foundation guardrail outcome
 
+## Phase 5 memory inbox rejection
+
+Run:
+
+```bash
+bun test test/memory-inbox-schema.test.ts test/memory-inbox-engine.test.ts test/memory-inbox-service.test.ts test/memory-inbox-operations.test.ts test/phase5-memory-inbox-rejection.test.ts
+bun run bench:phase5-memory-inbox-rejection --json
+```
+
+Expected:
+
+- `rejected` becomes a DB-valid memory candidate status across SQLite and PGLite schema initialization
+- rejection stays bounded to staged candidates only
+- `reject-memory-candidate` stays available through the shared operation surface
+- benchmark reports `memory_inbox_rejection` and `memory_inbox_rejection_correctness`
+- `acceptance.phase5_status` matches the local rejection-slice guardrail outcome
+
 ## Phase 5 acceptance-pack
 
 Run:
@@ -818,7 +835,7 @@ Expected:
 - benchmark summarizes every published Phase 5 benchmark slice
 - `acceptance.readiness_status` reports `pass` only when all published Phase 5 slices pass
 - `acceptance.phase5_status` matches the aggregated phase outcome
-- `test:phase5` runs the published Phase 5 suites and the acceptance-pack test
+- `test:phase5` runs the published Phase 5 suites, the rejection benchmark test, and the acceptance-pack test
 
 ---
 
