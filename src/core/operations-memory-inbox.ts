@@ -2,6 +2,7 @@ import type { Operation } from './operations.ts';
 import {
   advanceMemoryCandidateStatus,
   MemoryInboxServiceError,
+  preflightPromoteMemoryCandidate,
   rejectMemoryCandidateEntry,
 } from './services/memory-inbox-service.ts';
 
@@ -63,9 +64,15 @@ function normalizeSourceRefs(
     if (!params.source_refs.every((entry) => typeof entry === 'string')) {
       throw invalidParams(deps, 'source_refs must be an array of strings');
     }
+    if (params.source_refs.some((entry) => entry.trim().length === 0)) {
+      throw invalidParams(deps, 'source_refs entries must be non-empty strings');
+    }
     return [...params.source_refs];
   }
   if (typeof params.source_ref === 'string') {
+    if (params.source_ref.trim().length === 0) {
+      throw invalidParams(deps, 'source_ref must be a non-empty string');
+    }
     return [params.source_ref];
   }
   if (params.source_ref == null && params.source_refs == null) {
@@ -98,6 +105,19 @@ function normalizeOffset(
     throw invalidParams(deps, 'offset must be a non-negative number');
   }
   return Math.floor(value);
+}
+
+function normalizeOptionalTargetObjectId(
+  deps: { OperationError: OperationErrorCtor },
+  value: unknown,
+): string | null {
+  if (value == null) {
+    return null;
+  }
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw invalidParams(deps, 'target_object_id must be a non-empty string');
+  }
+  return value;
 }
 
 export function createMemoryInboxOperations(
@@ -235,7 +255,7 @@ export function createMemoryInboxOperations(
         sensitivity: optionalEnumValue(deps, 'sensitivity', p.sensitivity, MEMORY_CANDIDATE_SENSITIVITY_VALUES) ?? 'work',
         status,
         target_object_type: optionalEnumValue(deps, 'target_object_type', p.target_object_type, MEMORY_CANDIDATE_TARGET_OBJECT_TYPE_VALUES) ?? null,
-        target_object_id: typeof p.target_object_id === 'string' ? p.target_object_id : null,
+        target_object_id: normalizeOptionalTargetObjectId(deps, p.target_object_id),
         reviewed_at: p.reviewed_at === null ? null : (typeof p.reviewed_at === 'string' ? p.reviewed_at : null),
         review_reason: typeof p.review_reason === 'string' ? p.review_reason : null,
       });
@@ -330,11 +350,39 @@ export function createMemoryInboxOperations(
     cliHints: { name: 'reject-memory-candidate' },
   };
 
+  const preflight_promote_memory_candidate: Operation = {
+    name: 'preflight_promote_memory_candidate',
+    description: 'Run the deterministic governance preflight for promoting one staged memory candidate.',
+    params: {
+      id: { type: 'string', required: true, description: 'Memory candidate id' },
+    },
+    handler: async (ctx, p) => {
+      if (typeof p.id !== 'string' || p.id.trim().length === 0) {
+        throw invalidParams(deps, 'id must be a non-empty string');
+      }
+      try {
+        return await preflightPromoteMemoryCandidate(ctx.engine, {
+          id: p.id,
+        });
+      } catch (error) {
+        if (error instanceof MemoryInboxServiceError) {
+          if (error.code === 'memory_candidate_not_found') {
+            throw new deps.OperationError('memory_candidate_not_found', error.message);
+          }
+          throw new deps.OperationError('invalid_params', error.message);
+        }
+        throw error;
+      }
+    },
+    cliHints: { name: 'preflight-promote-memory-candidate' },
+  };
+
   return [
     get_memory_candidate_entry,
     list_memory_candidate_entries,
     create_memory_candidate_entry,
     advance_memory_candidate_status,
     reject_memory_candidate_entry,
+    preflight_promote_memory_candidate,
   ];
 }

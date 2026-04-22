@@ -820,6 +820,25 @@ Expected:
 - benchmark reports `memory_inbox_rejection` and `memory_inbox_rejection_correctness`
 - `acceptance.phase5_status` matches the local rejection-slice guardrail outcome
 
+## Phase 5 memory inbox promotion preflight
+
+Run:
+
+```bash
+bun test test/memory-inbox-service.test.ts test/memory-inbox-operations.test.ts test/phase5-memory-inbox-promotion-preflight.test.ts
+bun run bench:phase5-memory-inbox-promotion-preflight --json
+```
+
+Expected:
+
+- promotion preflight stays read-only and deterministic
+- staged candidates with provenance and target binding can return `allow`
+- missing provenance, missing target binding, and scope conflicts return `deny`
+- unknown sensitivity and procedure-sensitive candidates return `defer`
+- `preflight-promote-memory-candidate` stays available through the shared operation surface
+- benchmark reports `memory_inbox_promotion_preflight` and `memory_inbox_promotion_preflight_correctness`
+- `acceptance.phase5_status` matches the local promotion-preflight guardrail outcome
+
 ## Phase 5 acceptance-pack
 
 Run:
@@ -835,7 +854,7 @@ Expected:
 - benchmark summarizes every published Phase 5 benchmark slice
 - `acceptance.readiness_status` reports `pass` only when all published Phase 5 slices pass
 - `acceptance.phase5_status` matches the aggregated phase outcome
-- `test:phase5` runs the published Phase 5 suites, the rejection benchmark test, and the acceptance-pack test
+- `test:phase5` runs the published Phase 5 suites, the rejection and promotion-preflight benchmark tests, and the acceptance-pack test
 
 ---
 

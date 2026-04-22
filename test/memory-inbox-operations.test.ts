@@ -19,6 +19,7 @@ test('memory inbox operations can be built from a dedicated domain module', () =
     'create_memory_candidate_entry',
     'advance_memory_candidate_status',
     'reject_memory_candidate_entry',
+    'preflight_promote_memory_candidate',
   ]);
 });
 
@@ -28,12 +29,14 @@ test('memory inbox operations are registered with CLI hints', () => {
   const list = operations.find((operation) => operation.name === 'list_memory_candidate_entries');
   const advance = operations.find((operation) => operation.name === 'advance_memory_candidate_status');
   const reject = operations.find((operation) => operation.name === 'reject_memory_candidate_entry');
+  const preflight = operations.find((operation) => operation.name === 'preflight_promote_memory_candidate');
 
   expect(create?.cliHints?.name).toBe('create-memory-candidate');
   expect(get?.cliHints?.name).toBe('get-memory-candidate');
   expect(list?.cliHints?.name).toBe('list-memory-candidates');
   expect(advance?.cliHints?.name).toBe('advance-memory-candidate-status');
   expect(reject?.cliHints?.name).toBe('reject-memory-candidate');
+  expect(preflight?.cliHints?.name).toBe('preflight-promote-memory-candidate');
   expect(create?.params.status?.enum).toEqual(['captured', 'candidate', 'staged_for_review']);
   expect(list?.params.status?.enum).toEqual(['captured', 'candidate', 'staged_for_review', 'rejected']);
   expect(advance?.params.next_status?.description).toContain('depends on the current stored status');
@@ -48,8 +51,9 @@ test('memory inbox operations expose dry-run, direct get, filtered list, and bou
   const list = operations.find((operation) => operation.name === 'list_memory_candidate_entries');
   const advance = operations.find((operation) => operation.name === 'advance_memory_candidate_status');
   const reject = operations.find((operation) => operation.name === 'reject_memory_candidate_entry');
+  const preflight = operations.find((operation) => operation.name === 'preflight_promote_memory_candidate');
 
-  if (!create || !get || !list || !advance || !reject) {
+  if (!create || !get || !list || !advance || !reject || !preflight) {
     throw new Error('memory inbox operations are missing');
   }
 
@@ -156,6 +160,107 @@ test('memory inbox operations expose dry-run, direct get, filtered list, and bou
 
     expect((rejected as any).id).toBe('candidate-1');
     expect((rejected as any).status).toBe('rejected');
+
+    const preflightResult = await preflight.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      id: 'candidate-1',
+    });
+
+    expect((preflightResult as any).candidate_id).toBe('candidate-1');
+    expect((preflightResult as any).decision).toBe('deny');
+    expect((preflightResult as any).reasons).toContain('candidate_not_staged_for_review');
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('memory inbox promotion preflight operation returns explicit allow and not-found errors', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-op-preflight-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+  const create = operations.find((operation) => operation.name === 'create_memory_candidate_entry');
+  const advance = operations.find((operation) => operation.name === 'advance_memory_candidate_status');
+  const preflight = operations.find((operation) => operation.name === 'preflight_promote_memory_candidate');
+
+  if (!create || !advance || !preflight) {
+    throw new Error('memory inbox create/advance/preflight operations are missing');
+  }
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    await create.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      id: 'candidate-preflight',
+      candidate_type: 'fact',
+      proposed_content: 'Promotion preflight stays read-only and explicit.',
+      source_ref: 'User, direct message, 2026-04-23 7:10 PM KST',
+      target_object_type: 'curated_note',
+      target_object_id: 'concepts/memory-inbox',
+    });
+
+    await advance.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      id: 'candidate-preflight',
+      next_status: 'candidate',
+    });
+
+    await advance.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      id: 'candidate-preflight',
+      next_status: 'staged_for_review',
+      review_reason: 'Ready for promotion governance.',
+    });
+
+    const result = await preflight.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      id: 'candidate-preflight',
+    });
+
+    expect((result as any).decision).toBe('allow');
+    expect((result as any).reasons).toEqual(['candidate_ready_for_promotion']);
+
+    await expect(preflight.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      id: 'missing-candidate',
+    })).rejects.toMatchObject({
+      code: 'memory_candidate_not_found',
+    });
+
+    await expect(preflight.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {})).rejects.toMatchObject({
+      code: 'invalid_params',
+    });
   } finally {
     await engine.disconnect();
     rmSync(dir, { recursive: true, force: true });
@@ -218,6 +323,35 @@ test('memory inbox create accepts source_refs arrays and rejects future-only sta
       candidate_type: 'fact',
       proposed_content: 'Future-only statuses should stay hidden in Phase 5.',
       status: 'promoted',
+    })).rejects.toMatchObject({
+      code: 'invalid_params',
+    });
+
+    await expect(create.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      id: 'candidate-blank-source-ref',
+      candidate_type: 'fact',
+      proposed_content: 'Blank provenance strings should be rejected.',
+      source_refs: [''],
+    })).rejects.toMatchObject({
+      code: 'invalid_params',
+    });
+
+    await expect(create.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      id: 'candidate-blank-target-id',
+      candidate_type: 'fact',
+      proposed_content: 'Blank target ids should be rejected.',
+      target_object_type: 'curated_note',
+      target_object_id: '   ',
     })).rejects.toMatchObject({
       code: 'invalid_params',
     });

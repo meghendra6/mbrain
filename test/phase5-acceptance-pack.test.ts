@@ -16,6 +16,7 @@ describe('phase5 acceptance-pack benchmark', () => {
     expect(payload.benchmarks.map((benchmark: any) => benchmark.name)).toEqual([
       'memory_inbox_foundations',
       'memory_inbox_rejection',
+      'memory_inbox_promotion_preflight',
     ]);
     expect(payload.acceptance.readiness_status).toBe('pass');
     expect(payload.acceptance.phase5_status).toBe('pass');

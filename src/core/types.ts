@@ -731,6 +731,17 @@ export type MemoryCandidateTargetObjectType =
   | 'personal_episode'
   | 'other';
 
+export type MemoryCandidatePromotionPreflightDecision = 'allow' | 'deny' | 'defer';
+
+export type MemoryCandidatePromotionPreflightReason =
+  | 'candidate_not_staged_for_review'
+  | 'candidate_missing_provenance'
+  | 'candidate_missing_target_object'
+  | 'candidate_scope_conflict'
+  | 'candidate_unknown_sensitivity'
+  | 'candidate_requires_revalidation'
+  | 'candidate_ready_for_promotion';
+
 export interface MemoryCandidateEntry {
   id: string;
   scope_id: string;
@@ -784,6 +795,17 @@ export interface MemoryCandidateStatusPatch {
   status: MemoryCandidateStatus;
   reviewed_at?: Date | string | null;
   review_reason?: string | null;
+}
+
+export interface MemoryCandidatePromotionPreflightInput {
+  id: string;
+}
+
+export interface MemoryCandidatePromotionPreflightResult {
+  candidate_id: string;
+  decision: MemoryCandidatePromotionPreflightDecision;
+  reasons: MemoryCandidatePromotionPreflightReason[];
+  summary_lines: string[];
 }
 
 export interface PersonalEpisodeLookupRoute {
