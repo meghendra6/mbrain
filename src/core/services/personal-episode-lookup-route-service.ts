@@ -5,6 +5,7 @@ import type {
   PersonalEpisodeLookupRouteInput,
   PersonalEpisodeLookupRouteResult,
 } from '../types.ts';
+import { evaluateScopeGate } from './scope-gate-service.ts';
 
 export const DEFAULT_PERSONAL_EPISODE_SCOPE_ID = 'personal:default';
 
@@ -12,6 +13,21 @@ export async function getPersonalEpisodeLookupRoute(
   engine: BrainEngine,
   input: PersonalEpisodeLookupRouteInput,
 ): Promise<PersonalEpisodeLookupRouteResult> {
+  const scopeGate = await evaluateScopeGate(engine, {
+    intent: 'personal_episode_lookup',
+    requested_scope: input.requested_scope ?? 'personal',
+    query: input.query,
+    title: input.title,
+  });
+
+  if (scopeGate.policy !== 'allow') {
+    return {
+      selection_reason: scopeGate.decision_reason,
+      candidate_count: 0,
+      route: null,
+    };
+  }
+
   const scopeId = input.scope_id ?? DEFAULT_PERSONAL_EPISODE_SCOPE_ID;
   const matches = await engine.listPersonalEpisodeEntries({
     scope_id: scopeId,

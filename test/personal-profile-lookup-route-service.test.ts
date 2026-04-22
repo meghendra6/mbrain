@@ -125,3 +125,39 @@ test('personal profile lookup route service degrades explicitly when the exact s
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('personal profile lookup route service denies non-personal scope even when called directly', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-personal-profile-route-deny-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    await engine.upsertProfileMemoryEntry({
+      id: 'profile-1',
+      scope_id: 'personal:default',
+      profile_type: 'routine',
+      subject: 'daily routine',
+      content: 'Wake at 7 AM, review priorities, then write.',
+      source_refs: ['User, direct message, 2026-04-22 9:05 AM KST'],
+      sensitivity: 'personal',
+      export_status: 'private_only',
+      last_confirmed_at: null,
+      superseded_by: null,
+    });
+
+    const result = await getPersonalProfileLookupRoute(engine, {
+      subject: 'daily routine',
+      requested_scope: 'work',
+    } as any);
+
+    expect(result.selection_reason).toBe('unsupported_scope_intent');
+    expect(result.candidate_count).toBe(0);
+    expect(result.route).toBeNull();
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

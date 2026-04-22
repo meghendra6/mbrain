@@ -2579,6 +2579,8 @@ const get_personal_profile_lookup_route: Operation = {
   description: 'Resolve an exact personal profile-memory route for personal/profile lookup intent.',
   params: {
     scope_id: { type: 'string', description: 'Personal profile-memory scope id (default: personal:default)' },
+    requested_scope: { type: 'string', description: 'Optional explicit scope override for gate enforcement', enum: ['work', 'personal', 'mixed'] },
+    query: { type: 'string', description: 'Optional natural-language query for gate inference' },
     subject: { type: 'string', required: true, description: 'Exact personal profile subject' },
     profile_type: {
       type: 'string',
@@ -2589,6 +2591,8 @@ const get_personal_profile_lookup_route: Operation = {
   handler: async (ctx, p) => {
     return getPersonalProfileLookupRoute(ctx.engine, {
       scope_id: String(p.scope_id ?? DEFAULT_PROFILE_MEMORY_SCOPE_ID),
+      requested_scope: typeof p.requested_scope === 'string' ? p.requested_scope as any : undefined,
+      query: typeof p.query === 'string' ? p.query : undefined,
       subject: String(p.subject),
       profile_type: typeof p.profile_type === 'string' ? p.profile_type as any : undefined,
     });
@@ -2601,6 +2605,8 @@ const get_personal_episode_lookup_route: Operation = {
   description: 'Resolve an exact personal episode route for personal/episode lookup intent.',
   params: {
     scope_id: { type: 'string', description: 'Personal episode scope id (default: personal:default)' },
+    requested_scope: { type: 'string', description: 'Optional explicit scope override for gate enforcement', enum: ['work', 'personal', 'mixed'] },
+    query: { type: 'string', description: 'Optional natural-language query for gate inference' },
     title: { type: 'string', required: true, description: 'Exact personal episode title' },
     source_kind: {
       type: 'string',
@@ -2611,6 +2617,8 @@ const get_personal_episode_lookup_route: Operation = {
   handler: async (ctx, p) => {
     return getPersonalEpisodeLookupRoute(ctx.engine, {
       scope_id: String(p.scope_id ?? DEFAULT_PERSONAL_EPISODE_SCOPE_ID),
+      requested_scope: typeof p.requested_scope === 'string' ? p.requested_scope as any : undefined,
+      query: typeof p.query === 'string' ? p.query : undefined,
       title: String(p.title),
       source_kind: typeof p.source_kind === 'string' ? p.source_kind as any : undefined,
     });
@@ -2656,11 +2664,13 @@ const preview_personal_export: Operation = {
   params: {
     requested_scope: { type: 'string', description: 'Optional explicit scope override', enum: ['work', 'personal', 'mixed'] },
     query: { type: 'string', description: 'Optional plain-text request used for scope classification' },
+    scope_id: { type: 'string', description: 'Optional personal scope id for the export preview (default: personal:default)' },
   },
   handler: async (ctx, p) => {
     return previewPersonalExport(ctx.engine, {
       requested_scope: typeof p.requested_scope === 'string' ? p.requested_scope as any : undefined,
       query: typeof p.query === 'string' ? p.query : undefined,
+      scope_id: typeof p.scope_id === 'string' ? p.scope_id : undefined,
     });
   },
   cliHints: { name: 'personal-export-preview' },

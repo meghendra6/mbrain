@@ -122,3 +122,38 @@ test('personal episode lookup route service degrades explicitly when the exact t
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('personal episode lookup route service denies non-personal scope even when called directly', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-personal-episode-route-deny-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    await engine.createPersonalEpisodeEntry({
+      id: 'episode-1',
+      scope_id: 'personal:default',
+      title: 'Morning reset',
+      start_time: new Date('2026-04-22T06:30:00.000Z'),
+      end_time: new Date('2026-04-22T07:00:00.000Z'),
+      source_kind: 'chat',
+      summary: 'Re-established the daily routine after travel.',
+      source_refs: ['User, direct message, 2026-04-22 9:05 AM KST'],
+      candidate_ids: ['profile-1'],
+    });
+
+    const result = await getPersonalEpisodeLookupRoute(engine, {
+      title: 'Morning reset',
+      requested_scope: 'work',
+    } as any);
+
+    expect(result.selection_reason).toBe('unsupported_scope_intent');
+    expect(result.candidate_count).toBe(0);
+    expect(result.route).toBeNull();
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

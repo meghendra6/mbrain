@@ -643,6 +643,8 @@ export interface PersonalProfileLookupRouteInput {
   scope_id?: string;
   subject: string;
   profile_type?: ProfileMemoryType;
+  requested_scope?: Exclude<ScopeGateScope, 'unknown'>;
+  query?: string;
 }
 
 export interface PersonalProfileLookupRouteResult {
@@ -706,6 +708,8 @@ export interface PersonalEpisodeLookupRouteInput {
   scope_id?: string;
   title: string;
   source_kind?: PersonalEpisodeSourceKind;
+  requested_scope?: Exclude<ScopeGateScope, 'unknown'>;
+  query?: string;
 }
 
 export interface PersonalEpisodeLookupRouteResult {

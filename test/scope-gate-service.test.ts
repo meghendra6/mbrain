@@ -250,3 +250,35 @@ test('scope gate allows personal episode lookup when personal scope is explicit 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('scope gate recognizes Korean work and personal signals', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-scope-gate-korean-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    const work = await evaluateScopeGate(engine, {
+      intent: 'broad_synthesis',
+      query: '아키텍처 문서와 코드 구조를 요약해줘',
+    });
+
+    expect(work.resolved_scope).toBe('work');
+    expect(work.policy).toBe('allow');
+    expect(work.decision_reason).toBe('work_signal');
+
+    const personal = await evaluateScopeGate(engine, {
+      intent: 'personal_profile_lookup',
+      query: '내 일상 루틴과 생활 습관을 기억해줘',
+    } as any);
+
+    expect(personal.resolved_scope).toBe('personal');
+    expect(personal.policy).toBe('allow');
+    expect(personal.decision_reason).toBe('personal_signal');
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

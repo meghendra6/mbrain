@@ -9,10 +9,12 @@ import type {
 const WORK_SIGNAL_PATTERNS = [
   /\b(repo|repository|code|coding|docs?|architecture|issue|pr|pull request|test|branch)\b/i,
   /\/[\w./-]+\.(ts|tsx|js|jsx|md|json|sql)\b/i,
+  /(리포|저장소|코드|문서|아키텍처|구조|이슈|브랜치|테스트|설계)/i,
 ] as const;
 
 const PERSONAL_SIGNAL_PATTERNS = [
   /\b(personal|routine|habit|daily|life|travel|health|preference|schedule)\b/i,
+  /(개인|루틴|습관|일상|생활|여행|건강|선호|일정)/i,
 ] as const;
 
 export async function evaluateScopeGate(
