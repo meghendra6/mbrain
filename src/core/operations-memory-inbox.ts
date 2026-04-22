@@ -1,5 +1,9 @@
 import type { Operation } from './operations.ts';
-import { advanceMemoryCandidateStatus, MemoryInboxServiceError } from './services/memory-inbox-service.ts';
+import {
+  advanceMemoryCandidateStatus,
+  MemoryInboxServiceError,
+  rejectMemoryCandidateEntry,
+} from './services/memory-inbox-service.ts';
 
 type OperationErrorCtor = new (
   code: 'memory_candidate_not_found' | 'invalid_params',
@@ -8,7 +12,8 @@ type OperationErrorCtor = new (
   docs?: string,
 ) => Error;
 
-const MEMORY_CANDIDATE_STATUS_VALUES = ['captured', 'candidate', 'staged_for_review'] as const;
+const MEMORY_CANDIDATE_EARLY_STATUS_VALUES = ['captured', 'candidate', 'staged_for_review'] as const;
+const MEMORY_CANDIDATE_STATUS_VALUES = ['captured', 'candidate', 'staged_for_review', 'rejected'] as const;
 const MEMORY_CANDIDATE_ADVANCE_STATUS_VALUES = ['candidate', 'staged_for_review'] as const;
 const MEMORY_CANDIDATE_TYPE_VALUES = ['fact', 'relationship', 'note_update', 'procedure', 'profile_update', 'open_question', 'rationale'] as const;
 const MEMORY_CANDIDATE_GENERATED_BY_VALUES = ['agent', 'map_analysis', 'dream_cycle', 'manual', 'import'] as const;
@@ -189,7 +194,7 @@ export function createMemoryInboxOperations(
       status: {
         type: 'string',
         description: 'Initial candidate status (default captured)',
-        enum: [...MEMORY_CANDIDATE_STATUS_VALUES],
+        enum: [...MEMORY_CANDIDATE_EARLY_STATUS_VALUES],
       },
       target_object_type: {
         type: 'string',
@@ -204,7 +209,7 @@ export function createMemoryInboxOperations(
     handler: async (ctx, p) => {
       const id = typeof p.id === 'string' ? p.id : crypto.randomUUID();
       const scopeId = String(p.scope_id ?? deps.defaultScopeId);
-      const status = optionalEnumValue(deps, 'status', p.status, MEMORY_CANDIDATE_STATUS_VALUES) ?? 'captured';
+      const status = optionalEnumValue(deps, 'status', p.status, MEMORY_CANDIDATE_EARLY_STATUS_VALUES) ?? 'captured';
       if (ctx.dryRun) {
         return {
           dry_run: true,
@@ -283,10 +288,53 @@ export function createMemoryInboxOperations(
     cliHints: { name: 'advance-memory-candidate-status' },
   };
 
+  const reject_memory_candidate_entry: Operation = {
+    name: 'reject_memory_candidate_entry',
+    description: 'Reject one staged memory-inbox candidate as an explicit governance outcome.',
+    params: {
+      id: { type: 'string', required: true, description: 'Memory candidate id' },
+      reviewed_at: { type: 'string', description: 'Optional ISO timestamp for rejection metadata' },
+      review_reason: { type: 'string', required: true, description: 'Explicit rejection reason for auditability' },
+    },
+    mutating: true,
+    handler: async (ctx, p) => {
+      const reviewReason = typeof p.review_reason === 'string'
+        ? p.review_reason
+        : (() => { throw invalidParams(deps, 'review_reason must be a string'); })();
+
+      if (ctx.dryRun) {
+        return {
+          dry_run: true,
+          action: 'reject_memory_candidate_entry',
+          id: p.id,
+          review_reason: reviewReason,
+        };
+      }
+
+      try {
+        return await rejectMemoryCandidateEntry(ctx.engine, {
+          id: String(p.id),
+          reviewed_at: p.reviewed_at === null ? null : (typeof p.reviewed_at === 'string' ? p.reviewed_at : undefined),
+          review_reason: reviewReason,
+        });
+      } catch (error) {
+        if (error instanceof MemoryInboxServiceError) {
+          if (error.code === 'memory_candidate_not_found') {
+            throw new deps.OperationError('memory_candidate_not_found', error.message);
+          }
+          throw new deps.OperationError('invalid_params', error.message);
+        }
+        throw error;
+      }
+    },
+    cliHints: { name: 'reject-memory-candidate' },
+  };
+
   return [
     get_memory_candidate_entry,
     list_memory_candidate_entries,
     create_memory_candidate_entry,
     advance_memory_candidate_status,
+    reject_memory_candidate_entry,
   ];
 }

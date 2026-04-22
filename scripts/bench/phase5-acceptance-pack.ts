@@ -10,6 +10,7 @@ interface Phase5BenchmarkSummary {
 
 const BENCHMARKS = [
   { name: 'memory_inbox_foundations', path: 'scripts/bench/phase5-memory-inbox-foundations.ts' },
+  { name: 'memory_inbox_rejection', path: 'scripts/bench/phase5-memory-inbox-rejection.ts' },
 ] as const;
 
 const args = new Set(process.argv.slice(2));

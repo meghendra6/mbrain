@@ -384,6 +384,52 @@ const MIGRATIONS: Migration[] = [
         ON memory_candidate_entries(target_object_type, target_object_id);
     `,
   },
+  {
+    version: 16,
+    name: 'memory_inbox_rejection_slice',
+    sql: `
+      CREATE TABLE memory_candidate_entries_v16 (
+        id TEXT PRIMARY KEY,
+        scope_id TEXT NOT NULL,
+        candidate_type TEXT NOT NULL CHECK (candidate_type IN ('fact', 'relationship', 'note_update', 'procedure', 'profile_update', 'open_question', 'rationale')),
+        proposed_content TEXT NOT NULL,
+        source_refs JSONB NOT NULL DEFAULT '[]',
+        generated_by TEXT NOT NULL CHECK (generated_by IN ('agent', 'map_analysis', 'dream_cycle', 'manual', 'import')),
+        extraction_kind TEXT NOT NULL CHECK (extraction_kind IN ('extracted', 'inferred', 'ambiguous', 'manual')),
+        confidence_score DOUBLE PRECISION NOT NULL,
+        importance_score DOUBLE PRECISION NOT NULL,
+        recurrence_score DOUBLE PRECISION NOT NULL,
+        sensitivity TEXT NOT NULL CHECK (sensitivity IN ('public', 'work', 'personal', 'secret', 'unknown')),
+        status TEXT NOT NULL CHECK (status IN ('captured', 'candidate', 'staged_for_review', 'rejected')),
+        target_object_type TEXT CHECK (target_object_type IS NULL OR target_object_type IN ('curated_note', 'procedure', 'profile_memory', 'personal_episode', 'other')),
+        target_object_id TEXT,
+        reviewed_at TIMESTAMPTZ,
+        review_reason TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      INSERT INTO memory_candidate_entries_v16 (
+        id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
+        extraction_kind, confidence_score, importance_score, recurrence_score,
+        sensitivity, status, target_object_type, target_object_id, reviewed_at,
+        review_reason, created_at, updated_at
+      )
+      SELECT
+        id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
+        extraction_kind, confidence_score, importance_score, recurrence_score,
+        sensitivity, status, target_object_type, target_object_id, reviewed_at,
+        review_reason, created_at, updated_at
+      FROM memory_candidate_entries;
+      DROP TABLE memory_candidate_entries;
+      ALTER TABLE memory_candidate_entries_v16 RENAME TO memory_candidate_entries;
+      CREATE INDEX idx_memory_candidates_scope_status
+        ON memory_candidate_entries(scope_id, status, updated_at DESC);
+      CREATE INDEX idx_memory_candidates_scope_type
+        ON memory_candidate_entries(scope_id, candidate_type, updated_at DESC);
+      CREATE INDEX idx_memory_candidates_target
+        ON memory_candidate_entries(target_object_type, target_object_id);
+    `,
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS.length > 0

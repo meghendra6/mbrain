@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'bun';
 
-describe('phase5 acceptance-pack benchmark', () => {
-  test('--json prints a phase5 acceptance summary shape', () => {
-    const proc = spawnSync(['bun', 'run', 'scripts/bench/phase5-acceptance-pack.ts', '--json'], {
+describe('phase5 memory-inbox-rejection benchmark', () => {
+  test('--json prints a phase5 memory-inbox-rejection benchmark report shape', () => {
+    const proc = spawnSync(['bun', 'run', 'scripts/bench/phase5-memory-inbox-rejection.ts', '--json'], {
       stdout: 'pipe',
       stderr: 'pipe',
     });
@@ -12,9 +12,9 @@ describe('phase5 acceptance-pack benchmark', () => {
     const payload = JSON.parse(new TextDecoder().decode(proc.stdout));
 
     expect(payload.phase).toBe('phase5');
-    expect(Array.isArray(payload.benchmarks)).toBe(true);
-    expect(payload.benchmarks.map((benchmark: any) => benchmark.name)).toEqual([
-      'memory_inbox_foundations',
+    expect(Array.isArray(payload.workloads)).toBe(true);
+    expect(payload.workloads.map((workload: any) => workload.name)).toEqual([
+      'memory_inbox_rejection_correctness',
       'memory_inbox_rejection',
     ]);
     expect(payload.acceptance.readiness_status).toBe('pass');

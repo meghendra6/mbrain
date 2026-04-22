@@ -24,6 +24,12 @@ export interface AdvanceMemoryCandidateStatusInput {
   review_reason?: string | null;
 }
 
+export interface RejectMemoryCandidateEntryInput {
+  id: string;
+  reviewed_at?: Date | string | null;
+  review_reason: string;
+}
+
 export async function advanceMemoryCandidateStatus(
   engine: BrainEngine,
   input: AdvanceMemoryCandidateStatusInput,
@@ -50,5 +56,31 @@ export async function advanceMemoryCandidateStatus(
       ? input.reviewed_at
       : (input.next_status === 'staged_for_review' ? new Date() : null),
     review_reason: input.review_reason ?? null,
+  });
+}
+
+export async function rejectMemoryCandidateEntry(
+  engine: BrainEngine,
+  input: RejectMemoryCandidateEntryInput,
+): Promise<MemoryCandidateEntry> {
+  const entry = await engine.getMemoryCandidateEntry(input.id);
+  if (!entry) {
+    throw new MemoryInboxServiceError(
+      'memory_candidate_not_found',
+      `Memory candidate not found: ${input.id}`,
+    );
+  }
+
+  if (entry.status !== 'staged_for_review') {
+    throw new MemoryInboxServiceError(
+      'invalid_status_transition',
+      `Cannot reject memory candidate from ${entry.status}; only staged_for_review candidates may be rejected.`,
+    );
+  }
+
+  return engine.updateMemoryCandidateEntryStatus(entry.id, {
+    status: 'rejected',
+    reviewed_at: input.reviewed_at !== undefined ? input.reviewed_at : new Date(),
+    review_reason: input.review_reason,
   });
 }

@@ -130,6 +130,21 @@ for (const createHarness of [createSqliteHarness, createPgliteHarness]) {
       expect(advanced.status).toBe('candidate');
       expect(advanced.review_reason).toBe('Prepared for review queue.');
 
+      const staged = await reopened.updateMemoryCandidateEntryStatus(id, {
+        status: 'staged_for_review',
+        reviewed_at: new Date('2026-04-22T06:05:00.000Z'),
+        review_reason: 'Ready for explicit review decision.',
+      });
+      expect(staged.status).toBe('staged_for_review');
+
+      const rejected = await reopened.updateMemoryCandidateEntryStatus(id, {
+        status: 'rejected',
+        reviewed_at: new Date('2026-04-22T06:10:00.000Z'),
+        review_reason: 'Insufficient provenance for durable memory.',
+      });
+      expect(rejected.status).toBe('rejected');
+      expect(rejected.review_reason).toBe('Insufficient provenance for durable memory.');
+
       await reopened.deleteMemoryCandidateEntry(id);
       expect(await reopened.getMemoryCandidateEntry(id)).toBeNull();
     } finally {
