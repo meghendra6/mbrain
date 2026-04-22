@@ -27,7 +27,26 @@ Carry-forward execution rules for Phase 6:
 
 ## Phase 6
 
-Pending.
+What worked:
+- Keeping the Phase 6 boundary at `inbox-only` prevented governance drift. Scoring and dedup stayed read-only, while map-derived capture wrote only new inbox candidates and never touched canonical stores directly.
+- Reusing earlier artifacts was the right move. Candidate scoring reused Phase 5 inbox fields, map-derived capture reused context-map reports, and dedup reused scoring order instead of inventing a second priority system.
+- Publishing the Phase 6 acceptance pack early made the phase closure straightforward once the third slice landed.
+
+What failed or drifted:
+- Early implementations still leaked hidden assumptions about bounded reads. Candidate scoring and dedup initially operated on capped raw reads instead of proving where pagination happened.
+- Non-default scope behavior was easy to get wrong because several upstream helpers default to `workspace:default` unless scope is carried explicitly.
+- Dry-run previews drifted from real write behavior until reviewers forced them to resolve actual scope from the selected map.
+
+Valid review feedback that changed implementation:
+- Candidate scoring docs needed explicit read-only regression coverage and deduplicated provenance handling.
+- Map-derived capture had to carry explicit `map_analysis` semantics, respect the report read limit by default, and resolve scope from the selected map instead of silently falling back to `workspace:default`.
+- Dedup backlog pagination had to happen after grouping, not before, and needed overflow coverage beyond the first 100 raw candidates.
+- Stale map candidate tests needed stronger semantic checks so degraded candidates could not silently lose provenance or generated-by metadata.
+
+Carry-forward execution rules for Phase 7:
+- Any Phase 7 canonical handoff must prove the exact handoff record first; canonical writes cannot be inferred from candidate state alone.
+- When a slice depends on an upstream artifact, carry the artifact scope and status end-to-end instead of reconstructing them from defaults.
+- Add overflow and non-default-scope tests as soon as a read path introduces pagination or cross-scope selection.
 
 ## Phase 7
 

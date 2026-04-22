@@ -957,6 +957,22 @@ Expect:
 - benchmark reports `map_derived_candidates_correctness` and `map_derived_candidates`
 - `acceptance.phase6_status` matches the local bridge-slice guardrail outcome
 
+## Phase 6 candidate dedup
+
+Run:
+
+```bash
+bun test test/memory-candidate-dedup-service.test.ts test/memory-candidate-dedup-operations.test.ts test/phase6-candidate-dedup.test.ts
+bun run bench:phase6-candidate-dedup --json
+```
+
+Expect:
+
+- service tests prove exact duplicate grouping and recurrence aggregation
+- operation tests prove backlog grouping happens before pagination and does not mutate stored candidates
+- benchmark reports `memory_candidate_dedup_correctness` and `memory_candidate_dedup`
+- `acceptance.phase6_status` matches the local dedup-slice guardrail outcome
+
 ---
 
 ## 2. Skillpack Loaded

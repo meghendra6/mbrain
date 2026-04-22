@@ -1,4 +1,5 @@
 import type { Operation } from './operations.ts';
+import type { BrainEngine } from './engine.ts';
 import {
   advanceMemoryCandidateStatus,
   MemoryInboxServiceError,
@@ -8,6 +9,7 @@ import {
 import { rankMemoryCandidateEntries } from './services/memory-candidate-scoring-service.ts';
 import { captureMapDerivedCandidates } from './services/map-derived-candidate-service.ts';
 import { getStructuralContextMapReport } from './services/context-map-report-service.ts';
+import { buildMemoryCandidateReviewBacklog } from './services/memory-candidate-dedup-service.ts';
 import { resolveMemoryCandidateContradiction } from './services/memory-inbox-contradiction-service.ts';
 import { promoteMemoryCandidateEntry } from './services/memory-inbox-promotion-service.ts';
 import { supersedeMemoryCandidateEntry } from './services/memory-inbox-supersession-service.ts';
@@ -113,6 +115,31 @@ function normalizeOffset(
     throw invalidParams(deps, 'offset must be a non-negative number');
   }
   return Math.floor(value);
+}
+
+async function listAllFilteredMemoryCandidateEntries(
+  engine: BrainEngine,
+  filters: {
+    scope_id: string;
+    status?: (typeof MEMORY_CANDIDATE_STATUS_VALUES)[number];
+    candidate_type?: (typeof MEMORY_CANDIDATE_TYPE_VALUES)[number];
+    target_object_type?: (typeof MEMORY_CANDIDATE_TARGET_OBJECT_TYPE_VALUES)[number];
+  },
+  batchSize = MAX_MEMORY_CANDIDATE_LIMIT,
+) {
+  const entries = [];
+  for (let offset = 0; ; offset += batchSize) {
+    const batch = await engine.listMemoryCandidateEntries({
+      ...filters,
+      limit: batchSize,
+      offset,
+    });
+    entries.push(...batch);
+    if (batch.length < batchSize) {
+      break;
+    }
+  }
+  return entries;
 }
 
 function normalizeOptionalTargetObjectId(
@@ -400,6 +427,43 @@ export function createMemoryInboxOperations(
     cliHints: { name: 'capture-map-derived-candidates', aliases: { n: 'limit' } },
   };
 
+  const list_memory_candidate_review_backlog: Operation = {
+    name: 'list_memory_candidate_review_backlog',
+    description: 'List a deduped memory-candidate review backlog without mutating stored candidates.',
+    params: {
+      scope_id: { type: 'string', description: `Memory candidate scope id (default: ${deps.defaultScopeId})` },
+      status: {
+        type: 'string',
+        description: 'Optional candidate status filter',
+        enum: [...MEMORY_CANDIDATE_STATUS_VALUES],
+      },
+      candidate_type: {
+        type: 'string',
+        description: 'Optional candidate type filter',
+        enum: [...MEMORY_CANDIDATE_TYPE_VALUES],
+      },
+      target_object_type: {
+        type: 'string',
+        description: 'Optional target object type filter',
+        enum: [...MEMORY_CANDIDATE_TARGET_OBJECT_TYPE_VALUES],
+      },
+      limit: { type: 'number', description: `Max backlog groups after dedup (default 20, cap ${MAX_MEMORY_CANDIDATE_LIMIT})` },
+      offset: { type: 'number', description: 'Offset after dedup grouping (default 0)' },
+    },
+    handler: async (ctx, p) => {
+      const limit = normalizeLimit(deps, p.limit);
+      const offset = normalizeOffset(deps, p.offset);
+      const candidates = await listAllFilteredMemoryCandidateEntries(ctx.engine, {
+        scope_id: String(p.scope_id ?? deps.defaultScopeId),
+        status: optionalEnumValue(deps, 'status', p.status, MEMORY_CANDIDATE_STATUS_VALUES),
+        candidate_type: optionalEnumValue(deps, 'candidate_type', p.candidate_type, MEMORY_CANDIDATE_TYPE_VALUES),
+        target_object_type: optionalEnumValue(deps, 'target_object_type', p.target_object_type, MEMORY_CANDIDATE_TARGET_OBJECT_TYPE_VALUES),
+      });
+      return buildMemoryCandidateReviewBacklog(candidates).slice(offset, offset + limit);
+    },
+    cliHints: { name: 'list-memory-candidate-review-backlog', aliases: { n: 'limit' } },
+  };
+
   const advance_memory_candidate_status: Operation = {
     name: 'advance_memory_candidate_status',
     description: 'Advance one memory-inbox candidate through the bounded early review lifecycle.',
@@ -680,6 +744,7 @@ export function createMemoryInboxOperations(
     create_memory_candidate_entry,
     rank_memory_candidate_entries,
     capture_map_derived_candidates,
+    list_memory_candidate_review_backlog,
     advance_memory_candidate_status,
     reject_memory_candidate_entry,
     preflight_promote_memory_candidate,

@@ -11,6 +11,7 @@ interface Phase6BenchmarkSummary {
 const BENCHMARKS = [
   { name: 'memory_candidate_scoring', path: 'scripts/bench/phase6-candidate-scoring.ts' },
   { name: 'map_derived_candidates', path: 'scripts/bench/phase6-map-derived-candidates.ts' },
+  { name: 'memory_candidate_dedup', path: 'scripts/bench/phase6-candidate-dedup.ts' },
 ] as const;
 
 const summaries = BENCHMARKS.map(runBenchmark);
