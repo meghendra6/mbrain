@@ -28,7 +28,7 @@
 - Modify: `src/core/pglite-engine.ts`
 - Modify: `src/core/postgres-engine.ts`
 - Modify: `src/core/operations.ts`
-- Create: `src/core/operations/memory-inbox-operations.ts`
+- Create: `src/core/operations-memory-inbox.ts`
 - Create: `src/core/services/memory-inbox-service.ts`
 - Create: `test/memory-inbox-schema.test.ts`
 - Create: `test/memory-inbox-engine.test.ts`
@@ -59,7 +59,7 @@
 ## Task 3: Shared Operations
 
 - [ ] Add failing operation tests for create/get/list/advance behavior.
-- [ ] Extract memory inbox operation definitions into `src/core/operations/memory-inbox-operations.ts` and re-export them from `src/core/operations.ts`.
+- [ ] Extract memory inbox operation definitions into `src/core/operations-memory-inbox.ts` and re-export them from `src/core/operations.ts`.
 - [ ] Expose `create-memory-candidate`, `get-memory-candidate`,
       `list-memory-candidates`, and `advance-memory-candidate-status`.
 - [ ] Keep CLI/MCP behavior thin over the service and engine layer.

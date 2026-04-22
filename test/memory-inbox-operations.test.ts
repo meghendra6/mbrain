@@ -2,8 +2,24 @@ import { expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { createMemoryInboxOperations } from '../src/core/operations-memory-inbox.ts';
 import { operations } from '../src/core/operations.ts';
+import { OperationError } from '../src/core/operations.ts';
 import { SQLiteEngine } from '../src/core/sqlite-engine.ts';
+
+test('memory inbox operations can be built from a dedicated domain module', () => {
+  const built = createMemoryInboxOperations({
+    defaultScopeId: 'workspace:default',
+    OperationError,
+  });
+
+  expect(built.map((operation) => operation.name)).toEqual([
+    'get_memory_candidate_entry',
+    'list_memory_candidate_entries',
+    'create_memory_candidate_entry',
+    'advance_memory_candidate_status',
+  ]);
+});
 
 test('memory inbox operations are registered with CLI hints', () => {
   const create = operations.find((operation) => operation.name === 'create_memory_candidate_entry');
