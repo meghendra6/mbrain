@@ -396,6 +396,7 @@ describe('import service', () => {
       getNoteManifestEntry: async () => null,
       listNoteManifestEntries: async () => [],
       deleteNoteManifestEntry: async () => undefined,
+      replaceNoteSectionEntries: async () => [],
       updateSlug: async () => undefined,
       rewriteLinks: async () => undefined,
       getConfig: async () => null,
