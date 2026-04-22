@@ -238,6 +238,24 @@ test('retrieval route selector degrades explicitly when the selected target is m
   }
 });
 
+test('retrieval route selector rejects unsupported runtime intents with a clear error', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-route-selector-invalid-intent-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    await expect(selectRetrievalRoute(engine, {
+      intent: 'invalid_intent',
+    } as any)).rejects.toThrow('Unsupported retrieval intent: invalid_intent');
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('retrieval route selector dispatches personal profile lookup intent', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mbrain-route-selector-personal-profile-'));
   const databasePath = join(dir, 'brain.db');

@@ -72,6 +72,8 @@ export async function selectRetrievalRoute(
       return selectPersonalProfileLookupRoute(engine, input);
     case 'personal_episode_lookup':
       return selectPersonalEpisodeLookupRoute(engine, input);
+    default:
+      throw new Error(`Unsupported retrieval intent: ${String(input.intent)}`);
     }
   })();
 
@@ -216,6 +218,8 @@ async function selectPersonalProfileLookupRoute(
     scope_id: input.scope_id,
     subject: input.subject,
     profile_type: input.profile_type,
+    requested_scope: input.requested_scope ?? 'personal',
+    query: input.query,
   });
   return {
     selected_intent: 'personal_profile_lookup',
@@ -242,6 +246,8 @@ async function selectPersonalEpisodeLookupRoute(
     scope_id: input.scope_id,
     title: input.episode_title,
     source_kind: input.episode_source_kind,
+    requested_scope: input.requested_scope ?? 'personal',
+    query: input.query,
   });
   return {
     selected_intent: 'personal_episode_lookup',

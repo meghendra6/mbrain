@@ -59,7 +59,7 @@ test('personal export visibility service returns only exportable profile-memory 
     expect(result.scope_gate.resolved_scope).toBe('personal');
     expect(result.scope_gate.policy).toBe('allow');
     expect(result.profile_memory_entries.map((entry) => entry.id)).toEqual(['profile-exportable']);
-    expect(result.personal_episode_entries).toEqual([]);
+    expect(result.personal_episode_entries.map((entry) => entry.id)).toEqual(['episode-1']);
   } finally {
     await engine.disconnect();
     rmSync(dir, { recursive: true, force: true });
@@ -109,6 +109,57 @@ test('personal export visibility service defers when scope is not safe enough to
     expect(result.scope_gate.policy).toBe('defer');
     expect(result.profile_memory_entries).toEqual([]);
     expect(result.personal_episode_entries).toEqual([]);
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('personal export visibility service paginates all exportable records for the requested personal scope and exposes episode metadata', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-personal-export-pagination-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    for (let index = 0; index < 1001; index += 1) {
+      await engine.upsertProfileMemoryEntry({
+        id: `profile-exportable-${index}`,
+        scope_id: 'personal:travel',
+        profile_type: 'routine',
+        subject: `travel routine ${index}`,
+        content: `Travel routine note ${index}.`,
+        source_refs: ['User, direct message, 2026-04-22 9:05 AM KST'],
+        sensitivity: 'personal',
+        export_status: 'exportable',
+        last_confirmed_at: null,
+        superseded_by: null,
+      });
+    }
+
+    await engine.createPersonalEpisodeEntry({
+      id: 'episode-1',
+      scope_id: 'personal:travel',
+      title: 'Travel reset',
+      start_time: new Date('2026-04-22T06:30:00.000Z'),
+      end_time: new Date('2026-04-22T07:00:00.000Z'),
+      source_kind: 'chat',
+      summary: 'Recovered the travel schedule.',
+      source_refs: ['User, direct message, 2026-04-22 9:07 AM KST'],
+      candidate_ids: [],
+    });
+
+    const result = await previewPersonalExport(engine, {
+      query: 'export my travel routine notes',
+      requested_scope: 'personal',
+      scope_id: 'personal:travel',
+    } as any);
+
+    expect(result.selection_reason).toBe('direct_personal_export_preview');
+    expect(result.profile_memory_entries).toHaveLength(1001);
+    expect(result.personal_episode_entries.map((entry) => entry.id)).toEqual(['episode-1']);
   } finally {
     await engine.disconnect();
     rmSync(dir, { recursive: true, force: true });

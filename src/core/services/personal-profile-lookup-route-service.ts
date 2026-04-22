@@ -5,6 +5,7 @@ import type {
   PersonalProfileLookupRouteResult,
   ProfileMemoryEntry,
 } from '../types.ts';
+import { evaluateScopeGate } from './scope-gate-service.ts';
 
 export const DEFAULT_PROFILE_MEMORY_SCOPE_ID = 'personal:default';
 
@@ -12,6 +13,21 @@ export async function getPersonalProfileLookupRoute(
   engine: BrainEngine,
   input: PersonalProfileLookupRouteInput,
 ): Promise<PersonalProfileLookupRouteResult> {
+  const scopeGate = await evaluateScopeGate(engine, {
+    intent: 'personal_profile_lookup',
+    requested_scope: input.requested_scope ?? 'personal',
+    query: input.query,
+    subject: input.subject,
+  });
+
+  if (scopeGate.policy !== 'allow') {
+    return {
+      selection_reason: scopeGate.decision_reason,
+      candidate_count: 0,
+      route: null,
+    };
+  }
+
   const scopeId = input.scope_id ?? DEFAULT_PROFILE_MEMORY_SCOPE_ID;
   const matches = await engine.listProfileMemoryEntries({
     scope_id: scopeId,

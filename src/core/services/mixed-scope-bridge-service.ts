@@ -20,7 +20,7 @@ export async function getMixedScopeBridge(
     requested_scope: input.requested_scope,
     query: input.query,
     subject: input.subject,
-  } as any);
+  });
 
   if (scopeGate.policy !== 'allow') {
     return buildResult(scopeGate.decision_reason, 0, scopeGate, null);
@@ -87,6 +87,8 @@ async function resolvePersonalRoute(
     const result = await getPersonalProfileLookupRoute(engine, {
       subject: input.subject ?? '',
       profile_type: input.profile_type,
+      requested_scope: 'personal',
+      query: input.query,
     });
 
     return {
@@ -98,6 +100,8 @@ async function resolvePersonalRoute(
   const result = await getPersonalEpisodeLookupRoute(engine, {
     title: input.episode_title ?? '',
     source_kind: input.episode_source_kind,
+    requested_scope: 'personal',
+    query: input.query,
   });
 
   return {
