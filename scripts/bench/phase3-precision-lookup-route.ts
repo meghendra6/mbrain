@@ -104,6 +104,32 @@ async function seedFixtures(engine: BrainEngine): Promise<void> {
     'Owns exact retrieval routing.',
     '[Source: User, direct message, 2026-04-22 12:00 PM KST]',
   ].join('\n'), { path: 'systems/mbrain.md' });
+
+  await importFromContent(engine, 'systems/brain-graph', [
+    '---',
+    'type: system',
+    'title: Brain Graph',
+    '---',
+    '# Overview',
+    'Maps knowledge structures.',
+    '',
+    '## Runtime',
+    'Owns graph traversal.',
+    '[Source: User, direct message, 2026-04-22 12:01 PM KST]',
+  ].join('\n'), { path: 'systems/brain-graph.md' });
+
+  await importFromContent(engine, 'systems/brain-cache', [
+    '---',
+    'type: system',
+    'title: Brain Cache',
+    '---',
+    '# Overview',
+    'Caches memory snapshots.',
+    '',
+    '## Runtime',
+    'Owns cache invalidation.',
+    '[Source: User, direct message, 2026-04-22 12:01 PM KST]',
+  ].join('\n'), { path: 'systems/brain-cache.md' });
 }
 
 async function runLatencyWorkload(
@@ -207,6 +233,18 @@ async function runCorrectnessWorkload(
     bySourceRef.selection_reason === 'direct_source_ref_section_match'
     && bySourceRef.route?.target_kind === 'section'
     && bySourceRef.route.path === 'systems/mbrain.md#overview/runtime'
+  ) {
+    passes += 1;
+  }
+
+  const ambiguous = await getPrecisionLookupRoute(engine, {
+    source_ref: 'User, direct message, 2026-04-22 12:01 PM KST',
+  });
+  checks += 1;
+  if (
+    ambiguous.selection_reason === 'ambiguous_source_ref_match'
+    && ambiguous.candidate_count === 2
+    && ambiguous.route === null
   ) {
     passes += 1;
   }

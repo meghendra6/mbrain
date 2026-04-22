@@ -222,6 +222,56 @@ test('precision lookup route service resolves a uniquely cited canonical section
   }
 });
 
+test('precision lookup route service degrades explicitly on ambiguous source ref matches', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-precision-route-source-ref-ambiguous-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    const sharedSourceRef = 'User, direct message, 2026-04-22 12:31 PM KST';
+
+    await importFromContent(engine, 'systems/mbrain', [
+      '---',
+      'type: system',
+      'title: MBrain',
+      '---',
+      '# Overview',
+      'Coordinates structural extraction.',
+      '',
+      '## Runtime',
+      'Owns exact retrieval routing.',
+      `[Source: ${sharedSourceRef}]`,
+    ].join('\n'), { path: 'systems/mbrain.md' });
+
+    await importFromContent(engine, 'systems/brain-graph', [
+      '---',
+      'type: system',
+      'title: Brain Graph',
+      '---',
+      '# Overview',
+      'Maps knowledge structures.',
+      '',
+      '## Runtime',
+      'Owns graph traversal.',
+      `[Source: ${sharedSourceRef}]`,
+    ].join('\n'), { path: 'systems/brain-graph.md' });
+
+    const result = await getPrecisionLookupRoute(engine, {
+      source_ref: sharedSourceRef,
+    });
+
+    expect(result.selection_reason).toBe('ambiguous_source_ref_match');
+    expect(result.candidate_count).toBe(2);
+    expect(result.route).toBeNull();
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('precision lookup route service degrades explicitly when the exact artifact is missing', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mbrain-precision-route-missing-'));
   const databasePath = join(dir, 'brain.db');

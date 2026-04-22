@@ -100,6 +100,44 @@ test('precision lookup route operation returns no-match disclosure and direct ro
     expect((bySourceRef as any).selection_reason).toBe('direct_source_ref_section_match');
     expect((bySourceRef as any).route?.target_kind).toBe('section');
     expect((bySourceRef as any).route?.path).toBe('systems/mbrain.md#overview/runtime');
+
+    await importFromContent(engine, 'systems/brain-graph', [
+      '---',
+      'type: system',
+      'title: Brain Graph',
+      '---',
+      '# Overview',
+      'Maps knowledge structures.',
+      '',
+      '## Runtime',
+      'Owns graph traversal.',
+      '[Source: User, direct message, 2026-04-22 12:31 PM KST]',
+    ].join('\n'), { path: 'systems/brain-graph.md' });
+    await importFromContent(engine, 'systems/brain-cache', [
+      '---',
+      'type: system',
+      'title: Brain Cache',
+      '---',
+      '# Overview',
+      'Caches memory snapshots.',
+      '',
+      '## Runtime',
+      'Owns cache invalidation.',
+      '[Source: User, direct message, 2026-04-22 12:31 PM KST]',
+    ].join('\n'), { path: 'systems/brain-cache.md' });
+
+    const ambiguous = await route.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      source_ref: 'User, direct message, 2026-04-22 12:31 PM KST',
+    });
+
+    expect((ambiguous as any).selection_reason).toBe('ambiguous_source_ref_match');
+    expect((ambiguous as any).candidate_count).toBe(2);
+    expect((ambiguous as any).route).toBeNull();
   } finally {
     await engine.disconnect();
     rmSync(dir, { recursive: true, force: true });
