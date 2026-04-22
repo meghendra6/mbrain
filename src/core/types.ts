@@ -789,6 +789,13 @@ export interface MemoryCandidateEntryInput {
   review_reason?: string | null;
 }
 
+export interface MemoryCandidateScoredEntry {
+  candidate: MemoryCandidateEntry;
+  source_quality_score: number;
+  effective_confidence_score: number;
+  review_priority_score: number;
+}
+
 export interface MemoryCandidateFilters {
   scope_id?: string;
   status?: MemoryCandidateStatus;

@@ -5,6 +5,7 @@ import {
   preflightPromoteMemoryCandidate,
   rejectMemoryCandidateEntry,
 } from './services/memory-inbox-service.ts';
+import { rankMemoryCandidateEntries } from './services/memory-candidate-scoring-service.ts';
 import { resolveMemoryCandidateContradiction } from './services/memory-inbox-contradiction-service.ts';
 import { promoteMemoryCandidateEntry } from './services/memory-inbox-promotion-service.ts';
 import { supersedeMemoryCandidateEntry } from './services/memory-inbox-supersession-service.ts';
@@ -323,6 +324,46 @@ export function createMemoryInboxOperations(
     cliHints: { name: 'create-memory-candidate' },
   };
 
+  const rank_memory_candidate_entries: Operation = {
+    name: 'rank_memory_candidate_entries',
+    description: 'Rank memory-inbox candidates deterministically for review ordering without mutating inbox state.',
+    params: {
+      scope_id: { type: 'string', description: `Memory candidate scope id (default: ${deps.defaultScopeId})` },
+      status: {
+        type: 'string',
+        description: 'Optional candidate status filter',
+        enum: [...MEMORY_CANDIDATE_STATUS_VALUES],
+      },
+      candidate_type: {
+        type: 'string',
+        description: 'Optional candidate type filter',
+        enum: [...MEMORY_CANDIDATE_TYPE_VALUES],
+      },
+      target_object_type: {
+        type: 'string',
+        description: 'Optional target object type filter',
+        enum: [...MEMORY_CANDIDATE_TARGET_OBJECT_TYPE_VALUES],
+      },
+      limit: { type: 'number', description: `Max results after ranking (default 20, cap ${MAX_MEMORY_CANDIDATE_LIMIT})` },
+      offset: { type: 'number', description: 'Offset after ranking (default 0)' },
+    },
+    handler: async (ctx, p) => {
+      const limit = normalizeLimit(deps, p.limit);
+      const offset = normalizeOffset(deps, p.offset);
+      const candidates = await ctx.engine.listMemoryCandidateEntries({
+        scope_id: String(p.scope_id ?? deps.defaultScopeId),
+        status: optionalEnumValue(deps, 'status', p.status, MEMORY_CANDIDATE_STATUS_VALUES),
+        candidate_type: optionalEnumValue(deps, 'candidate_type', p.candidate_type, MEMORY_CANDIDATE_TYPE_VALUES),
+        target_object_type: optionalEnumValue(deps, 'target_object_type', p.target_object_type, MEMORY_CANDIDATE_TARGET_OBJECT_TYPE_VALUES),
+        limit: MAX_MEMORY_CANDIDATE_LIMIT,
+        offset: 0,
+      });
+
+      return rankMemoryCandidateEntries(candidates).slice(offset, offset + limit);
+    },
+    cliHints: { name: 'rank-memory-candidates', aliases: { n: 'limit' } },
+  };
+
   const advance_memory_candidate_status: Operation = {
     name: 'advance_memory_candidate_status',
     description: 'Advance one memory-inbox candidate through the bounded early review lifecycle.',
@@ -601,6 +642,7 @@ export function createMemoryInboxOperations(
     get_memory_candidate_entry,
     list_memory_candidate_entries,
     create_memory_candidate_entry,
+    rank_memory_candidate_entries,
     advance_memory_candidate_status,
     reject_memory_candidate_entry,
     preflight_promote_memory_candidate,

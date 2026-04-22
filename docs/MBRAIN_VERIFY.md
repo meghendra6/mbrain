@@ -908,6 +908,38 @@ Expected:
 - `acceptance.phase5_status` matches the aggregated phase outcome
 - `test:phase5` runs the published Phase 5 suites, including contradiction handling, and the acceptance-pack test
 
+## Phase 6 candidate scoring
+
+Run:
+
+```bash
+bun test test/memory-candidate-scoring-service.test.ts test/memory-candidate-scoring-operations.test.ts test/phase6-candidate-scoring.test.ts
+bun run bench:phase6-candidate-scoring --json
+```
+
+Expect:
+
+- service tests prove deterministic review scoring, duplicate-provenance normalization, and stable tie-breaking
+- operation tests prove the ranked read surface stays read-only against stored inbox candidates
+- benchmark reports `memory_candidate_scoring_correctness` and `memory_candidate_scoring`
+- `acceptance.phase6_status` matches the local scoring-slice guardrail outcome
+
+## Phase 6 acceptance-pack
+
+Run:
+
+```bash
+bun test test/phase6-acceptance-pack.test.ts
+bun run bench:phase6-acceptance --json
+```
+
+Expect:
+
+- benchmark summarizes every published Phase 6 benchmark slice
+- `acceptance.readiness_status` reports `pass` only when all published Phase 6 slices pass
+- `acceptance.phase6_status` matches the aggregated phase outcome
+- `test:phase6` runs the published Phase 6 suites, starting with candidate scoring
+
 ---
 
 ## 2. Skillpack Loaded
