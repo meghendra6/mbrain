@@ -711,6 +711,26 @@ Expected:
 - denied writes do not create durable profile-memory or personal-episode records
 - `test:phase4` includes the safe personal write coverage
 
+## Phase 4 export visibility
+
+Run:
+
+```bash
+bun test test/personal-export-visibility-service.test.ts test/personal-export-operations.test.ts test/export-personal-visibility.test.ts test/phase4-export-visibility.test.ts
+bun run bench:phase4-export-visibility --json
+```
+
+Expected:
+
+- personal-export visibility service returns deterministic allow, deny, and defer disclosures
+- `personal-export-preview` stays available through the shared operation surface
+- default `export` continues to serialize canonical pages only
+- `export --personal-export` writes Markdown only for curated exportable profile-memory records
+- private-only profile-memory entries stay excluded
+- personal episodes stay excluded from exported output in this slice
+- benchmark reports `personal_export_visibility` and `personal_export_visibility_correctness`
+- `acceptance.phase4_status` matches the local guardrail outcome
+
 ## Phase 4 acceptance-pack
 
 Run:
@@ -726,7 +746,7 @@ Expected:
 - benchmark summarizes every published Phase 4 benchmark slice
 - `acceptance.readiness_status` reports `pass` only when all published Phase 4 slices pass
 - `acceptance.phase4_status` matches the aggregated phase outcome
-- `test:phase4` runs the published Phase 4 suites plus the acceptance-pack test
+- `test:phase4` runs the published Phase 4 suites, export-visibility coverage, and the acceptance-pack test
 
 ---
 
