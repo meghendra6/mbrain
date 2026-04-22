@@ -696,6 +696,21 @@ Expected:
 - `acceptance.readiness_status` reports `pass` or `fail` from the local guardrails
 - `acceptance.phase4_status` matches the local guardrail outcome
 
+## Phase 4 safe personal writes
+
+Run:
+
+```bash
+bun test test/personal-write-operations.test.ts
+```
+
+Expected:
+
+- `profile-memory-write` and `personal-episode-write` stay available through the shared operation surface
+- allowed writes persist canonical personal records in the right store
+- denied writes do not create durable profile-memory or personal-episode records
+- `test:phase4` includes the safe personal write coverage
+
 ## Phase 4 acceptance-pack
 
 Run:

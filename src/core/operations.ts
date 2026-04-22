@@ -1633,6 +1633,134 @@ const record_personal_episode: Operation = {
   cliHints: { name: 'personal-episode-record' },
 };
 
+const write_profile_memory_entry: Operation = {
+  name: 'write_profile_memory_entry',
+  description: 'Write one canonical profile-memory entry only after personal write-target preflight allows it.',
+  params: {
+    id: { type: 'string', description: 'Optional profile-memory entry id (generated when omitted)' },
+    scope_id: { type: 'string', description: 'Profile-memory scope id (default: personal:default)' },
+    profile_type: {
+      type: 'string',
+      required: true,
+      description: 'Canonical profile-memory type',
+      enum: ['preference', 'routine', 'personal_project', 'stable_fact', 'relationship_boundary', 'other'],
+    },
+    subject: { type: 'string', required: true, description: 'Exact profile-memory subject' },
+    content: { type: 'string', required: true, description: 'Canonical profile-memory content' },
+    query: { type: 'string', description: 'Plain-text request used for personal write-target preflight' },
+    requested_scope: { type: 'string', description: 'Optional explicit scope override', enum: ['work', 'personal', 'mixed'] },
+    source_ref: { type: 'string', description: 'Optional single provenance string' },
+    sensitivity: { type: 'string', description: 'Sensitivity classification', enum: ['public', 'personal', 'secret'] },
+    export_status: { type: 'string', description: 'Export visibility status', enum: ['private_only', 'exportable'] },
+    last_confirmed_at: { type: 'string', description: 'Optional ISO timestamp for last confirmation' },
+    superseded_by: { type: 'string', description: 'Optional id of a newer superseding entry' },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    const preflight = await selectPersonalWriteTarget(ctx.engine, {
+      target_kind: 'profile_memory',
+      requested_scope: typeof p.requested_scope === 'string' ? p.requested_scope as any : undefined,
+      query: typeof p.query === 'string' ? p.query : undefined,
+      subject: typeof p.subject === 'string' ? p.subject : undefined,
+    });
+
+    if (!preflight.route) {
+      throw new OperationError('invalid_params', `profile_memory write blocked: ${preflight.selection_reason}`);
+    }
+
+    const id = typeof p.id === 'string' ? p.id : crypto.randomUUID();
+    const scopeId = String(p.scope_id ?? preflight.route.scope_id);
+    if (ctx.dryRun) {
+      return {
+        dry_run: true,
+        action: 'write_profile_memory_entry',
+        id,
+        scope_id: scopeId,
+        profile_type: p.profile_type,
+        subject: p.subject,
+        preflight: preflight.selection_reason,
+      };
+    }
+
+    return ctx.engine.upsertProfileMemoryEntry({
+      id,
+      scope_id: scopeId,
+      profile_type: String(p.profile_type) as any,
+      subject: String(p.subject),
+      content: String(p.content),
+      source_refs: typeof p.source_ref === 'string' ? [p.source_ref] : [],
+      sensitivity: String(p.sensitivity ?? 'personal') as any,
+      export_status: String(p.export_status ?? 'private_only') as any,
+      last_confirmed_at: typeof p.last_confirmed_at === 'string' ? p.last_confirmed_at : null,
+      superseded_by: typeof p.superseded_by === 'string' ? p.superseded_by : null,
+    });
+  },
+  cliHints: { name: 'profile-memory-write' },
+};
+
+const write_personal_episode_entry: Operation = {
+  name: 'write_personal_episode_entry',
+  description: 'Write one canonical personal-episode entry only after personal write-target preflight allows it.',
+  params: {
+    id: { type: 'string', description: 'Optional personal-episode id (generated when omitted)' },
+    scope_id: { type: 'string', description: 'Personal-episode scope id (default: personal:default)' },
+    title: { type: 'string', required: true, description: 'Compact personal-episode title' },
+    start_time: { type: 'string', required: true, description: 'ISO timestamp for episode start' },
+    end_time: { type: 'string', description: 'Optional ISO timestamp for episode end' },
+    source_kind: {
+      type: 'string',
+      required: true,
+      description: 'Personal-episode source kind',
+      enum: ['chat', 'note', 'import', 'meeting', 'reminder', 'other'],
+    },
+    summary: { type: 'string', required: true, description: 'Episode summary' },
+    query: { type: 'string', description: 'Plain-text request used for personal write-target preflight' },
+    requested_scope: { type: 'string', description: 'Optional explicit scope override', enum: ['work', 'personal', 'mixed'] },
+    source_ref: { type: 'string', description: 'Optional single provenance string' },
+    candidate_id: { type: 'string', description: 'Optional linked candidate or profile id' },
+  },
+  mutating: true,
+  handler: async (ctx, p) => {
+    const preflight = await selectPersonalWriteTarget(ctx.engine, {
+      target_kind: 'personal_episode',
+      requested_scope: typeof p.requested_scope === 'string' ? p.requested_scope as any : undefined,
+      query: typeof p.query === 'string' ? p.query : undefined,
+      title: typeof p.title === 'string' ? p.title : undefined,
+    });
+
+    if (!preflight.route) {
+      throw new OperationError('invalid_params', `personal_episode write blocked: ${preflight.selection_reason}`);
+    }
+
+    const id = typeof p.id === 'string' ? p.id : crypto.randomUUID();
+    const scopeId = String(p.scope_id ?? preflight.route.scope_id);
+    if (ctx.dryRun) {
+      return {
+        dry_run: true,
+        action: 'write_personal_episode_entry',
+        id,
+        scope_id: scopeId,
+        title: p.title,
+        source_kind: p.source_kind,
+        preflight: preflight.selection_reason,
+      };
+    }
+
+    return ctx.engine.createPersonalEpisodeEntry({
+      id,
+      scope_id: scopeId,
+      title: String(p.title),
+      start_time: String(p.start_time),
+      end_time: typeof p.end_time === 'string' ? p.end_time : null,
+      source_kind: String(p.source_kind) as any,
+      summary: String(p.summary),
+      source_refs: typeof p.source_ref === 'string' ? [p.source_ref] : [],
+      candidate_ids: typeof p.candidate_id === 'string' ? [p.candidate_id] : [],
+    });
+  },
+  cliHints: { name: 'personal-episode-write' },
+};
+
 // --- Operational Memory ---
 
 const list_tasks: Operation = {
@@ -3085,9 +3213,9 @@ export const operations: Operation[] = [
   // Resolution & chunks
   resolve_slugs, get_chunks,
   // Profile memory
-  get_profile_memory_entry, list_profile_memory_entries, upsert_profile_memory_entry,
+  get_profile_memory_entry, list_profile_memory_entries, upsert_profile_memory_entry, write_profile_memory_entry,
   // Personal episodes
-  get_personal_episode_entry, list_personal_episode_entries, record_personal_episode,
+  get_personal_episode_entry, list_personal_episode_entries, record_personal_episode, write_personal_episode_entry,
   // Note manifest
   get_note_manifest_entry, list_note_manifest_entries, rebuild_note_manifest,
   // Note sections
