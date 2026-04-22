@@ -124,6 +124,31 @@ async function seedFixtures(engine: BrainEngine): Promise<void> {
     'Indexes [[systems/mbrain]].',
   ].join('\n'), { path: 'concepts/note-manifest.md' });
 
+  await importFromContent(engine, 'systems/brain-graph', [
+    '---',
+    'type: system',
+    'title: Brain Graph',
+    '---',
+    '# Overview',
+    'Maps knowledge structures.',
+    '',
+    '## Runtime',
+    'Owns graph traversal.',
+    '[Source: User, direct message, 2026-04-22 12:31 PM KST]',
+  ].join('\n'), { path: 'systems/brain-graph.md' });
+  await importFromContent(engine, 'systems/brain-cache', [
+    '---',
+    'type: system',
+    'title: Brain Cache',
+    '---',
+    '# Overview',
+    'Caches memory snapshots.',
+    '',
+    '## Runtime',
+    'Owns cache invalidation.',
+    '[Source: User, direct message, 2026-04-22 12:31 PM KST]',
+  ].join('\n'), { path: 'systems/brain-cache.md' });
+
   await buildStructuralContextMapEntry(engine);
 }
 
@@ -199,6 +224,21 @@ async function runCorrectnessWorkload(
     sectionPath.selection_reason === 'direct_section_path_match'
     && sectionPath.trace?.outcome === 'precision_lookup route selected'
     && sectionPath.trace.source_refs.includes('section:systems/mbrain#overview/runtime')
+  ) {
+    passes += 1;
+  }
+
+  const ambiguous = await selectRetrievalRoute(engine, {
+    intent: 'precision_lookup',
+    task_id: 'task-1',
+    source_ref: 'User, direct message, 2026-04-22 12:31 PM KST',
+    persist_trace: true,
+  });
+  checks += 1;
+  if (
+    ambiguous.selection_reason === 'ambiguous_source_ref_match'
+    && ambiguous.trace?.outcome === 'precision_lookup route unavailable'
+    && ambiguous.trace.route.length === 0
   ) {
     passes += 1;
   }

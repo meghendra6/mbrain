@@ -169,3 +169,71 @@ test('retrieval route selector persists a section-scoped trace for anchored prec
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('retrieval route selector persists a degraded trace for ambiguous source-ref precision lookup', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-route-trace-source-ref-ambiguous-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    await engine.createTaskThread({
+      id: 'task-1',
+      scope: 'work',
+      title: 'Traceable selector',
+      goal: 'Persist retrieval traces',
+      status: 'active',
+      repo_path: '/repo',
+      branch_name: 'phase2-note-manifest',
+      current_summary: 'Need durable explainability',
+    });
+
+    const sharedSourceRef = 'User, direct message, 2026-04-22 12:31 PM KST';
+
+    await importFromContent(engine, 'systems/brain-graph', [
+      '---',
+      'type: system',
+      'title: Brain Graph',
+      '---',
+      '# Overview',
+      'Maps knowledge structures.',
+      '',
+      '## Runtime',
+      'Owns graph traversal.',
+      `[Source: ${sharedSourceRef}]`,
+    ].join('\n'), { path: 'systems/brain-graph.md' });
+    await importFromContent(engine, 'systems/brain-cache', [
+      '---',
+      'type: system',
+      'title: Brain Cache',
+      '---',
+      '# Overview',
+      'Caches memory snapshots.',
+      '',
+      '## Runtime',
+      'Owns cache invalidation.',
+      `[Source: ${sharedSourceRef}]`,
+    ].join('\n'), { path: 'systems/brain-cache.md' });
+
+    const result = await selectRetrievalRoute(engine, {
+      intent: 'precision_lookup',
+      task_id: 'task-1',
+      source_ref: sharedSourceRef,
+      persist_trace: true,
+    });
+
+    expect(result.selected_intent).toBe('precision_lookup');
+    expect(result.selection_reason).toBe('ambiguous_source_ref_match');
+    expect(result.route).toBeNull();
+    expect(result.trace?.task_id).toBe('task-1');
+    expect(result.trace?.route).toEqual([]);
+    expect(result.trace?.source_refs).toEqual([]);
+    expect(result.trace?.verification).toContain('selection_reason:ambiguous_source_ref_match');
+    expect(result.trace?.outcome).toBe('precision_lookup route unavailable');
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
