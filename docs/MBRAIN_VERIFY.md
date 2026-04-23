@@ -1222,3 +1222,30 @@ Expected:
 - `acceptance.readiness_status` reports `pass` only when all published Phase 7 slices pass
 - `acceptance.phase7_status` matches the aggregated phase outcome
 - `test:phase7` runs the published Phase 7 suites and the acceptance-pack test
+
+## Phase 8 longitudinal evaluation
+
+Run:
+
+```bash
+bun test test/phase8-longitudinal-evaluation.test.ts
+bun run bench:phase8-longitudinal --json
+```
+
+Optional full-comparability run:
+
+```bash
+bun run bench:phase8-longitudinal --json --phase1-baseline path/to/phase1-baseline.json
+```
+
+Expected:
+
+- the runner stays read-only and only replays the published Phase 1 through Phase 7 benchmark entrypoints
+- `phase1` reports `pending_baseline` when no comparable baseline artifact is supplied
+- `phase2` through `phase7` must report exact recorded benchmark manifests with no missing, extra, or duplicate names
+- `acceptance.readiness_status` reports `pass` as long as no phase regresses
+- `acceptance.phase8_status` reports:
+  - `pending_baseline` when only Phase 1 lacks a comparable baseline artifact
+  - `pass` when the supplied Phase 1 baseline is comparable and all phases remain green
+  - `fail` when any phase manifest or acceptance status regresses
+- `test:phase8` currently runs the longitudinal evaluation slice
