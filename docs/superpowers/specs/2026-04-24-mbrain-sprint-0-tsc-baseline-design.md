@@ -14,7 +14,13 @@ The repo has `"strict": true` in `tsconfig.json`, but CI only runs `bun install 
 - `as any` casts hiding enum mismatch.
 - Non-exhaustive switches returning `undefined` where the signature says `boolean`.
 
-Running `bunx tsc --noEmit --pretty false` locally on `master` reports **836 errors** spread across core modules (`src/commands/migrate-engine.ts`, `src/core/engine-factory.ts`, `src/core/db.ts`, `src/core/postgres-engine.ts`, `test/scenarios/helpers.ts`, and more). A single "clean baseline" commit is therefore infeasible; it would bundle repo-wide cleanup with whatever feature ships alongside and make reviews unreadable.
+Running `bunx tsc --noEmit --pretty false` locally reports **836 distinct errors across 1487 output lines** (each error spans multiple lines of explanation). Baseline measured on:
+
+- Branch: `scenario-test-suite`
+- Commit: `3f624b8` (the commit that introduces these specs)
+- Upstream base: `master` at `4643db8` (PR #36 merge)
+
+Errors are spread across core modules (`src/commands/migrate-engine.ts`, `src/core/engine-factory.ts`, `src/core/db.ts`, `src/core/postgres-engine.ts`, `test/scenarios/helpers.ts`, and more). A single "clean baseline" commit is therefore infeasible; it would bundle repo-wide cleanup with whatever feature ships alongside and make reviews unreadable. The slice estimates in §4.1 below are proportional to these 836 errors — implementers should re-measure against the current tip before picking up a slice and adjust if the distribution has shifted.
 
 ## 2. Goal
 
