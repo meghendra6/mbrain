@@ -10,6 +10,7 @@ import { SQLiteEngine } from '../src/core/sqlite-engine.ts';
 
 describe('memory-inbox schema', () => {
   const tempPaths: string[] = [];
+  const SUPERSEDED_LINK_REQUIRED_PATTERN = /superseded candidate requires a supersession link record/;
   const legacyMemoryCandidateV15Sql = `
     CREATE TABLE config (
       key TEXT PRIMARY KEY,
@@ -128,7 +129,7 @@ describe('memory-inbox schema', () => {
        SET status = 'superseded'
        WHERE id = $1`,
       [`${prefix}-supersedable`],
-    )).rejects.toThrow(/superseded candidate requires a supersession link record/);
+    )).rejects.toThrow(SUPERSEDED_LINK_REQUIRED_PATTERN);
     await db.query(
       `INSERT INTO memory_candidate_supersession_entries (
         id,
@@ -176,6 +177,14 @@ describe('memory-inbox schema', () => {
     await engine.promoteMemoryCandidateEntry(`${prefix}-promotable`);
     await engine.promoteMemoryCandidateEntry(`${prefix}-replacement`);
     await engine.promoteMemoryCandidateEntry(`${prefix}-supersedable`);
+    const db = (engine as any).database;
+    expect(() => {
+      db.query(`
+        UPDATE memory_candidate_entries
+        SET status = 'superseded'
+        WHERE id = ?
+      `).run(`${prefix}-supersedable`);
+    }).toThrow(SUPERSEDED_LINK_REQUIRED_PATTERN);
     await engine.supersedeMemoryCandidateEntry({
       id: `${prefix}-supersession`,
       scope_id: 'workspace:default',
@@ -203,6 +212,10 @@ describe('memory-inbox schema', () => {
     await sql`UPDATE memory_candidate_entries SET status = 'rejected' WHERE id = ${`${prefix}-rejectable`}`;
     await sql`UPDATE memory_candidate_entries SET status = 'promoted' WHERE id = ${`${prefix}-promotable`}`;
     await sql`UPDATE memory_candidate_entries SET status = 'promoted' WHERE id = ${`${prefix}-replacement`}`;
+    await sql`UPDATE memory_candidate_entries SET status = 'promoted' WHERE id = ${`${prefix}-supersedable`}`;
+    await expect(
+      sql`UPDATE memory_candidate_entries SET status = 'superseded' WHERE id = ${`${prefix}-supersedable`}`,
+    ).rejects.toThrow(SUPERSEDED_LINK_REQUIRED_PATTERN);
     await sql`
       INSERT INTO memory_candidate_supersession_entries (
         id,
@@ -345,7 +358,7 @@ describe('memory-inbox schema', () => {
           'superseded'
         )
       `).run();
-    }).toThrow(/superseded candidate requires a supersession link record/);
+    }).toThrow(SUPERSEDED_LINK_REQUIRED_PATTERN);
 
     const supersessionSchema = db
       .query(
@@ -576,7 +589,7 @@ describe('memory-inbox schema', () => {
         'work',
         'superseded'
       )
-    `)).rejects.toThrow(/superseded candidate requires a supersession link record/);
+    `)).rejects.toThrow(SUPERSEDED_LINK_REQUIRED_PATTERN);
 
     const supersessionTables = await (engine as any).db.query(
       `SELECT table_name
