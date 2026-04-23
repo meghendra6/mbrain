@@ -1635,6 +1635,10 @@ export class SQLiteEngine implements BrainEngine {
 
   async promoteMemoryCandidateEntry(id: string, patch: MemoryCandidatePromotionPatch = {}): Promise<MemoryCandidateEntry | null> {
     const timestamp = nowIso();
+    // I4 (provenance mandatory): the engine refuses to promote a candidate
+    // with empty source_refs. This is defense-in-depth behind the service
+    // layer's preflight check — direct engine callers cannot bypass the
+    // invariant.
     const result = this.database.run(`
       UPDATE memory_candidate_entries
       SET status = 'promoted',
@@ -1643,6 +1647,7 @@ export class SQLiteEngine implements BrainEngine {
           updated_at = ?
       WHERE id = ?
         AND status = ?
+        AND json_array_length(source_refs) > 0
     `, [
       toNullableIso(patch.reviewed_at),
       patch.review_reason ?? null,

@@ -1363,6 +1363,8 @@ export class PostgresEngine implements BrainEngine {
 
   async promoteMemoryCandidateEntry(id: string, patch: MemoryCandidatePromotionPatch = {}): Promise<MemoryCandidateEntry | null> {
     const sql = this.sql;
+    // I4: reject promotion of a candidate with no provenance at the engine
+    // layer. Defense-in-depth behind the service-layer preflight check.
     const rows = await sql`
       UPDATE memory_candidate_entries
       SET status = 'promoted',
@@ -1371,6 +1373,7 @@ export class PostgresEngine implements BrainEngine {
           updated_at = now()
       WHERE id = ${id}
         AND status = ${patch.expected_current_status ?? 'staged_for_review'}
+        AND jsonb_array_length(source_refs) > 0
       RETURNING id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
                 extraction_kind, confidence_score, importance_score, recurrence_score,
                 sensitivity, status, target_object_type, target_object_id, reviewed_at,

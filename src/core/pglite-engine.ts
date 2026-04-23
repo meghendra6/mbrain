@@ -1312,6 +1312,8 @@ export class PGLiteEngine implements BrainEngine {
   }
 
   async promoteMemoryCandidateEntry(id: string, patch: MemoryCandidatePromotionPatch = {}): Promise<MemoryCandidateEntry | null> {
+    // I4: reject promotion of a candidate with no provenance at the engine
+    // layer. Keeps direct engine callers fail-closed.
     const { rows } = await this.db.query(
       `UPDATE memory_candidate_entries
        SET status = 'promoted',
@@ -1320,6 +1322,7 @@ export class PGLiteEngine implements BrainEngine {
            updated_at = now()
        WHERE id = $1
          AND status = $4
+         AND jsonb_array_length(source_refs) > 0
        RETURNING id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
                  extraction_kind, confidence_score, importance_score, recurrence_score,
                  sensitivity, status, target_object_type, target_object_id, reviewed_at,
