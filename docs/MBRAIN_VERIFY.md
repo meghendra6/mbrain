@@ -1249,3 +1249,24 @@ Expected:
   - `pass` when the supplied Phase 1 baseline is comparable and all phases remain green
   - `fail` when any phase manifest or acceptance status regresses
 - `test:phase8` currently runs the longitudinal evaluation slice
+
+## Phase 8 dream-cycle maintenance
+
+Run:
+
+```bash
+bun test test/dream-cycle-maintenance-service.test.ts test/dream-cycle-maintenance-operations.test.ts test/phase8-dream-cycle.test.ts
+bun run bench:phase8-dream-cycle --json
+```
+
+Expected:
+
+- dream-cycle maintenance emits only Memory Inbox candidates with `generated_by: dream_cycle`
+- dry-run returns the same bounded suggestion shape without creating candidates
+- `limit` bounds total emitted suggestions and `recap` consumes one slot
+- stale-claim challenges reuse the historical-validity guard instead of writing canonical truth
+- duplicate-merge suggestions reuse the dedup backlog and stay scope-local
+- invalid `now` values are rejected before stale calculations
+- `run-dream-cycle-maintenance` stays available through the shared operation surface
+- benchmark reports `dream_cycle_candidate_only` and `dream_cycle`
+- `acceptance.phase8_status` matches the local dream-cycle guardrail outcome

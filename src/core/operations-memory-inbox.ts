@@ -15,6 +15,7 @@ import { assessHistoricalValidity } from './services/historical-validity-service
 import { resolveMemoryCandidateContradiction } from './services/memory-inbox-contradiction-service.ts';
 import { promoteMemoryCandidateEntry } from './services/memory-inbox-promotion-service.ts';
 import { supersedeMemoryCandidateEntry } from './services/memory-inbox-supersession-service.ts';
+import { runDreamCycleMaintenance } from './services/dream-cycle-maintenance-service.ts';
 
 type OperationErrorCtor = new (
   code: 'memory_candidate_not_found' | 'invalid_params',
@@ -848,6 +849,40 @@ export function createMemoryInboxOperations(
     cliHints: { name: 'resolve-memory-candidate-contradiction' },
   };
 
+  const run_dream_cycle_maintenance: Operation = {
+    name: 'run_dream_cycle_maintenance',
+    description: 'Run bounded dream-cycle maintenance and emit candidate-only Memory Inbox suggestions.',
+    params: {
+      scope_id: { type: 'string', description: `Memory candidate scope id (default: ${deps.defaultScopeId})` },
+      now: { type: 'string', description: 'Optional ISO datetime used for stale-claim checks' },
+      limit: { type: 'number', description: `Max emitted suggestions (default 20, cap ${MAX_MEMORY_CANDIDATE_LIMIT})` },
+    },
+    mutating: true,
+    handler: async (ctx, p) => {
+      if (p.scope_id != null && (typeof p.scope_id !== 'string' || p.scope_id.trim().length === 0)) {
+        throw invalidParams(deps, 'scope_id must be a non-empty string');
+      }
+      const now = normalizeOptionalIsoTimestamp(deps, 'now', p.now);
+      try {
+        return await runDreamCycleMaintenance(ctx.engine, {
+          scope_id: String(p.scope_id ?? deps.defaultScopeId),
+          now: now ?? undefined,
+          limit: normalizeLimit(deps, p.limit),
+          write_candidates: !ctx.dryRun,
+        });
+      } catch (error) {
+        if (error instanceof MemoryInboxServiceError) {
+          if (error.code === 'memory_candidate_not_found') {
+            throw new deps.OperationError('memory_candidate_not_found', error.message);
+          }
+          throw new deps.OperationError('invalid_params', error.message);
+        }
+        throw error;
+      }
+    },
+    cliHints: { name: 'run-dream-cycle-maintenance', aliases: { n: 'limit' } },
+  };
+
   return [
     get_memory_candidate_entry,
     list_memory_candidate_entries,
@@ -864,5 +899,6 @@ export function createMemoryInboxOperations(
     promote_memory_candidate_entry,
     supersede_memory_candidate_entry,
     resolve_memory_candidate_contradiction,
+    run_dream_cycle_maintenance,
   ];
 }

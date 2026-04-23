@@ -29,6 +29,7 @@ test('memory inbox operations can be built from a dedicated domain module', () =
     'promote_memory_candidate_entry',
     'supersede_memory_candidate_entry',
     'resolve_memory_candidate_contradiction',
+    'run_dream_cycle_maintenance',
   ]);
 });
 
@@ -48,6 +49,7 @@ test('memory inbox operations are registered with CLI hints', () => {
   const promote = operations.find((operation) => operation.name === 'promote_memory_candidate_entry');
   const supersede = operations.find((operation) => operation.name === 'supersede_memory_candidate_entry');
   const contradiction = operations.find((operation) => operation.name === 'resolve_memory_candidate_contradiction');
+  const dreamCycle = operations.find((operation) => operation.name === 'run_dream_cycle_maintenance');
 
   expect(create?.cliHints?.name).toBe('create-memory-candidate');
   expect(get?.cliHints?.name).toBe('get-memory-candidate');
@@ -64,6 +66,7 @@ test('memory inbox operations are registered with CLI hints', () => {
   expect(promote?.cliHints?.name).toBe('promote-memory-candidate');
   expect(supersede?.cliHints?.name).toBe('supersede-memory-candidate');
   expect(contradiction?.cliHints?.name).toBe('resolve-memory-candidate-contradiction');
+  expect(dreamCycle?.cliHints?.name).toBe('run-dream-cycle-maintenance');
   expect(create?.params.status?.enum).toEqual(['captured', 'candidate', 'staged_for_review']);
   expect(list?.params.status?.enum).toEqual(['captured', 'candidate', 'staged_for_review', 'rejected', 'promoted', 'superseded']);
   expect(advance?.params.next_status?.description).toContain('depends on the current stored status');
