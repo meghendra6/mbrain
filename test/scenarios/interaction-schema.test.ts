@@ -35,6 +35,9 @@ describe('migration 21 — interaction_id on event rows', () => {
         const names = cols.map((c) => c.name);
         expect(names).toContain('interaction_id');
       }
+
+      const candidateCols = db.query('PRAGMA table_info(memory_candidate_entries)').all() as Array<{ name: string }>;
+      expect(candidateCols.map((c) => c.name)).not.toContain('interaction_id');
     } finally {
       await engine.disconnect();
       rmSync(dir, { recursive: true, force: true });
@@ -60,6 +63,13 @@ describe('migration 21 — interaction_id on event rows', () => {
         );
         expect(rows.length).toBe(1);
       }
+
+      const candidateColumns = await (engine as any).db.query(
+        `SELECT column_name
+         FROM information_schema.columns
+         WHERE table_name = 'memory_candidate_entries'`,
+      );
+      expect(candidateColumns.rows.map((row: { column_name: string }) => row.column_name)).not.toContain('interaction_id');
     } finally {
       await engine.disconnect();
       rmSync(dir, { recursive: true, force: true });

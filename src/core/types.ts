@@ -991,7 +991,7 @@ export interface RetrievalRouteSelection {
 
 export interface RetrievalRouteSelectorInput {
   intent: RetrievalRouteIntent;
-  task_id?: string;
+  task_id?: string | null;
   persist_trace?: boolean;
   requested_scope?: Exclude<ScopeGateScope, 'unknown'>;
   personal_route_kind?: 'profile' | 'episode';
@@ -1026,7 +1026,7 @@ export type ScopeGateIntent = RetrievalRouteIntent;
 export interface ScopeGateDecisionInput {
   intent: ScopeGateIntent;
   requested_scope?: Exclude<ScopeGateScope, 'unknown'>;
-  task_id?: string;
+  task_id?: string | null;
   query?: string;
   repo_path?: string;
   subject?: string;

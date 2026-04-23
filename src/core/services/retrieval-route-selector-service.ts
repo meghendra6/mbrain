@@ -28,7 +28,7 @@ export async function selectRetrievalRoute(
     input.requested_scope !== undefined
     || input.intent === 'personal_profile_lookup'
     || input.intent === 'personal_episode_lookup'
-    || (input.persist_trace === true && input.task_id === undefined)
+    || (input.persist_trace === true && input.task_id == null)
   );
   const scopeGate = shouldEvaluateScopeGate
     ? await evaluateScopeGate(engine, {
@@ -95,7 +95,7 @@ export async function selectRetrievalRoute(
 
 async function selectTaskResumeRoute(
   engine: BrainEngine,
-  taskId: string | undefined,
+  taskId: string | null | undefined,
 ): Promise<RetrievalRouteSelectorResult> {
   if (!taskId) {
     return {
@@ -292,10 +292,10 @@ function buildDelegatedSelection(
 async function persistSelectedRouteTrace(
   engine: BrainEngine,
   selected: RetrievalRouteSelectorResult,
-  taskId?: string,
+  taskId?: string | null,
 ): Promise<RetrievalTrace> {
-  const thread = taskId ? await engine.getTaskThread(taskId) : null;
-  const threadMissing = Boolean(taskId) && thread == null;
+  const thread = taskId != null ? await engine.getTaskThread(taskId) : null;
+  const threadMissing = taskId != null && thread == null;
 
   const scope: ScopeGateScope = thread?.scope
     ?? selected.scope_gate?.resolved_scope
@@ -311,12 +311,17 @@ async function persistSelectedRouteTrace(
       `intent:${selected.selected_intent}`,
       `selection_reason:${selected.selection_reason}`,
       ...buildScopeGateVerification(selected.scope_gate),
-      ...(threadMissing ? [`task_id_not_found:${taskId}`] : []),
+      ...(threadMissing ? [formatMissingTaskVerification(taskId)] : []),
     ],
     outcome: selected.route
       ? `${selected.selected_intent} route selected`
       : `${selected.selected_intent} route unavailable`,
   });
+}
+
+function formatMissingTaskVerification(taskId: string): string {
+  const safeTaskId = /^[\w-]{1,64}$/.test(taskId) ? taskId : '<invalid>';
+  return `task_id_not_found:${safeTaskId}`;
 }
 
 function buildScopeGateVerification(scopeGate: ScopeGateDecisionResult | undefined): string[] {

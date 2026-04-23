@@ -82,6 +82,7 @@ Already done for the partial checkpoint — scenario-test-suite pushed, new PR o
 
 - `memory_candidate_entries` schema — spec §3 excludes it (mutable state).
 - `retrieval_traces` schema extensions (`derived_consulted`, `write_outcome`, etc.) — Sprint 1.1.
+- Task-less trace read APIs (`getRetrievalTrace`, interaction/window listing, audit surface) — Sprint 1.1.
 - CI `tsc --noEmit` — Sprint 0.
 - `operations.ts` / CLI / MCP surface — Sprint 1.1 adds the audit op.
 

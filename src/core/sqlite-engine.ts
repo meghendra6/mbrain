@@ -70,7 +70,13 @@ import type {
 } from './types.ts';
 import { MBrainError } from './types.ts';
 import { buildFrontmatterSearchText, expandTechnicalAliases } from './markdown.ts';
-import { contentHash, importContentHash } from './utils.ts';
+import {
+  contentHash,
+  importContentHash,
+  rowToCanonicalHandoffEntry,
+  rowToMemoryCandidateContradictionEntry,
+  rowToMemoryCandidateSupersessionEntry,
+} from './utils.ts';
 
 const DEFAULT_EMBEDDING_MODEL = 'nomic-embed-text';
 const BASELINE_VERSION = 1;
@@ -3512,58 +3518,6 @@ function rowToMemoryCandidateEntry(row: Record<string, unknown>): MemoryCandidat
     review_reason: row.review_reason == null ? null : String(row.review_reason),
     created_at: new Date(String(row.created_at)),
     updated_at: new Date(String(row.updated_at)),
-  };
-}
-
-function rowToMemoryCandidateSupersessionEntry(
-  row: Record<string, unknown>,
-): MemoryCandidateSupersessionEntry {
-  return {
-    id: String(row.id),
-    scope_id: String(row.scope_id),
-    superseded_candidate_id: String(row.superseded_candidate_id),
-    replacement_candidate_id: String(row.replacement_candidate_id),
-    reviewed_at: row.reviewed_at ? new Date(String(row.reviewed_at)) : null,
-    review_reason: row.review_reason == null ? null : String(row.review_reason),
-    interaction_id: row.interaction_id == null ? null : String(row.interaction_id),
-    created_at: new Date(String(row.created_at)),
-    updated_at: new Date(String(row.updated_at)),
-  };
-}
-
-function rowToMemoryCandidateContradictionEntry(
-  row: Record<string, unknown>,
-): MemoryCandidateContradictionEntry {
-  return {
-    id: String(row.id),
-    scope_id: String(row.scope_id),
-    candidate_id: String(row.candidate_id),
-    challenged_candidate_id: String(row.challenged_candidate_id),
-    outcome: row.outcome as MemoryCandidateContradictionEntry['outcome'],
-    supersession_entry_id: row.supersession_entry_id == null ? null : String(row.supersession_entry_id),
-    reviewed_at: row.reviewed_at ? new Date(String(row.reviewed_at)) : null,
-    review_reason: row.review_reason == null ? null : String(row.review_reason),
-    interaction_id: row.interaction_id == null ? null : String(row.interaction_id),
-    created_at: new Date(String(row.created_at)),
-    updated_at: new Date(String(row.updated_at)),
-  };
-}
-
-function rowToCanonicalHandoffEntry(
-  row: Record<string, unknown>,
-): CanonicalHandoffEntry {
-  return {
-    id: row.id as string,
-    scope_id: row.scope_id as string,
-    candidate_id: row.candidate_id as string,
-    target_object_type: row.target_object_type as CanonicalHandoffEntry['target_object_type'],
-    target_object_id: row.target_object_id as string,
-    source_refs: parseJsonArray(row.source_refs),
-    reviewed_at: row.reviewed_at ? new Date(row.reviewed_at as string) : null,
-    review_reason: (row.review_reason as string | null) ?? null,
-    interaction_id: row.interaction_id == null ? null : String(row.interaction_id),
-    created_at: new Date(row.created_at as string),
-    updated_at: new Date(row.updated_at as string),
   };
 }
 

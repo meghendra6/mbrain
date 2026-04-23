@@ -46,6 +46,25 @@ describe('S17 — task-less trace persistence', () => {
     }
   });
 
+  test('selectRetrievalRoute with explicit null task_id still evaluates scope_gate for persisted traces', async () => {
+    const handle = await allocateSqliteBrain('s17-null-task');
+
+    try {
+      const result = await selectRetrievalRoute(handle.engine, {
+        intent: 'broad_synthesis',
+        query: 'show me the repository architecture docs',
+        task_id: null,
+        persist_trace: true,
+      });
+
+      expect(result.trace).toBeDefined();
+      expect(result.trace!.task_id).toBeNull();
+      expect(result.trace!.scope).toBe('work');
+    } finally {
+      await handle.teardown();
+    }
+  });
+
   test('selectRetrievalRoute with unknown task_id does not throw; persists with task_id null', async () => {
     const handle = await allocateSqliteBrain('s17-bad-task');
 
@@ -53,13 +72,13 @@ describe('S17 — task-less trace persistence', () => {
       const result = await selectRetrievalRoute(handle.engine, {
         intent: 'broad_synthesis',
         query: 'test',
-        task_id: 'does-not-exist',
+        task_id: 'does-not-exist\ninject',
         persist_trace: true,
       });
 
       expect(result.trace).toBeDefined();
       expect(result.trace!.task_id).toBeNull();
-      expect(result.trace!.verification.some((v) => v.startsWith('task_id_not_found:'))).toBe(true);
+      expect(result.trace!.verification).toContain('task_id_not_found:<invalid>');
     } finally {
       await handle.teardown();
     }

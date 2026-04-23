@@ -338,7 +338,7 @@ Each commit is independently green; `bun test` passes after each.
 | Migration 21 breaks an engine due to `ALTER ADD COLUMN` semantics on SQLite with existing data | Schema test mirrors `memory-inbox-schema.test.ts` pattern across three engines; seeded data is asserted to survive migration. |
 | `persistSelectedRouteTrace` without task_id writes wrong scope | Test S17 asserts the derived scope explicitly; code falls back through scope_gate → 'unknown'. |
 | A service caller forgets to thread `interaction_id` through | Harmless — it defaults to null. No correctness impact on the turn itself; only observability gap in Sprint 1.1 reports. |
-| Future code adds `interaction_id` to `memory_candidate_entries` against policy | Non-technical guardrail: this spec's §3 documents the prohibition, Sprint 1.1 and later specs reference it. |
+| Future code adds `interaction_id` to `memory_candidate_entries` against policy | `test/scenarios/interaction-schema.test.ts` asserts the column is absent on mutable state rows, so CI catches schema drift. |
 
 ## 11. Done criteria
 
@@ -361,4 +361,5 @@ Forward-only migration framework (see migrate.ts). Rollback path:
 
 - Capture / advance / reject events on `memory_candidate_entries` have no interaction link. Sprint 1.1's audit notes this with an `approximate_correlation` flag.
 - No schema CHECK constraint on `interaction_id` format (it is free-form TEXT). If abuse becomes a concern, add validation at the engine insert later.
+- Task-less traces have no public read path in Sprint 1.0 beyond direct DB inspection. Sprint 1.1 adds interaction-oriented trace listing/audit reads.
 - No retention / TTL on `retrieval_traces`. Volume is expected to grow; Sprint 2+ can add a `mbrain prune-traces` operation.

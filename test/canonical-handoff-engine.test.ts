@@ -147,6 +147,13 @@ if (databaseUrl) {
     try {
       await seedPromotedCandidate(engine, candidateId, scopeId);
 
+      const candidateSourceRefs = await engine.sql`
+        SELECT jsonb_typeof(source_refs) AS kind
+        FROM memory_candidate_entries
+        WHERE id = ${candidateId}
+      `;
+      expect(candidateSourceRefs[0]?.kind).toBe('array');
+
       const created = await engine.createCanonicalHandoffEntry({
         id: handoffId,
         scope_id: scopeId,

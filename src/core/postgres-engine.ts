@@ -1254,7 +1254,7 @@ export class PostgresEngine implements BrainEngine {
         ${input.scope_id},
         ${input.candidate_type},
         ${input.proposed_content},
-        ${JSON.stringify(input.source_refs ?? [])}::jsonb,
+        ${sql.json(input.source_refs ?? [])},
         ${input.generated_by},
         ${input.extraction_kind},
         ${input.confidence_score},
