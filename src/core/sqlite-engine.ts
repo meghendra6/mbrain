@@ -1635,7 +1635,7 @@ export class SQLiteEngine implements BrainEngine {
 
   async promoteMemoryCandidateEntry(id: string, patch: MemoryCandidatePromotionPatch = {}): Promise<MemoryCandidateEntry | null> {
     const timestamp = nowIso();
-    this.database.run(`
+    const result = this.database.run(`
       UPDATE memory_candidate_entries
       SET status = 'promoted',
           reviewed_at = ?,
@@ -1650,6 +1650,9 @@ export class SQLiteEngine implements BrainEngine {
       id,
       patch.expected_current_status ?? 'staged_for_review',
     ]);
+    if (result.changes === 0) {
+      return null;
+    }
 
     const row = this.database.query(`
       SELECT id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
@@ -2353,6 +2356,7 @@ export class SQLiteEngine implements BrainEngine {
 
   private async runSqliteMigrations(current: number): Promise<void> {
     for (let version = current + 1; version <= LATEST_VERSION; version += 1) {
+      await this.transaction(async () => {
       switch (version) {
         case 2:
           await this.migrateLegacySlugs();
@@ -2685,176 +2689,44 @@ export class SQLiteEngine implements BrainEngine {
           `);
           break;
         case 16:
-          this.database.exec(`
-            CREATE TABLE memory_candidate_entries_v16 (
-              id TEXT PRIMARY KEY,
-              scope_id TEXT NOT NULL,
-              candidate_type TEXT NOT NULL CHECK (candidate_type IN ('fact', 'relationship', 'note_update', 'procedure', 'profile_update', 'open_question', 'rationale')),
-              proposed_content TEXT NOT NULL,
-              source_refs TEXT NOT NULL DEFAULT '[]',
-              generated_by TEXT NOT NULL CHECK (generated_by IN ('agent', 'map_analysis', 'dream_cycle', 'manual', 'import')),
-              extraction_kind TEXT NOT NULL CHECK (extraction_kind IN ('extracted', 'inferred', 'ambiguous', 'manual')),
-              confidence_score REAL NOT NULL,
-              importance_score REAL NOT NULL,
-              recurrence_score REAL NOT NULL,
-              sensitivity TEXT NOT NULL CHECK (sensitivity IN ('public', 'work', 'personal', 'secret', 'unknown')),
-              status TEXT NOT NULL CHECK (status IN ('captured', 'candidate', 'staged_for_review', 'rejected')),
-              target_object_type TEXT CHECK (target_object_type IS NULL OR target_object_type IN ('curated_note', 'procedure', 'profile_memory', 'personal_episode', 'other')),
-              target_object_id TEXT,
-              reviewed_at TEXT,
-              review_reason TEXT,
-              created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-              updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-            );
-            INSERT INTO memory_candidate_entries_v16 (
-              id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
-              extraction_kind, confidence_score, importance_score, recurrence_score,
-              sensitivity, status, target_object_type, target_object_id, reviewed_at,
-              review_reason, created_at, updated_at
-            )
-            SELECT
-              id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
-              extraction_kind, confidence_score, importance_score, recurrence_score,
-              sensitivity, status, target_object_type, target_object_id, reviewed_at,
-              review_reason, created_at, updated_at
-            FROM memory_candidate_entries;
-            DROP TABLE memory_candidate_entries;
-            ALTER TABLE memory_candidate_entries_v16 RENAME TO memory_candidate_entries;
-            CREATE INDEX IF NOT EXISTS idx_memory_candidates_scope_status
-              ON memory_candidate_entries(scope_id, status, updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_memory_candidates_scope_type
-              ON memory_candidate_entries(scope_id, candidate_type, updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_memory_candidates_target
-              ON memory_candidate_entries(target_object_type, target_object_id);
-          `);
+          if (!this.memoryCandidateStatusCheckAllows('rejected')) {
+            this.rebuildMemoryCandidateEntriesTable('memory_candidate_entries_v16', [
+              'captured',
+              'candidate',
+              'staged_for_review',
+              'rejected',
+            ]);
+          } else {
+            this.ensureMemoryCandidateIndexes();
+          }
           break;
         case 17:
-          this.database.exec(`
-            CREATE TABLE memory_candidate_entries_v17 (
-              id TEXT PRIMARY KEY,
-              scope_id TEXT NOT NULL,
-              candidate_type TEXT NOT NULL CHECK (candidate_type IN ('fact', 'relationship', 'note_update', 'procedure', 'profile_update', 'open_question', 'rationale')),
-              proposed_content TEXT NOT NULL,
-              source_refs TEXT NOT NULL DEFAULT '[]',
-              generated_by TEXT NOT NULL CHECK (generated_by IN ('agent', 'map_analysis', 'dream_cycle', 'manual', 'import')),
-              extraction_kind TEXT NOT NULL CHECK (extraction_kind IN ('extracted', 'inferred', 'ambiguous', 'manual')),
-              confidence_score REAL NOT NULL,
-              importance_score REAL NOT NULL,
-              recurrence_score REAL NOT NULL,
-              sensitivity TEXT NOT NULL CHECK (sensitivity IN ('public', 'work', 'personal', 'secret', 'unknown')),
-              status TEXT NOT NULL CHECK (status IN ('captured', 'candidate', 'staged_for_review', 'rejected', 'promoted')),
-              target_object_type TEXT CHECK (target_object_type IS NULL OR target_object_type IN ('curated_note', 'procedure', 'profile_memory', 'personal_episode', 'other')),
-              target_object_id TEXT,
-              reviewed_at TEXT,
-              review_reason TEXT,
-              created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-              updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-            );
-            INSERT INTO memory_candidate_entries_v17 (
-              id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
-              extraction_kind, confidence_score, importance_score, recurrence_score,
-              sensitivity, status, target_object_type, target_object_id, reviewed_at,
-              review_reason, created_at, updated_at
-            )
-            SELECT
-              id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
-              extraction_kind, confidence_score, importance_score, recurrence_score,
-              sensitivity, status, target_object_type, target_object_id, reviewed_at,
-              review_reason, created_at, updated_at
-            FROM memory_candidate_entries;
-            DROP TABLE memory_candidate_entries;
-            ALTER TABLE memory_candidate_entries_v17 RENAME TO memory_candidate_entries;
-            CREATE INDEX IF NOT EXISTS idx_memory_candidates_scope_status
-              ON memory_candidate_entries(scope_id, status, updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_memory_candidates_scope_type
-              ON memory_candidate_entries(scope_id, candidate_type, updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_memory_candidates_target
-              ON memory_candidate_entries(target_object_type, target_object_id);
-          `);
+          if (!this.memoryCandidateStatusCheckAllows('promoted')) {
+            this.rebuildMemoryCandidateEntriesTable('memory_candidate_entries_v17', [
+              'captured',
+              'candidate',
+              'staged_for_review',
+              'rejected',
+              'promoted',
+            ]);
+          } else {
+            this.ensureMemoryCandidateIndexes();
+          }
           break;
         case 18:
-          this.database.exec(`
-            CREATE TABLE memory_candidate_entries_v18 (
-              id TEXT PRIMARY KEY,
-              scope_id TEXT NOT NULL,
-              candidate_type TEXT NOT NULL CHECK (candidate_type IN ('fact', 'relationship', 'note_update', 'procedure', 'profile_update', 'open_question', 'rationale')),
-              proposed_content TEXT NOT NULL,
-              source_refs TEXT NOT NULL DEFAULT '[]',
-              generated_by TEXT NOT NULL CHECK (generated_by IN ('agent', 'map_analysis', 'dream_cycle', 'manual', 'import')),
-              extraction_kind TEXT NOT NULL CHECK (extraction_kind IN ('extracted', 'inferred', 'ambiguous', 'manual')),
-              confidence_score REAL NOT NULL,
-              importance_score REAL NOT NULL,
-              recurrence_score REAL NOT NULL,
-              sensitivity TEXT NOT NULL CHECK (sensitivity IN ('public', 'work', 'personal', 'secret', 'unknown')),
-              status TEXT NOT NULL CHECK (status IN ('captured', 'candidate', 'staged_for_review', 'rejected', 'promoted', 'superseded')),
-              target_object_type TEXT CHECK (target_object_type IS NULL OR target_object_type IN ('curated_note', 'procedure', 'profile_memory', 'personal_episode', 'other')),
-              target_object_id TEXT,
-              reviewed_at TEXT,
-              review_reason TEXT,
-              created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-              updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-            );
-            INSERT INTO memory_candidate_entries_v18 (
-              id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
-              extraction_kind, confidence_score, importance_score, recurrence_score,
-              sensitivity, status, target_object_type, target_object_id, reviewed_at,
-              review_reason, created_at, updated_at
-            )
-            SELECT
-              id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
-              extraction_kind, confidence_score, importance_score, recurrence_score,
-              sensitivity, status, target_object_type, target_object_id, reviewed_at,
-              review_reason, created_at, updated_at
-            FROM memory_candidate_entries;
-            DROP TABLE memory_candidate_entries;
-            ALTER TABLE memory_candidate_entries_v18 RENAME TO memory_candidate_entries;
-            CREATE INDEX IF NOT EXISTS idx_memory_candidates_scope_status
-              ON memory_candidate_entries(scope_id, status, updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_memory_candidates_scope_type
-              ON memory_candidate_entries(scope_id, candidate_type, updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_memory_candidates_target
-              ON memory_candidate_entries(target_object_type, target_object_id);
-
-            CREATE TABLE IF NOT EXISTS memory_candidate_supersession_entries (
-              id TEXT PRIMARY KEY,
-              scope_id TEXT NOT NULL,
-              superseded_candidate_id TEXT NOT NULL UNIQUE REFERENCES memory_candidate_entries(id),
-              replacement_candidate_id TEXT NOT NULL REFERENCES memory_candidate_entries(id),
-              reviewed_at TEXT,
-              review_reason TEXT,
-              created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-              updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-              CHECK (superseded_candidate_id <> replacement_candidate_id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_memory_candidate_supersession_scope
-              ON memory_candidate_supersession_entries(scope_id, created_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_memory_candidate_supersession_replacement
-              ON memory_candidate_supersession_entries(replacement_candidate_id);
-            CREATE TRIGGER IF NOT EXISTS trg_memory_candidate_superseded_link_insert
-            BEFORE INSERT ON memory_candidate_entries
-            FOR EACH ROW
-            WHEN NEW.status = 'superseded'
-              AND NOT EXISTS (
-                SELECT 1
-                FROM memory_candidate_supersession_entries
-                WHERE superseded_candidate_id = NEW.id
-              )
-            BEGIN
-              SELECT RAISE(ABORT, 'superseded candidate requires a supersession link record');
-            END;
-            CREATE TRIGGER IF NOT EXISTS trg_memory_candidate_superseded_link_update
-            BEFORE UPDATE ON memory_candidate_entries
-            FOR EACH ROW
-            WHEN NEW.status = 'superseded'
-              AND NOT EXISTS (
-                SELECT 1
-                FROM memory_candidate_supersession_entries
-                WHERE superseded_candidate_id = NEW.id
-              )
-            BEGIN
-              SELECT RAISE(ABORT, 'superseded candidate requires a supersession link record');
-            END;
-          `);
+          if (!this.memoryCandidateStatusCheckAllows('superseded')) {
+            this.rebuildMemoryCandidateEntriesTable('memory_candidate_entries_v18', [
+              'captured',
+              'candidate',
+              'staged_for_review',
+              'rejected',
+              'promoted',
+              'superseded',
+            ]);
+          } else {
+            this.ensureMemoryCandidateIndexes();
+          }
+          this.ensureMemoryCandidateSupersessionSchema();
           break;
         case 19:
           this.database.exec(`
@@ -2906,7 +2778,134 @@ export class SQLiteEngine implements BrainEngine {
       }
 
       await this.setConfig('version', String(version));
+      });
     }
+  }
+
+  private memoryCandidateStatusCheckAllows(status: string): boolean {
+    const row = this.database.query(`
+      SELECT sql
+      FROM sqlite_master
+      WHERE type = 'table'
+        AND name = 'memory_candidate_entries'
+    `).get() as { sql: string } | null;
+    return row?.sql.includes(`'${status}'`) ?? false;
+  }
+
+  private rebuildMemoryCandidateEntriesTable(tempTableName: string, statuses: string[]): void {
+    const statusList = statuses.map((status) => `'${status}'`).join(', ');
+    this.recoverInterruptedMemoryCandidateRebuild(tempTableName);
+    this.database.exec(`
+      DROP TABLE IF EXISTS ${tempTableName};
+      CREATE TABLE ${tempTableName} (
+        id TEXT PRIMARY KEY,
+        scope_id TEXT NOT NULL,
+        candidate_type TEXT NOT NULL CHECK (candidate_type IN ('fact', 'relationship', 'note_update', 'procedure', 'profile_update', 'open_question', 'rationale')),
+        proposed_content TEXT NOT NULL,
+        source_refs TEXT NOT NULL DEFAULT '[]',
+        generated_by TEXT NOT NULL CHECK (generated_by IN ('agent', 'map_analysis', 'dream_cycle', 'manual', 'import')),
+        extraction_kind TEXT NOT NULL CHECK (extraction_kind IN ('extracted', 'inferred', 'ambiguous', 'manual')),
+        confidence_score REAL NOT NULL,
+        importance_score REAL NOT NULL,
+        recurrence_score REAL NOT NULL,
+        sensitivity TEXT NOT NULL CHECK (sensitivity IN ('public', 'work', 'personal', 'secret', 'unknown')),
+        status TEXT NOT NULL CHECK (status IN (${statusList})),
+        target_object_type TEXT CHECK (target_object_type IS NULL OR target_object_type IN ('curated_note', 'procedure', 'profile_memory', 'personal_episode', 'other')),
+        target_object_id TEXT,
+        reviewed_at TEXT,
+        review_reason TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+      INSERT INTO ${tempTableName} (
+        id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
+        extraction_kind, confidence_score, importance_score, recurrence_score,
+        sensitivity, status, target_object_type, target_object_id, reviewed_at,
+        review_reason, created_at, updated_at
+      )
+      SELECT
+        id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
+        extraction_kind, confidence_score, importance_score, recurrence_score,
+        sensitivity, status, target_object_type, target_object_id, reviewed_at,
+        review_reason, created_at, updated_at
+      FROM memory_candidate_entries;
+      DROP TABLE memory_candidate_entries;
+      ALTER TABLE ${tempTableName} RENAME TO memory_candidate_entries;
+    `);
+    this.ensureMemoryCandidateIndexes();
+  }
+
+  private recoverInterruptedMemoryCandidateRebuild(tempTableName: string): void {
+    const mainExists = this.sqliteTableExists('memory_candidate_entries');
+    const tempExists = this.sqliteTableExists(tempTableName);
+    if (!mainExists && tempExists) {
+      this.database.exec(`ALTER TABLE ${tempTableName} RENAME TO memory_candidate_entries`);
+    }
+  }
+
+  private sqliteTableExists(tableName: string): boolean {
+    const row = this.database.query(`
+      SELECT 1 AS found
+      FROM sqlite_master
+      WHERE type = 'table'
+        AND name = ?
+    `).get(tableName) as { found: number } | null;
+    return Boolean(row);
+  }
+
+  private ensureMemoryCandidateIndexes(): void {
+    this.database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_memory_candidates_scope_status
+        ON memory_candidate_entries(scope_id, status, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_memory_candidates_scope_type
+        ON memory_candidate_entries(scope_id, candidate_type, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_memory_candidates_target
+        ON memory_candidate_entries(target_object_type, target_object_id);
+    `);
+  }
+
+  private ensureMemoryCandidateSupersessionSchema(): void {
+    this.database.exec(`
+      CREATE TABLE IF NOT EXISTS memory_candidate_supersession_entries (
+        id TEXT PRIMARY KEY,
+        scope_id TEXT NOT NULL,
+        superseded_candidate_id TEXT NOT NULL UNIQUE REFERENCES memory_candidate_entries(id),
+        replacement_candidate_id TEXT NOT NULL REFERENCES memory_candidate_entries(id),
+        reviewed_at TEXT,
+        review_reason TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        CHECK (superseded_candidate_id <> replacement_candidate_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_memory_candidate_supersession_scope
+        ON memory_candidate_supersession_entries(scope_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_memory_candidate_supersession_replacement
+        ON memory_candidate_supersession_entries(replacement_candidate_id);
+      CREATE TRIGGER IF NOT EXISTS trg_memory_candidate_superseded_link_insert
+      BEFORE INSERT ON memory_candidate_entries
+      FOR EACH ROW
+      WHEN NEW.status = 'superseded'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM memory_candidate_supersession_entries
+          WHERE superseded_candidate_id = NEW.id
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'superseded candidate requires a supersession link record');
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_memory_candidate_superseded_link_update
+      BEFORE UPDATE ON memory_candidate_entries
+      FOR EACH ROW
+      WHEN NEW.status = 'superseded'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM memory_candidate_supersession_entries
+          WHERE superseded_candidate_id = NEW.id
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'superseded candidate requires a supersession link record');
+      END;
+    `);
   }
 
   private async migrateLegacySlugs(): Promise<void> {

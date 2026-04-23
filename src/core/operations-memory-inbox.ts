@@ -351,7 +351,7 @@ export function createMemoryInboxOperations(
         status,
         target_object_type: optionalEnumValue(deps, 'target_object_type', p.target_object_type, MEMORY_CANDIDATE_TARGET_OBJECT_TYPE_VALUES) ?? null,
         target_object_id: normalizeOptionalTargetObjectId(deps, p.target_object_id),
-        reviewed_at: p.reviewed_at === null ? null : (typeof p.reviewed_at === 'string' ? p.reviewed_at : null),
+        reviewed_at: normalizeOptionalIsoTimestamp(deps, 'reviewed_at', p.reviewed_at) ?? null,
         review_reason: typeof p.review_reason === 'string' ? p.review_reason : null,
       });
     },

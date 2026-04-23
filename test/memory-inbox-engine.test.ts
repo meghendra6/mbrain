@@ -181,6 +181,11 @@ for (const createHarness of [createSqliteHarness, createPgliteHarness]) {
       });
       expect(promoted?.status).toBe('promoted');
       expect(promoted?.review_reason).toBe('Promoted after passing preflight.');
+      expect(await reopened.promoteMemoryCandidateEntry(promotedId, {
+        expected_current_status: 'staged_for_review',
+        reviewed_at: new Date('2026-04-22T06:16:30.000Z'),
+        review_reason: 'Duplicate promotion should lose the expected-status race.',
+      })).toBeNull();
 
       await expect(reopened.updateMemoryCandidateEntryStatus(promotedId, {
         status: 'rejected',

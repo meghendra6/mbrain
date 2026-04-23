@@ -602,6 +602,21 @@ test('memory inbox create accepts source_refs arrays and rejects future-only sta
       logger: console,
       dryRun: false,
     }, {
+      id: 'candidate-invalid-reviewed-at',
+      candidate_type: 'fact',
+      proposed_content: 'Invalid reviewed_at strings should be rejected at the public operation boundary.',
+      status: 'staged_for_review',
+      reviewed_at: '2026-99-99T25:61:61Z',
+    })).rejects.toMatchObject({
+      code: 'invalid_params',
+    });
+
+    await expect(create.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
       id: 'candidate-blank-source-ref',
       candidate_type: 'fact',
       proposed_content: 'Blank provenance strings should be rejected.',

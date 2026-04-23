@@ -44,6 +44,40 @@ describe('memory-inbox schema', () => {
     CREATE INDEX idx_memory_candidates_target
       ON memory_candidate_entries(target_object_type, target_object_id);
   `;
+  const legacyMemoryCandidateSqliteV15Sql = `
+    CREATE TABLE config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+    INSERT INTO config (key, value) VALUES ('version', '15');
+
+    CREATE TABLE memory_candidate_entries (
+      id TEXT PRIMARY KEY,
+      scope_id TEXT NOT NULL,
+      candidate_type TEXT NOT NULL CHECK (candidate_type IN ('fact', 'relationship', 'note_update', 'procedure', 'profile_update', 'open_question', 'rationale')),
+      proposed_content TEXT NOT NULL,
+      source_refs TEXT NOT NULL DEFAULT '[]',
+      generated_by TEXT NOT NULL CHECK (generated_by IN ('agent', 'map_analysis', 'dream_cycle', 'manual', 'import')),
+      extraction_kind TEXT NOT NULL CHECK (extraction_kind IN ('extracted', 'inferred', 'ambiguous', 'manual')),
+      confidence_score REAL NOT NULL,
+      importance_score REAL NOT NULL,
+      recurrence_score REAL NOT NULL,
+      sensitivity TEXT NOT NULL CHECK (sensitivity IN ('public', 'work', 'personal', 'secret', 'unknown')),
+      status TEXT NOT NULL CHECK (status IN ('captured', 'candidate', 'staged_for_review')),
+      target_object_type TEXT CHECK (target_object_type IS NULL OR target_object_type IN ('curated_note', 'procedure', 'profile_memory', 'personal_episode', 'other')),
+      target_object_id TEXT,
+      reviewed_at TEXT,
+      review_reason TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    CREATE INDEX idx_memory_candidates_scope_status
+      ON memory_candidate_entries(scope_id, status, updated_at DESC);
+    CREATE INDEX idx_memory_candidates_scope_type
+      ON memory_candidate_entries(scope_id, candidate_type, updated_at DESC);
+    CREATE INDEX idx_memory_candidates_target
+      ON memory_candidate_entries(target_object_type, target_object_id);
+  `;
 
   const seedMigrationCandidates = async (
     engine: PGLiteEngine | PostgresEngine,
@@ -121,6 +155,36 @@ describe('memory-inbox schema', () => {
     );
 
     expect(statusRows.rows).toEqual([
+      { id: `${prefix}-promotable`, status: 'promoted' },
+      { id: `${prefix}-rejectable`, status: 'rejected' },
+      { id: `${prefix}-replacement`, status: 'promoted' },
+      { id: `${prefix}-supersedable`, status: 'superseded' },
+    ]);
+  };
+
+  const assertSqliteFinalStatusContract = async (engine: SQLiteEngine, prefix: string) => {
+    await engine.updateMemoryCandidateEntryStatus(`${prefix}-rejectable`, {
+      status: 'rejected',
+      review_reason: 'verified after sqlite migration',
+    });
+    await engine.promoteMemoryCandidateEntry(`${prefix}-promotable`);
+    await engine.promoteMemoryCandidateEntry(`${prefix}-replacement`);
+    await engine.promoteMemoryCandidateEntry(`${prefix}-supersedable`);
+    await engine.supersedeMemoryCandidateEntry({
+      id: `${prefix}-supersession`,
+      scope_id: 'workspace:default',
+      superseded_candidate_id: `${prefix}-supersedable`,
+      replacement_candidate_id: `${prefix}-replacement`,
+      expected_current_status: 'promoted',
+      review_reason: 'verified after sqlite migration',
+    });
+
+    const statusRows = await engine.listMemoryCandidateEntries({
+      scope_id: 'workspace:default',
+      limit: 10,
+    });
+
+    expect(statusRows.map((entry) => ({ id: entry.id, status: entry.status })).sort((a, b) => a.id.localeCompare(b.id))).toEqual([
       { id: `${prefix}-promotable`, status: 'promoted' },
       { id: `${prefix}-rejectable`, status: 'rejected' },
       { id: `${prefix}-replacement`, status: 'promoted' },
@@ -303,6 +367,127 @@ describe('memory-inbox schema', () => {
     expect(contradictionSchema.sql).toContain("outcome TEXT NOT NULL CHECK");
 
     await engine.disconnect();
+  });
+
+  test('sqlite upgrades an actual v15 memory candidate catalog', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-sqlite-v15-'));
+    const databasePath = join(dir, 'brain.db');
+    tempPaths.push(dir);
+
+    const engine = new SQLiteEngine();
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+
+    try {
+      const db = (engine as any).database;
+      db.exec(legacyMemoryCandidateSqliteV15Sql);
+
+      for (const suffix of ['rejectable', 'promotable', 'supersedable', 'replacement']) {
+        const id = `sqlitelegacy-${suffix}`;
+        await engine.createMemoryCandidateEntry({
+          id,
+          scope_id: 'workspace:default',
+          candidate_type: 'fact',
+          proposed_content: `Candidate ${id} must survive SQLite v15 migration.`,
+          source_refs: ['sqlite-legacy-v15-catalog'],
+          generated_by: 'manual',
+          extraction_kind: 'manual',
+          confidence_score: 0.7,
+          importance_score: 0.6,
+          recurrence_score: 0.1,
+          sensitivity: 'work',
+          status: 'staged_for_review',
+        });
+      }
+
+      await engine.initSchema();
+
+      expect(await engine.getConfig('version')).toBe('20');
+      const preserved = await engine.listMemoryCandidateEntries({
+        scope_id: 'workspace:default',
+        limit: 10,
+      });
+
+      expect(preserved.map((entry) => entry.id).sort()).toEqual([
+        'sqlitelegacy-promotable',
+        'sqlitelegacy-rejectable',
+        'sqlitelegacy-replacement',
+        'sqlitelegacy-supersedable',
+      ]);
+      expect(preserved.every((entry) => entry.source_refs.includes('sqlite-legacy-v15-catalog'))).toBe(true);
+
+      await assertSqliteFinalStatusContract(engine, 'sqlitelegacy');
+    } finally {
+      await engine.disconnect();
+    }
+  });
+
+  test('sqlite rerun from stale v15 preserves final-status candidates and keeps final status contract', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-sqlite-rerun-'));
+    const databasePath = join(dir, 'brain.db');
+    tempPaths.push(dir);
+
+    const engine = new SQLiteEngine();
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+
+    try {
+      await engine.initSchema();
+
+      const seedCandidate = async (id: string) => {
+        await engine.createMemoryCandidateEntry({
+          id,
+          scope_id: 'workspace:default',
+          candidate_type: 'fact',
+          proposed_content: `Candidate ${id} must survive SQLite migration reruns.`,
+          source_refs: ['sqlite-migration-rerun-test'],
+          generated_by: 'manual',
+          extraction_kind: 'manual',
+          confidence_score: 0.7,
+          importance_score: 0.6,
+          recurrence_score: 0.1,
+          sensitivity: 'work',
+          status: 'staged_for_review',
+        });
+      };
+
+      await seedCandidate('sqlite-rerun-rejectable');
+      await seedCandidate('sqlite-rerun-promotable');
+      await seedCandidate('sqlite-rerun-supersedable');
+      await seedCandidate('sqlite-rerun-replacement');
+      await engine.updateMemoryCandidateEntryStatus('sqlite-rerun-rejectable', {
+        status: 'rejected',
+        review_reason: 'seed final rejected status before replay',
+      });
+      await engine.promoteMemoryCandidateEntry('sqlite-rerun-promotable');
+      await engine.promoteMemoryCandidateEntry('sqlite-rerun-supersedable');
+      await engine.promoteMemoryCandidateEntry('sqlite-rerun-replacement');
+      await engine.supersedeMemoryCandidateEntry({
+        id: 'sqlite-rerun-supersession',
+        scope_id: 'workspace:default',
+        superseded_candidate_id: 'sqlite-rerun-supersedable',
+        replacement_candidate_id: 'sqlite-rerun-replacement',
+        expected_current_status: 'promoted',
+        review_reason: 'seed final superseded status before replay',
+      });
+
+      await engine.setConfig('version', '15');
+      await expect(engine.initSchema()).resolves.toBeUndefined();
+
+      expect(await engine.getConfig('version')).toBe('20');
+      const preserved = await engine.listMemoryCandidateEntries({
+        scope_id: 'workspace:default',
+        limit: 10,
+      });
+
+      expect(preserved.map((entry) => [entry.id, entry.status]).sort()).toEqual([
+        ['sqlite-rerun-promotable', 'promoted'],
+        ['sqlite-rerun-rejectable', 'rejected'],
+        ['sqlite-rerun-replacement', 'promoted'],
+        ['sqlite-rerun-supersedable', 'superseded'],
+      ]);
+      expect(preserved.every((entry) => entry.source_refs.includes('sqlite-migration-rerun-test'))).toBe(true);
+    } finally {
+      await engine.disconnect();
+    }
   });
 
   test('pglite initSchema creates memory candidate supersession schema', async () => {
