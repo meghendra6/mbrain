@@ -60,9 +60,13 @@ ALTER TABLE retrieval_traces
     'rejected',
     'superseded'
   ));
+-- selected_intent is NULLable on legacy rows; a post-migration handler
+-- backfills it by parsing the existing `verification` array for the
+-- "intent:<name>" entry that persistSelectedRouteTrace has always written.
+-- New writes (post-migration) populate it directly.
 ALTER TABLE retrieval_traces
-  ADD COLUMN selected_intent TEXT NOT NULL DEFAULT 'task_resume'
-  CHECK (selected_intent IN (
+  ADD COLUMN selected_intent TEXT NULL
+  CHECK (selected_intent IS NULL OR selected_intent IN (
     'task_resume',
     'broad_synthesis',
     'precision_lookup',
@@ -88,9 +92,27 @@ CREATE INDEX IF NOT EXISTS idx_retrieval_traces_gate_policy
 Notes on defaults:
 
 - `derived_consulted` defaults to `[]` so existing rows (from before migration 22) are valid.
-- `write_outcome` defaults to `'no_durable_write'` because older trace rows were never paired with a write.
-- `selected_intent` defaults to `'task_resume'` for historical rows only because all pre-existing traces had a task_id (Sprint 1.0 hadn't shipped yet). If this is wrong for any specific environment it is corrected by the selector on the next trace write; no data migration required.
+- `write_outcome` defaults to `'no_durable_write'`. **This sprint does not populate `write_outcome` to anything else** — the selector is still the only trace writer and it records read-only turns. The enum is future-facing: later sprints may add writer-triggered traces stamping `promoted` / `rejected` / `superseded`. Sprint 1.1 audit **does not use `write_outcome`** as a linked-write signal; linked writes are counted via `interaction_id` joins (§6.3). This column is retained in migration 22 so the schema stabilizes now, but the audit report does not rely on it. If later review concludes the field should not ship at all in Sprint 1.1, it can be removed from this migration without affecting audit behavior.
+- `selected_intent` is nullable for legacy rows. A migration handler (§4.1.1 below) backfills it from each row's existing `verification` array by finding the `intent:<name>` entry that `persistSelectedRouteTrace` has always written. Historical data carries every intent value, not just `task_resume`, so a constant default would misclassify audit distributions from the start.
 - `scope_gate_policy` and `scope_gate_reason` default to NULL because old rows did not record them explicitly.
+
+### 4.1.1 Migration 22 handler — `selected_intent` backfill
+
+Migration 22 includes an application-level handler that runs after the ALTER statements:
+
+```ts
+// migrate.ts — inside migration 22 definition
+handler: async (engine) => {
+  // For each legacy row where selected_intent IS NULL, parse
+  // verification for "intent:<name>" and UPDATE if found.
+  // If parsing fails, leave NULL — audit reports it as 'unknown_legacy'.
+  await backfillSelectedIntentFromVerification(engine);
+},
+```
+
+The handler is idempotent. Running migration 22 twice produces the same result; running it on a brain with zero legacy rows is a no-op.
+
+Audit reports group `NULL` selected_intent separately under `by_selected_intent: { unknown_legacy: n }` rather than dropping or coercing those rows. This keeps legacy data visible without pretending to know the intent.
 
 SQLite (`sqlite-engine.ts` migration case 22): same `ALTER TABLE ADD COLUMN` statements. SQLite does not support adding a CHECK constraint via ALTER, so the engine-level `putRetrievalTrace` validates the three enum values against constant arrays and throws `RetrievalTraceError('invalid_<field>', …)` on violation.
 
@@ -122,7 +144,7 @@ export interface RetrievalTrace {
   // new in migration 22:
   derived_consulted: string[];
   write_outcome: RetrievalTraceWriteOutcome;
-  selected_intent: RetrievalRouteIntent;
+  selected_intent: RetrievalRouteIntent | null;   // NULL on legacy rows if backfill failed
   scope_gate_policy: ScopeGatePolicy | null;
   scope_gate_reason: string | null;
 }
@@ -149,15 +171,19 @@ function collectDerivedConsulted(
   selection: RetrievalRouteSelection | null,
 ): string[] {
   if (!selection) return [];
-  const payload = selection.payload;
   switch (selection.route_kind) {
     case 'broad_synthesis': {
-      const p = payload as BroadSynthesisRoute;
-      return [p.map_id, ...(p.recommended_reads ?? []).map(r => r.map_id).filter(Boolean)];
+      const p = selection.payload as BroadSynthesisRoute;
+      // p.map_id is the one derived-artifact reference on a broad_synthesis
+      // route. recommended_reads carry node_id/page_slug/section_id (canonical
+      // locators), not a map_id — those belong in source_refs, not here.
+      return p.map_id ? [p.map_id] : [];
     }
     case 'mixed_scope_bridge': {
-      const p = payload as MixedScopeBridgeRoute;
-      return collectDerivedConsultedFromBroad(p.work_route);
+      const p = selection.payload as MixedScopeBridgeRoute;
+      // p.work_route is a BroadSynthesisRoute value directly (not wrapped);
+      // reuse the same rule.
+      return p.work_route.map_id ? [p.work_route.map_id] : [];
     }
     case 'task_resume':
     case 'precision_lookup':
@@ -166,14 +192,13 @@ function collectDerivedConsulted(
       return [];
   }
 }
-
-function collectDerivedConsultedFromBroad(broad: BroadSynthesisRoute | null): string[] {
-  if (!broad) return [];
-  return [broad.map_id];
-}
 ```
 
-The previous spec sketch incorrectly read `route.payload.map_id` — corrected here to match the actual type. `RetrievalRouteSelection.payload` is typed `unknown`, so the narrowing cast to the specific route type is explicit and documented.
+Corrections over the earlier sketch:
+
+- `BroadSynthesisRouteRead` (what `recommended_reads` holds) has no `map_id`. Reading `r.map_id` would be `undefined` at runtime and a TS error under strict mode. Removed.
+- `MixedScopeBridgeRoute.work_route` is already a `BroadSynthesisRoute` — no separate route-wrapper narrowing needed.
+- The implementation is minimal by design: one `map_id` per broad-synthesis turn captures the derived-artifact reference without speculation. Additional derived signals (atlas IDs, community IDs) can be added later if Sprint 2+ ranking needs them.
 
 ### 5.2 `write_outcome`, `selected_intent`, `scope_gate_policy`, `scope_gate_reason`
 
@@ -223,7 +248,7 @@ export interface AuditBrainLoopInput {
 export interface AuditBrainLoopReport {
   window: { since: string; until: string };
   total_traces: number;
-  by_selected_intent: Partial<Record<RetrievalRouteIntent, number>>;
+  by_selected_intent: Partial<Record<RetrievalRouteIntent | 'unknown_legacy', number>>;
   by_scope: Partial<Record<ScopeGateScope, number>>;
   by_scope_gate_policy: Partial<Record<ScopeGatePolicy, number>>;
   most_common_defer_reason: string | null;
@@ -274,7 +299,7 @@ export async function auditBrainLoop(
   const traceIds = traces.map(t => t.id);
 
   // Structured aggregations — pure SQL on the new columns.
-  const byIntent = groupBy(traces, t => t.selected_intent);
+  const byIntent = groupBy(traces, t => t.selected_intent ?? 'unknown_legacy');
   const byScope = groupBy(traces, t => t.scope);
   const byGate = groupBy(traces, t =>
     t.scope_gate_policy ?? null).filter(k => k !== null);
@@ -447,7 +472,11 @@ test('S24 — audit labels unlinked candidate events as approximate', async () =
 });
 ```
 
-### 8.5 S21 — task scan is capped and reports `task_scan_capped_at`
+### 8.5 Legacy intent null-handling (merged into S23)
+
+`S23` additionally verifies that a trace row with `selected_intent = NULL` (simulating a pre-migration legacy row with no backfillable verification entry) is reported under `by_selected_intent: { unknown_legacy: 1 }`, not dropped or miscounted.
+
+### 8.6 S21 — task scan is capped and reports `task_scan_capped_at`
 
 Seed 5001 task threads → audit → `task_scan_capped_at === 5000`.
 
@@ -484,6 +513,8 @@ Each commit independently green. Bisect-friendly.
 - [ ] `bun run test:scenarios` — S14 real test green, S21–S25 green.
 - [ ] `mbrain audit-brain-loop --since 1h --json` returns a valid `AuditBrainLoopReport`.
 - [ ] Audit counts for intent / scope / gate are computed from columns, not from `verification` strings (verified by code review).
+- [ ] Legacy rows with `selected_intent IS NULL` are counted under `by_selected_intent.unknown_legacy`, not silently dropped.
+- [ ] `write_outcome` column exists on all three engines but is **not** read by the audit service. Linked-write counts come exclusively from `interaction_id` joins with the three event tables.
 - [ ] `report.linked_writes.handoff_count` is nonzero when a trace-linked handoff exists in the window.
 - [ ] `report.approximate.note` explicitly labels unlinked candidate events as approximate.
 - [ ] `bun test` overall pass count unchanged or increased.
