@@ -1,6 +1,10 @@
 import type { BrainEngine } from '../engine.ts';
 import type { MemoryCandidateEntry } from '../types.ts';
-import { MemoryInboxServiceError, preflightPromoteMemoryCandidate } from './memory-inbox-service.ts';
+import {
+  MemoryInboxServiceError,
+  normalizeMemoryInboxReviewedAt,
+  preflightPromoteMemoryCandidate,
+} from './memory-inbox-service.ts';
 
 export interface PromoteMemoryCandidateEntryInput {
   id: string;
@@ -12,6 +16,7 @@ export async function promoteMemoryCandidateEntry(
   engine: BrainEngine,
   input: PromoteMemoryCandidateEntryInput,
 ): Promise<MemoryCandidateEntry> {
+  const reviewedAt = normalizeMemoryInboxReviewedAt(input.reviewed_at, new Date());
   const entry = await engine.getMemoryCandidateEntry(input.id);
   if (!entry) {
     throw new MemoryInboxServiceError(
@@ -37,7 +42,7 @@ export async function promoteMemoryCandidateEntry(
 
   const promoted = await engine.promoteMemoryCandidateEntry(entry.id, {
     expected_current_status: 'staged_for_review',
-    reviewed_at: input.reviewed_at !== undefined ? input.reviewed_at : new Date(),
+    reviewed_at: reviewedAt,
     review_reason: input.review_reason ?? null,
   });
   if (!promoted) {

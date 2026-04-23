@@ -80,10 +80,11 @@ for (const createHarness of [createSqliteHarness, createPgliteHarness]) {
         candidate_id: candidateId,
         target_object_type: 'curated_note',
         target_object_id: 'concepts/canonical-handoff',
-        source_refs: ['User, direct message, 2026-04-24 7:00 AM KST'],
+        source_refs: ['forged caller provenance'],
         review_reason: 'Recorded for engine persistence.',
       });
       expect(created?.candidate_id).toBe(candidateId);
+      expect(created?.source_refs).toEqual(['User, direct message, 2026-04-24 7:00 AM KST']);
 
       expect(await harness.engine.createCanonicalHandoffEntry({
         id: `${handoffId}:duplicate`,
@@ -96,6 +97,7 @@ for (const createHarness of [createSqliteHarness, createPgliteHarness]) {
 
       const loaded = await harness.engine.getCanonicalHandoffEntry(handoffId);
       expect(loaded?.target_object_type).toBe('curated_note');
+      expect(loaded?.source_refs).toEqual(['User, direct message, 2026-04-24 7:00 AM KST']);
 
       const scoped = await harness.engine.listCanonicalHandoffEntries({
         scope_id: scopeId,
@@ -151,10 +153,11 @@ if (databaseUrl) {
         candidate_id: candidateId,
         target_object_type: 'curated_note',
         target_object_id: 'concepts/canonical-handoff',
-        source_refs: ['User, direct message, 2026-04-24 7:00 AM KST'],
+        source_refs: ['forged caller provenance'],
         review_reason: 'Recorded for postgres persistence.',
       });
       expect(created?.id).toBe(handoffId);
+      expect(created?.source_refs).toEqual(['User, direct message, 2026-04-24 7:00 AM KST']);
 
       const listed = await engine.listCanonicalHandoffEntries({
         scope_id: scopeId,

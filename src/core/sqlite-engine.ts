@@ -1861,23 +1861,19 @@ export class SQLiteEngine implements BrainEngine {
           id, scope_id, candidate_id, target_object_type, target_object_id, source_refs,
           reviewed_at, review_reason, created_at, updated_at
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-        WHERE EXISTS (
-          SELECT 1
-          FROM memory_candidate_entries
-          WHERE id = ?
-            AND scope_id = ?
-            AND status = 'promoted'
-            AND target_object_type = ?
-            AND target_object_id = ?
-        )
+        SELECT ?, ?, ?, ?, ?, source_refs, ?, ?, ?, ?
+        FROM memory_candidate_entries
+        WHERE id = ?
+          AND scope_id = ?
+          AND status = 'promoted'
+          AND target_object_type = ?
+          AND target_object_id = ?
       `, [
         input.id,
         input.scope_id,
         input.candidate_id,
         input.target_object_type,
         input.target_object_id,
-        JSON.stringify(input.source_refs ?? []),
         toNullableIso(input.reviewed_at),
         input.review_reason ?? null,
         timestamp,

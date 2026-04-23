@@ -71,6 +71,10 @@ test('memory inbox contradiction service rejects invalid contradiction routes', 
     await seedPromotedCandidate(engine, 'candidate-same');
     await seedPromotedCandidate(engine, 'candidate-cross-scope', 'workspace:other');
     await seedStagedCandidate(engine, 'candidate-not-promoted');
+    await seedPromotedCandidate(engine, 'candidate-promoted-reject');
+    await seedPromotedCandidate(engine, 'candidate-promoted-challenged');
+    await seedStagedCandidate(engine, 'candidate-staged-supersede');
+    await seedPromotedCandidate(engine, 'candidate-promoted-replacement');
 
     await expect(resolveMemoryCandidateContradiction(engine, {
       candidate_id: 'candidate-same',
@@ -93,6 +97,44 @@ test('memory inbox contradiction service rejects invalid contradiction routes', 
       challenged_candidate_id: 'candidate-cross-scope',
       outcome: 'unresolved',
       reviewed_at: '2026-99-99T25:61:61Z',
+    })).rejects.toMatchObject({
+      code: 'invalid_status_transition',
+    });
+
+    await expect(resolveMemoryCandidateContradiction(engine, {
+      candidate_id: 'candidate-promoted-reject',
+      challenged_candidate_id: 'candidate-promoted-challenged',
+      outcome: 'rejected',
+    })).rejects.toThrow(/rejected outcome requires the candidate to be staged_for_review/);
+
+    await expect(resolveMemoryCandidateContradiction(engine, {
+      candidate_id: 'candidate-staged-supersede',
+      challenged_candidate_id: 'candidate-promoted-replacement',
+      outcome: 'superseded',
+    })).rejects.toThrow(/superseded outcome requires the replacement candidate to be promoted/);
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('memory inbox contradiction service rejects invalid reviewed_at Date inputs with a controlled error', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-contradiction-service-date-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+    await seedPromotedCandidate(engine, 'challenged-invalid-date');
+    await seedStagedCandidate(engine, 'challenger-invalid-date');
+
+    await expect(resolveMemoryCandidateContradiction(engine, {
+      candidate_id: 'challenger-invalid-date',
+      challenged_candidate_id: 'challenged-invalid-date',
+      outcome: 'rejected',
+      reviewed_at: new Date('not-a-date'),
+      review_reason: 'Invalid date should be rejected before persistence.',
     })).rejects.toMatchObject({
       code: 'invalid_status_transition',
     });

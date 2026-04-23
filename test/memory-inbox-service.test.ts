@@ -584,6 +584,29 @@ test('memory inbox promotion service preserves explicit null reviewed_at', async
   }
 });
 
+test('memory inbox promotion service rejects invalid reviewed_at Date inputs with a controlled error', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-service-promote-date-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+    await seedCandidate(engine, 'candidate-promote-invalid-date', 'staged_for_review');
+
+    await expect(promoteMemoryCandidateEntry(engine, {
+      id: 'candidate-promote-invalid-date',
+      reviewed_at: new Date('not-a-date'),
+      review_reason: 'Invalid date should be rejected before persistence.',
+    })).rejects.toMatchObject({
+      code: 'invalid_status_transition',
+    });
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('memory inbox promotion service rejects non-staged or non-promotable candidates', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-service-promote-invalid-'));
   const databasePath = join(dir, 'brain.db');
@@ -682,6 +705,31 @@ test('memory inbox supersession service can supersede staged candidates with a p
     expect(result.superseded_candidate.status).toBe('superseded');
     expect(result.replacement_candidate.status).toBe('promoted');
     expect(result.supersession_entry.superseded_candidate_id).toBe('candidate-staged-old');
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('memory inbox supersession service rejects invalid reviewed_at Date inputs with a controlled error', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-service-supersede-date-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+    await seedPromotedCandidate(engine, 'candidate-supersede-invalid-date-old');
+    await seedPromotedCandidate(engine, 'candidate-supersede-invalid-date-new');
+
+    await expect(supersedeMemoryCandidateEntry(engine, {
+      superseded_candidate_id: 'candidate-supersede-invalid-date-old',
+      replacement_candidate_id: 'candidate-supersede-invalid-date-new',
+      reviewed_at: new Date('not-a-date'),
+      review_reason: 'Invalid date should be rejected before persistence.',
+    })).rejects.toMatchObject({
+      code: 'invalid_status_transition',
+    });
   } finally {
     await engine.disconnect();
     rmSync(dir, { recursive: true, force: true });

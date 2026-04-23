@@ -95,11 +95,45 @@ function normalizeReviewedAt(value: Date | string | null | undefined): Date | st
     }
     return value;
   }
-  if (!ISO_DATETIME_PATTERN.test(value) || Number.isNaN(Date.parse(value))) {
+  if (!isValidIsoDatetime(value)) {
     throw new MemoryInboxServiceError(
       'invalid_status_transition',
       'reviewed_at must be a valid ISO datetime string when provided.',
     );
   }
   return value;
+}
+
+function isValidIsoDatetime(value: string): boolean {
+  const match = ISO_DATETIME_PATTERN.exec(value);
+  if (!match) {
+    return false;
+  }
+
+  const [, yearRaw, monthRaw, dayRaw, hourRaw, minuteRaw, secondRaw, _millisRaw, offsetSign, offsetHourRaw, offsetMinuteRaw] = match;
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+  const second = Number(secondRaw);
+
+  if (month < 1 || month > 12) {
+    return false;
+  }
+  const maxDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (day < 1 || day > maxDay) {
+    return false;
+  }
+  if (hour > 23 || minute > 59 || second > 59) {
+    return false;
+  }
+  if (offsetSign) {
+    const offsetHour = Number(offsetHourRaw);
+    const offsetMinute = Number(offsetMinuteRaw);
+    if (offsetHour > 23 || offsetMinute > 59) {
+      return false;
+    }
+  }
+  return true;
 }

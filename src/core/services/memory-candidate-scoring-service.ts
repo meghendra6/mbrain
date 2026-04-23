@@ -11,20 +11,13 @@ const EXTRACTION_KIND_WEIGHTS: Record<MemoryCandidateEntry['extraction_kind'], n
 };
 
 export function scoreMemoryCandidateEntry(candidate: MemoryCandidateEntry): MemoryCandidateScoredEntry {
-  const sourceQualityScore = computeSourceQualityScore(candidate.source_refs);
-  const effectiveConfidenceScore = Math.min(clampScore(candidate.confidence_score), sourceQualityScore);
-  const reviewPriorityScore = roundScore(
-    (effectiveConfidenceScore * 0.4)
-      + (clampScore(candidate.importance_score) * 0.35)
-      + (clampScore(candidate.recurrence_score) * 0.15)
-      + (EXTRACTION_KIND_WEIGHTS[candidate.extraction_kind] * 0.1),
-  );
+  const scores = computeCandidateScores(candidate);
 
   return {
     candidate,
-    source_quality_score: sourceQualityScore,
-    effective_confidence_score: roundScore(effectiveConfidenceScore),
-    review_priority_score: reviewPriorityScore,
+    source_quality_score: scores.sourceQualityScore,
+    effective_confidence_score: roundScore(scores.effectiveConfidenceScore),
+    review_priority_score: roundScore(scores.reviewPriorityScore),
   };
 }
 
@@ -32,17 +25,36 @@ export function rankMemoryCandidateEntries(
   candidates: readonly MemoryCandidateEntry[],
 ): MemoryCandidateScoredEntry[] {
   return candidates
-    .map(scoreMemoryCandidateEntry)
+    .map((candidate) => ({
+      scored: scoreMemoryCandidateEntry(candidate),
+      rawReviewPriorityScore: computeCandidateScores(candidate).reviewPriorityScore,
+    }))
     .sort((left, right) => {
-      if (right.review_priority_score !== left.review_priority_score) {
-        return right.review_priority_score - left.review_priority_score;
+      if (right.rawReviewPriorityScore !== left.rawReviewPriorityScore) {
+        return right.rawReviewPriorityScore - left.rawReviewPriorityScore;
       }
-      const updatedAtDelta = right.candidate.updated_at.getTime() - left.candidate.updated_at.getTime();
+      const updatedAtDelta = right.scored.candidate.updated_at.getTime() - left.scored.candidate.updated_at.getTime();
       if (updatedAtDelta !== 0) {
         return updatedAtDelta;
       }
-      return left.candidate.id.localeCompare(right.candidate.id);
-    });
+      return left.scored.candidate.id.localeCompare(right.scored.candidate.id);
+    })
+    .map((entry) => entry.scored);
+}
+
+function computeCandidateScores(candidate: MemoryCandidateEntry) {
+  const sourceQualityScore = computeSourceQualityScore(candidate.source_refs);
+  const effectiveConfidenceScore = Math.min(clampScore(candidate.confidence_score), sourceQualityScore);
+  const reviewPriorityScore = (effectiveConfidenceScore * 0.4)
+    + (clampScore(candidate.importance_score) * 0.35)
+    + (clampScore(candidate.recurrence_score) * 0.15)
+    + (EXTRACTION_KIND_WEIGHTS[candidate.extraction_kind] * 0.1);
+
+  return {
+    sourceQualityScore,
+    effectiveConfidenceScore,
+    reviewPriorityScore,
+  };
 }
 
 function computeSourceQualityScore(sourceRefs: readonly string[]): number {

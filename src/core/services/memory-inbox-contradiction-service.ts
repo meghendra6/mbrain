@@ -5,10 +5,12 @@ import type {
   MemoryCandidateEntry,
   MemoryCandidateSupersessionEntry,
 } from '../types.ts';
-import { MemoryInboxServiceError, rejectMemoryCandidateEntry } from './memory-inbox-service.ts';
+import {
+  MemoryInboxServiceError,
+  normalizeMemoryInboxReviewedAt,
+  rejectMemoryCandidateEntry,
+} from './memory-inbox-service.ts';
 import { supersedeMemoryCandidateEntry } from './memory-inbox-supersession-service.ts';
-
-const ISO_DATETIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(?:Z|([+-])(\d{2}):(\d{2}))$/;
 
 export interface ResolveMemoryCandidateContradictionInput {
   candidate_id: string;
@@ -29,7 +31,7 @@ export async function resolveMemoryCandidateContradiction(
   engine: BrainEngine,
   input: ResolveMemoryCandidateContradictionInput,
 ): Promise<ResolveMemoryCandidateContradictionResult> {
-  const reviewedAt = normalizeReviewedAt(input.reviewed_at);
+  const reviewedAt = normalizeMemoryInboxReviewedAt(input.reviewed_at, new Date());
 
   return engine.transaction(async (txBase) => {
     const tx = txBase as BrainEngine;
@@ -70,6 +72,7 @@ export async function resolveMemoryCandidateContradiction(
         `Contradiction handling requires staged_for_review or promoted candidates; got ${candidate.status} and ${challengedCandidate.status}.`,
       );
     }
+    validateOutcomeRoute(input.outcome, candidate, challengedCandidate);
 
     const reviewReason = input.review_reason ?? null;
     const contradictionId = crypto.randomUUID();
@@ -166,51 +169,31 @@ function isReviewableContradictionStatus(status: MemoryCandidateEntry['status'])
   return status === 'staged_for_review' || status === 'promoted';
 }
 
-function normalizeReviewedAt(value: Date | string | null | undefined): Date | string | null {
-  if (value === undefined) {
-    return new Date();
-  }
-  if (value === null || value instanceof Date) {
-    return value;
-  }
-  if (!isValidIsoDatetime(value)) {
+function validateOutcomeRoute(
+  outcome: MemoryCandidateContradictionOutcome,
+  candidate: MemoryCandidateEntry,
+  challengedCandidate: MemoryCandidateEntry,
+) {
+  if (outcome === 'rejected' && candidate.status !== 'staged_for_review') {
     throw new MemoryInboxServiceError(
       'invalid_status_transition',
-      'reviewed_at must be a valid ISO datetime string.',
+      `Contradiction rejected outcome requires the candidate to be staged_for_review; got ${candidate.status}.`,
     );
   }
-  return value;
-}
-
-function isValidIsoDatetime(value: string): boolean {
-  const match = ISO_DATETIME_PATTERN.exec(value);
-  if (!match) {
-    return false;
+  if (outcome === 'superseded' && candidate.status !== 'promoted') {
+    throw new MemoryInboxServiceError(
+      'invalid_status_transition',
+      `Contradiction superseded outcome requires the replacement candidate to be promoted; got ${candidate.status}.`,
+    );
   }
-  const [, yearRaw, monthRaw, dayRaw, hourRaw, minuteRaw, secondRaw, _millisRaw, offsetSign, offsetHourRaw, offsetMinuteRaw] = match;
-  const year = Number(yearRaw);
-  const month = Number(monthRaw);
-  const day = Number(dayRaw);
-  const hour = Number(hourRaw);
-  const minute = Number(minuteRaw);
-  const second = Number(secondRaw);
-
-  if (month < 1 || month > 12) {
-    return false;
+  if (
+    outcome === 'superseded'
+    && challengedCandidate.status !== 'staged_for_review'
+    && challengedCandidate.status !== 'promoted'
+  ) {
+    throw new MemoryInboxServiceError(
+      'invalid_status_transition',
+      `Contradiction superseded outcome requires the challenged candidate to be staged_for_review or promoted; got ${challengedCandidate.status}.`,
+    );
   }
-  const maxDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  if (day < 1 || day > maxDay) {
-    return false;
-  }
-  if (hour > 23 || minute > 59 || second > 59) {
-    return false;
-  }
-  if (offsetSign) {
-    const offsetHour = Number(offsetHourRaw);
-    const offsetMinute = Number(offsetMinuteRaw);
-    if (offsetHour > 23 || offsetMinute > 59) {
-      return false;
-    }
-  }
-  return true;
 }

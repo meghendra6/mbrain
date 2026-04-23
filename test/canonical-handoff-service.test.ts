@@ -123,10 +123,16 @@ test('canonical handoff service rejects invalid reviewed_at Date inputs with a c
     await engine.connect({ engine: 'sqlite', database_path: databasePath });
     await engine.initSchema();
     await seedPromotedCandidate(engine, 'candidate-invalid-date');
+    await seedPromotedCandidate(engine, 'candidate-impossible-date');
 
     await expect(recordCanonicalHandoff(engine, {
       candidate_id: 'candidate-invalid-date',
       reviewed_at: new Date('not-a-date'),
+    })).rejects.toMatchObject({ code: 'invalid_status_transition' });
+
+    await expect(recordCanonicalHandoff(engine, {
+      candidate_id: 'candidate-impossible-date',
+      reviewed_at: '2026-02-30T10:00:00Z',
     })).rejects.toMatchObject({ code: 'invalid_status_transition' });
   } finally {
     await engine.disconnect();

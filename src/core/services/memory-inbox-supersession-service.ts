@@ -3,7 +3,10 @@ import type {
   MemoryCandidateEntry,
   MemoryCandidateSupersessionEntry,
 } from '../types.ts';
-import { MemoryInboxServiceError } from './memory-inbox-service.ts';
+import {
+  MemoryInboxServiceError,
+  normalizeMemoryInboxReviewedAt,
+} from './memory-inbox-service.ts';
 
 export interface SupersedeMemoryCandidateEntryInput {
   superseded_candidate_id: string;
@@ -22,6 +25,7 @@ export async function supersedeMemoryCandidateEntry(
   engine: BrainEngine,
   input: SupersedeMemoryCandidateEntryInput,
 ): Promise<SupersedeMemoryCandidateEntryResult> {
+  const reviewedAt = normalizeMemoryInboxReviewedAt(input.reviewed_at, new Date());
   if (input.superseded_candidate_id === input.replacement_candidate_id) {
     throw new MemoryInboxServiceError(
       'invalid_status_transition',
@@ -72,7 +76,7 @@ export async function supersedeMemoryCandidateEntry(
     superseded_candidate_id: supersededCandidate.id,
     replacement_candidate_id: replacementCandidate.id,
     expected_current_status: supersededCandidate.status,
-    reviewed_at: input.reviewed_at !== undefined ? input.reviewed_at : new Date(),
+    reviewed_at: reviewedAt,
     review_reason: input.review_reason ?? null,
   });
 

@@ -19,6 +19,7 @@ const ALLOWED_TRANSITIONS: Record<
   candidate: 'staged_for_review',
   staged_for_review: null,
 };
+const ISO_DATETIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(?:Z|([+-])(\d{2}):(\d{2}))$/;
 
 export class MemoryInboxServiceError extends Error {
   constructor(
@@ -118,9 +119,10 @@ export async function advanceMemoryCandidateStatus(
 
   const advanced = await engine.updateMemoryCandidateEntryStatus(entry.id, {
     status: input.next_status,
-    reviewed_at: input.reviewed_at !== undefined
-      ? input.reviewed_at
-      : (input.next_status === 'staged_for_review' ? new Date() : null),
+    reviewed_at: normalizeMemoryInboxReviewedAt(
+      input.reviewed_at,
+      input.next_status === 'staged_for_review' ? new Date() : null,
+    ),
     review_reason: input.review_reason ?? null,
   });
   if (!advanced) {
@@ -153,7 +155,7 @@ export async function rejectMemoryCandidateEntry(
 
   const rejected = await engine.updateMemoryCandidateEntryStatus(entry.id, {
     status: 'rejected',
-    reviewed_at: input.reviewed_at !== undefined ? input.reviewed_at : new Date(),
+    reviewed_at: normalizeMemoryInboxReviewedAt(input.reviewed_at, new Date()),
     review_reason: input.review_reason,
   });
   if (!rejected) {
@@ -163,6 +165,74 @@ export async function rejectMemoryCandidateEntry(
     );
   }
   return rejected;
+}
+
+export function normalizeMemoryInboxReviewedAt(
+  value: Date | string | null | undefined,
+  fallback: Date | string | null,
+): Date | string | null;
+export function normalizeMemoryInboxReviewedAt(
+  value: Date | string | null | undefined,
+  fallback: undefined,
+): Date | string | null | undefined;
+export function normalizeMemoryInboxReviewedAt(
+  value: Date | string | null | undefined,
+  fallback: Date | string | null | undefined,
+): Date | string | null | undefined {
+  const resolved = value === undefined ? fallback : value;
+  if (resolved === undefined || resolved === null) {
+    return resolved;
+  }
+  if (resolved instanceof Date) {
+    if (Number.isNaN(resolved.getTime())) {
+      throw new MemoryInboxServiceError(
+        'invalid_status_transition',
+        'reviewed_at must be a valid Date when provided.',
+      );
+    }
+    return resolved;
+  }
+  if (!isValidIsoDatetime(resolved)) {
+    throw new MemoryInboxServiceError(
+      'invalid_status_transition',
+      'reviewed_at must be a valid ISO datetime string when provided.',
+    );
+  }
+  return resolved;
+}
+
+function isValidIsoDatetime(value: string): boolean {
+  const match = ISO_DATETIME_PATTERN.exec(value);
+  if (!match) {
+    return false;
+  }
+
+  const [, yearRaw, monthRaw, dayRaw, hourRaw, minuteRaw, secondRaw, _millisRaw, offsetSign, offsetHourRaw, offsetMinuteRaw] = match;
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+  const second = Number(secondRaw);
+
+  if (month < 1 || month > 12) {
+    return false;
+  }
+  const maxDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (day < 1 || day > maxDay) {
+    return false;
+  }
+  if (hour > 23 || minute > 59 || second > 59) {
+    return false;
+  }
+  if (offsetSign) {
+    const offsetHour = Number(offsetHourRaw);
+    const offsetMinute = Number(offsetMinuteRaw);
+    if (offsetHour > 23 || offsetMinute > 59) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function hasScopeConflict(entry: MemoryCandidateEntry): boolean {

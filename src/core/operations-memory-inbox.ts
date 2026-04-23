@@ -23,6 +23,7 @@ type OperationErrorCtor = new (
   suggestion?: string,
   docs?: string,
 ) => Error;
+type MemoryCandidateListFilters = NonNullable<Parameters<BrainEngine['listMemoryCandidateEntries']>[0]>;
 
 const MEMORY_CANDIDATE_EARLY_STATUS_VALUES = ['captured', 'candidate', 'staged_for_review'] as const;
 const MEMORY_CANDIDATE_STATUS_VALUES = ['captured', 'candidate', 'staged_for_review', 'rejected', 'promoted', 'superseded'] as const;
@@ -383,14 +384,13 @@ export function createMemoryInboxOperations(
     handler: async (ctx, p) => {
       const limit = normalizeLimit(deps, p.limit);
       const offset = normalizeOffset(deps, p.offset);
-      const candidates = await ctx.engine.listMemoryCandidateEntries({
+      const filters = {
         scope_id: String(p.scope_id ?? deps.defaultScopeId),
         status: optionalEnumValue(deps, 'status', p.status, MEMORY_CANDIDATE_STATUS_VALUES),
         candidate_type: optionalEnumValue(deps, 'candidate_type', p.candidate_type, MEMORY_CANDIDATE_TYPE_VALUES),
         target_object_type: optionalEnumValue(deps, 'target_object_type', p.target_object_type, MEMORY_CANDIDATE_TARGET_OBJECT_TYPE_VALUES),
-        limit: MAX_MEMORY_CANDIDATE_LIMIT,
-        offset: 0,
-      });
+      };
+      const candidates = await listAllRankableMemoryCandidates(ctx.engine, filters);
 
       return rankMemoryCandidateEntries(candidates).slice(offset, offset + limit);
     },
@@ -901,4 +901,22 @@ export function createMemoryInboxOperations(
     resolve_memory_candidate_contradiction,
     run_dream_cycle_maintenance,
   ];
+}
+
+async function listAllRankableMemoryCandidates(
+  engine: BrainEngine,
+  filters: Omit<MemoryCandidateListFilters, 'limit' | 'offset'>,
+) {
+  const candidates: Awaited<ReturnType<BrainEngine['listMemoryCandidateEntries']>> = [];
+  for (let offset = 0; ; offset += MAX_MEMORY_CANDIDATE_LIMIT) {
+    const page = await engine.listMemoryCandidateEntries({
+      ...filters,
+      limit: MAX_MEMORY_CANDIDATE_LIMIT,
+      offset,
+    });
+    candidates.push(...page);
+    if (page.length < MAX_MEMORY_CANDIDATE_LIMIT) {
+      return candidates;
+    }
+  }
 }

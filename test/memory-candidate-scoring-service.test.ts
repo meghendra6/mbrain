@@ -112,6 +112,31 @@ test('memory candidate scoring service breaks ties by newer updated_at then id',
   ]);
 });
 
+test('memory candidate scoring service sorts near ties by raw score before rounded display score', () => {
+  const ranked = rankMemoryCandidateEntries([
+    makeCandidate('candidate-newer-slightly-lower', {
+      updated_at: new Date('2026-04-23T03:00:00.000Z'),
+      confidence_score: 0.5,
+      importance_score: 0.5,
+      recurrence_score: 0.5,
+      source_refs: ['A', 'B'],
+    }),
+    makeCandidate('candidate-older-slightly-higher', {
+      updated_at: new Date('2026-04-23T02:00:00.000Z'),
+      confidence_score: 0.5,
+      importance_score: 0.500001,
+      recurrence_score: 0.5,
+      source_refs: ['A', 'B'],
+    }),
+  ]);
+
+  expect(ranked[0].review_priority_score).toBe(ranked[1].review_priority_score);
+  expect(ranked.map((entry) => entry.candidate.id)).toEqual([
+    'candidate-older-slightly-higher',
+    'candidate-newer-slightly-lower',
+  ]);
+});
+
 test('memory candidate scoring service does not mutate candidate inputs', () => {
   const candidate = makeCandidate('candidate-read-only', {
     source_refs: ['User, direct message, 2026-04-23 10:00 AM KST'],

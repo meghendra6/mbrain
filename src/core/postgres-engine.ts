@@ -1557,18 +1557,15 @@ export class PostgresEngine implements BrainEngine {
         ${input.candidate_id},
         ${input.target_object_type},
         ${input.target_object_id},
-        ${JSON.stringify(input.source_refs ?? [])}::jsonb,
+        source_refs,
         ${input.reviewed_at instanceof Date ? input.reviewed_at.toISOString() : input.reviewed_at ?? null},
         ${input.review_reason ?? null}
-      WHERE EXISTS (
-        SELECT 1
-        FROM memory_candidate_entries
-        WHERE id = ${input.candidate_id}
-          AND scope_id = ${input.scope_id}
-          AND status = 'promoted'
-          AND target_object_type = ${input.target_object_type}
-          AND target_object_id = ${input.target_object_id}
-      )
+      FROM memory_candidate_entries
+      WHERE id = ${input.candidate_id}
+        AND scope_id = ${input.scope_id}
+        AND status = 'promoted'
+        AND target_object_type = ${input.target_object_type}
+        AND target_object_id = ${input.target_object_id}
       ON CONFLICT DO NOTHING
       RETURNING id, scope_id, candidate_id, target_object_type, target_object_id, source_refs,
                 reviewed_at, review_reason, created_at, updated_at

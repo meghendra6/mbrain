@@ -1516,16 +1516,13 @@ export class PGLiteEngine implements BrainEngine {
         id, scope_id, candidate_id, target_object_type, target_object_id, source_refs,
         reviewed_at, review_reason
       )
-      SELECT $1, $2, $3, $4, $5, $6::jsonb, $7, $8
-      WHERE EXISTS (
-        SELECT 1
-        FROM memory_candidate_entries
-        WHERE id = $3
-          AND scope_id = $2
-          AND status = 'promoted'
-          AND target_object_type = $4
-          AND target_object_id = $5
-      )
+      SELECT $1, $2, $3, $4, $5, source_refs, $6, $7
+      FROM memory_candidate_entries
+      WHERE id = $3
+        AND scope_id = $2
+        AND status = 'promoted'
+        AND target_object_type = $4
+        AND target_object_id = $5
       ON CONFLICT DO NOTHING
       RETURNING id, scope_id, candidate_id, target_object_type, target_object_id, source_refs,
                 reviewed_at, review_reason, created_at, updated_at`,
@@ -1535,7 +1532,6 @@ export class PGLiteEngine implements BrainEngine {
         input.candidate_id,
         input.target_object_type,
         input.target_object_id,
-        JSON.stringify(input.source_refs ?? []),
         input.reviewed_at instanceof Date ? input.reviewed_at.toISOString() : input.reviewed_at ?? null,
         input.review_reason ?? null,
       ],
