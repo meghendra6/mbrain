@@ -20,6 +20,7 @@ const LINKED_WRITE_LOOKUP_BATCH_SIZE = 500;
 const TASK_BATCH_SIZE = 500;
 const TASK_SCAN_CAP = 5000;
 const CANDIDATE_BATCH_SIZE = 100;
+const TRACE_HISTORY_START = new Date(0);
 
 export async function auditBrainLoop(
   engine: BrainEngine,
@@ -42,10 +43,16 @@ export async function auditBrainLoop(
     task_id: input.task_id,
     scope: input.scope,
   });
-  const taskCompliance = await computeTaskCompliance(engine, traces, limit, {
-    task_id: input.task_id,
-    scope: input.scope,
-  });
+  const taskCompliance = await computeTaskCompliance(
+    engine,
+    traces,
+    limit,
+    { until },
+    {
+      task_id: input.task_id,
+      scope: input.scope,
+    },
+  );
   const canonicalRefCount = traces.reduce((sum, trace) => sum + trace.source_refs.length, 0);
   const derivedRefCount = traces.reduce((sum, trace) => sum + trace.derived_consulted.length, 0);
 
@@ -201,6 +208,9 @@ async function computeTaskCompliance(
   engine: BrainEngine,
   traces: RetrievalTrace[],
   limit: number,
+  window: {
+    until: Date;
+  },
   filters: {
     task_id?: string;
     scope?: ScopeGateScope;
@@ -216,21 +226,49 @@ async function computeTaskCompliance(
       lastTraceByTask.set(trace.task_id, trace);
     }
   }
-  const backlog = tasks
-    .filter((task) => !lastTraceByTask.has(task.id))
-    .slice(0, limit)
-    .map((task) => ({
+  const tasksWithoutWindowTrace = tasks.filter((task) => !lastTraceByTask.has(task.id));
+  const backlog: AuditTaskCompliance['top_backlog'] = [];
+  for (const task of tasksWithoutWindowTrace.slice(0, limit)) {
+    const latestTrace = await getLatestTaskTraceBefore(engine, task.id, window.until);
+    backlog.push({
       task_id: task.id,
-      last_trace_at: null,
-      last_route_kind: null,
-    }));
+      last_trace_at: latestTrace?.created_at.toISOString() ?? null,
+      last_route_kind: latestTrace ? traceRouteKind(latestTrace) : null,
+    });
+  }
 
   return {
     tasks_with_traces: tasks.filter((task) => lastTraceByTask.has(task.id)).length,
-    tasks_without_traces: tasks.filter((task) => !lastTraceByTask.has(task.id)).length,
+    tasks_without_traces: tasksWithoutWindowTrace.length,
     task_scan_capped_at: cappedAt,
     top_backlog: backlog,
   };
+}
+
+async function getLatestTaskTraceBefore(
+  engine: BrainEngine,
+  taskId: string,
+  until: Date,
+): Promise<RetrievalTrace | null> {
+  const traces = await engine.listRetrievalTracesByWindow({
+    since: TRACE_HISTORY_START,
+    until,
+    task_id: taskId,
+    limit: 1,
+    offset: 0,
+  });
+  return traces[0] ?? null;
+}
+
+function traceRouteKind(trace: RetrievalTrace): string | null {
+  if (trace.selected_intent) {
+    return trace.selected_intent;
+  }
+  const intentMarker = trace.verification.find((item) => item.startsWith('intent:'));
+  if (intentMarker) {
+    return intentMarker.slice('intent:'.length) || null;
+  }
+  return trace.route[0] ?? null;
 }
 
 async function listTaskThreadsForCompliance(
@@ -346,7 +384,7 @@ function mostCommon(values: string[]): string | null {
 
 function ratio(canonicalRefCount: number, derivedRefCount: number): number {
   const total = canonicalRefCount + derivedRefCount;
-  if (total === 0) return 0;
+  if (total === 0) return 1;
   return canonicalRefCount / total;
 }
 

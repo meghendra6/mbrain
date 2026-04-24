@@ -211,7 +211,7 @@ test('auditBrainLoop scope filter limits task compliance to matching task scope'
   }
 });
 
-test('auditBrainLoop returns a zeroed report for an empty window', async () => {
+test('auditBrainLoop returns an empty-window report with neutral canonical ratio', async () => {
   const harness = await createSqliteEngine();
 
   try {
@@ -223,9 +223,47 @@ test('auditBrainLoop returns a zeroed report for an empty window', async () => {
     expect(report.total_traces).toBe(0);
     expect(report.linked_writes.handoff_count).toBe(0);
     expect(report.linked_writes.traces_without_linked_write).toBe(0);
-    expect(report.canonical_vs_derived.canonical_ratio).toBe(0);
+    expect(report.canonical_vs_derived.canonical_ratio).toBe(1);
     expect(report.summary_lines.join(' ').toLowerCase()).toContain('no');
     expect(report.summary_lines.join(' ').toLowerCase()).toContain('activity');
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test('auditBrainLoop backlog includes the latest pre-window trace details', async () => {
+  const harness = await createSqliteEngine();
+
+  try {
+    await harness.engine.createTaskThread({
+      id: 'task-backlog-history',
+      scope: 'work',
+      title: 'Backlog task with historical trace',
+      status: 'active',
+    });
+    await harness.engine.putRetrievalTrace({
+      id: 'trace-backlog-history',
+      task_id: 'task-backlog-history',
+      scope: 'work',
+      route: ['task_thread'],
+      source_refs: ['task-thread:task-backlog-history'],
+      verification: ['intent:task_resume'],
+      selected_intent: 'task_resume',
+      outcome: 'historical trace before audit window',
+    });
+
+    const since = new Date(Date.now() + 1000);
+    const until = new Date(Date.now() + 60 * 60 * 1000);
+    const report = await auditBrainLoop(harness.engine, { since, until });
+
+    expect(report.total_traces).toBe(0);
+    expect(report.task_compliance.tasks_without_traces).toBe(1);
+    expect(report.task_compliance.top_backlog).toHaveLength(1);
+    expect(report.task_compliance.top_backlog[0]).toEqual({
+      task_id: 'task-backlog-history',
+      last_trace_at: expect.any(String),
+      last_route_kind: 'task_resume',
+    });
   } finally {
     await harness.cleanup();
   }
