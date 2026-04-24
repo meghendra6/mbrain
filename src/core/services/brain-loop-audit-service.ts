@@ -6,8 +6,8 @@ import type {
   AuditLinkedWriteCounts,
   AuditTaskCompliance,
   CanonicalHandoffEntry,
-  MemoryCandidateEntry,
   MemoryCandidateContradictionEntry,
+  MemoryCandidateFilters,
   MemoryCandidateSupersessionEntry,
   RetrievalTrace,
   ScopeGateScope,
@@ -28,6 +28,7 @@ export async function auditBrainLoop(
   const now = new Date();
   const until = normalizeDate(input.until, now);
   const since = normalizeDate(input.since, new Date(until.getTime() - 24 * 60 * 60 * 1000));
+  validateAuditWindow(since, until);
   const limit = clampLimit(input.limit ?? 50, 1, 500);
   const traces = await listAllRetrievalTracesInWindow(engine, {
     since,
@@ -37,7 +38,10 @@ export async function auditBrainLoop(
   });
   const traceIds = traces.map((trace) => trace.id);
   const linkedWrites = await countLinkedWrites(engine, traceIds);
-  const approximate = await approximateUnlinkedCandidateEvents(engine, since, until);
+  const approximate = await approximateUnlinkedCandidateEvents(engine, since, until, {
+    task_id: input.task_id,
+    scope: input.scope,
+  });
   const taskCompliance = await computeTaskCompliance(engine, traces, limit, {
     task_id: input.task_id,
     scope: input.scope,
@@ -146,26 +150,51 @@ async function approximateUnlinkedCandidateEvents(
   engine: BrainEngine,
   since: Date,
   until: Date,
+  filters: {
+    task_id?: string;
+    scope?: ScopeGateScope;
+  },
 ): Promise<AuditApproximateCounts> {
-  const candidates: MemoryCandidateEntry[] = [];
+  if (filters.task_id !== undefined || filters.scope !== undefined) {
+    return {
+      candidate_creation_same_window: 0,
+      candidate_rejection_same_window: 0,
+      note: 'suppressed for filtered audits; precise correlation requires interaction_id-linked writes',
+    };
+  }
+
+  const candidateCreationCount = await countMemoryCandidateEntries(engine, {
+    created_since: since,
+    created_until: until,
+  });
+  const candidateRejectionCount = await countMemoryCandidateEntries(engine, {
+    status: 'rejected',
+    reviewed_since: since,
+    reviewed_until: until,
+  });
+
+  return {
+    candidate_creation_same_window: candidateCreationCount,
+    candidate_rejection_same_window: candidateRejectionCount,
+    note: 'approximate; precise correlation requires memory_candidate_status_events',
+  };
+}
+
+async function countMemoryCandidateEntries(
+  engine: BrainEngine,
+  filters: MemoryCandidateFilters,
+): Promise<number> {
+  let count = 0;
   for (let offset = 0; ; offset += CANDIDATE_BATCH_SIZE) {
     const batch = await engine.listMemoryCandidateEntries({
+      ...filters,
       limit: CANDIDATE_BATCH_SIZE,
       offset,
     });
-    candidates.push(...batch);
+    count += batch.length;
     if (batch.length < CANDIDATE_BATCH_SIZE) break;
   }
-
-  return {
-    candidate_creation_same_window: candidates.filter((candidate) => isInWindow(candidate.created_at, since, until)).length,
-    candidate_rejection_same_window: candidates.filter((candidate) =>
-      candidate.status === 'rejected'
-      && candidate.reviewed_at != null
-      && isInWindow(candidate.reviewed_at, since, until)
-    ).length,
-    note: 'approximate; precise correlation requires memory_candidate_status_events',
-  };
+  return count;
 }
 
 async function computeTaskCompliance(
@@ -249,7 +278,12 @@ function isTaskScope(scope: ScopeGateScope): scope is TaskScope {
 
 function normalizeDate(input: Date | string | undefined, fallback: Date): Date {
   if (input === undefined) return fallback;
-  if (input instanceof Date) return input;
+  if (input instanceof Date) {
+    if (Number.isNaN(input.getTime())) {
+      throw new Error(`Invalid audit date: ${String(input)}`);
+    }
+    return input;
+  }
   const relative = input.match(/^(\d+)([hd])$/);
   if (relative) {
     const amount = Number(relative[1]);
@@ -263,6 +297,12 @@ function normalizeDate(input: Date | string | undefined, fallback: Date): Date {
     throw new Error(`Invalid audit date: ${input}`);
   }
   return parsed;
+}
+
+function validateAuditWindow(since: Date, until: Date): void {
+  if (since >= until) {
+    throw new Error('Invalid audit window: since must be before until');
+  }
 }
 
 function clampLimit(value: number, min: number, max: number): number {
@@ -306,13 +346,8 @@ function mostCommon(values: string[]): string | null {
 
 function ratio(canonicalRefCount: number, derivedRefCount: number): number {
   const total = canonicalRefCount + derivedRefCount;
-  if (total === 0) return 1;
+  if (total === 0) return 0;
   return canonicalRefCount / total;
-}
-
-function isInWindow(value: Date | string, since: Date, until: Date): boolean {
-  const date = value instanceof Date ? value : new Date(value);
-  return date >= since && date < until;
 }
 
 function chunkArray<T>(values: T[], size: number): T[][] {

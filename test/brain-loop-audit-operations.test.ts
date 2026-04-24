@@ -34,7 +34,7 @@ test('audit_brain_loop supports dry-run parameter parsing', async () => {
     dryRun: true,
   }, {
     since: '24h',
-    until: '2026-04-24T12:00:00.000Z',
+    until: new Date(Date.now() + 1000).toISOString(),
     scope: 'work',
     limit: 100,
     json: true,
@@ -70,6 +70,24 @@ test('audit_brain_loop rejects invalid scope and limit params', async () => {
   }, {
     limit: -1,
   })).rejects.toThrow('limit must be a positive number');
+});
+
+test('audit_brain_loop rejects inverted window params as invalid_params', async () => {
+  const audit = operations.find((operation) => operation.name === 'audit_brain_loop');
+
+  if (!audit) {
+    throw new Error('audit_brain_loop operation is missing');
+  }
+
+  await expect(audit.handler({
+    engine: {} as any,
+    config: {} as any,
+    logger: console,
+    dryRun: true,
+  }, {
+    since: '2026-04-24T11:00:00.000Z',
+    until: '2026-04-24T10:00:00.000Z',
+  })).rejects.toThrow('since must be before until');
 });
 
 test('audit_brain_loop operation returns an audit report', async () => {

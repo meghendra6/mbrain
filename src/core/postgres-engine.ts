@@ -1336,7 +1336,7 @@ export class PostgresEngine implements BrainEngine {
     const sql = this.sql;
     const limit = filters?.limit ?? 100;
     const offset = filters?.offset ?? 0;
-    const params: unknown[] = [];
+    const params: Array<string | number> = [];
     const clauses: string[] = [];
 
     if (filters?.scope_id) {
@@ -1358,6 +1358,22 @@ export class PostgresEngine implements BrainEngine {
     if (filters?.target_object_id !== undefined) {
       params.push(filters.target_object_id);
       clauses.push(`target_object_id = $${params.length}`);
+    }
+    if (filters?.created_since !== undefined) {
+      params.push(filters.created_since.toISOString());
+      clauses.push(`created_at >= $${params.length}`);
+    }
+    if (filters?.created_until !== undefined) {
+      params.push(filters.created_until.toISOString());
+      clauses.push(`created_at < $${params.length}`);
+    }
+    if (filters?.reviewed_since !== undefined) {
+      params.push(filters.reviewed_since.toISOString());
+      clauses.push(`reviewed_at >= $${params.length}`);
+    }
+    if (filters?.reviewed_until !== undefined) {
+      params.push(filters.reviewed_until.toISOString());
+      clauses.push(`reviewed_at < $${params.length}`);
     }
 
     params.push(limit);

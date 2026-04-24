@@ -1602,7 +1602,7 @@ export class SQLiteEngine implements BrainEngine {
     const limit = filters?.limit ?? 100;
     const offset = filters?.offset ?? 0;
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const params: Array<string | number> = [];
 
     if (filters?.scope_id) {
       clauses.push('scope_id = ?');
@@ -1623,6 +1623,22 @@ export class SQLiteEngine implements BrainEngine {
     if (filters?.target_object_id !== undefined) {
       clauses.push('target_object_id = ?');
       params.push(filters.target_object_id);
+    }
+    if (filters?.created_since !== undefined) {
+      clauses.push('created_at >= ?');
+      params.push(filters.created_since.toISOString());
+    }
+    if (filters?.created_until !== undefined) {
+      clauses.push('created_at < ?');
+      params.push(filters.created_until.toISOString());
+    }
+    if (filters?.reviewed_since !== undefined) {
+      clauses.push('reviewed_at >= ?');
+      params.push(filters.reviewed_since.toISOString());
+    }
+    if (filters?.reviewed_until !== undefined) {
+      clauses.push('reviewed_at < ?');
+      params.push(filters.reviewed_until.toISOString());
     }
 
     params.push(limit);
@@ -2937,10 +2953,34 @@ export class SQLiteEngine implements BrainEngine {
             this.backfillRetrievalTraceFidelityFields();
           }
           break;
+        case 24:
+          this.ensureBrainLoopAuditIndexes();
+          break;
       }
 
       await this.setConfig('version', String(version));
       });
+    }
+  }
+
+  private ensureBrainLoopAuditIndexes(): void {
+    if (this.sqliteTableExists('retrieval_traces')) {
+      this.database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_retrieval_traces_created
+          ON retrieval_traces(created_at DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_retrieval_traces_scope_created
+          ON retrieval_traces(scope, created_at DESC, id DESC);
+      `);
+    }
+
+    if (this.sqliteTableExists('memory_candidate_entries')) {
+      this.database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_memory_candidates_created
+          ON memory_candidate_entries(created_at DESC, id ASC);
+        CREATE INDEX IF NOT EXISTS idx_memory_candidates_status_reviewed
+          ON memory_candidate_entries(status, reviewed_at DESC, id ASC)
+          WHERE reviewed_at IS NOT NULL;
+      `);
     }
   }
 

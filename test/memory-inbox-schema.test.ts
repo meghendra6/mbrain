@@ -213,9 +213,12 @@ describe('memory-inbox schema', () => {
     await sql`UPDATE memory_candidate_entries SET status = 'promoted' WHERE id = ${`${prefix}-promotable`}`;
     await sql`UPDATE memory_candidate_entries SET status = 'promoted' WHERE id = ${`${prefix}-replacement`}`;
     await sql`UPDATE memory_candidate_entries SET status = 'promoted' WHERE id = ${`${prefix}-supersedable`}`;
-    await expect(
-      sql`UPDATE memory_candidate_entries SET status = 'superseded' WHERE id = ${`${prefix}-supersedable`}`,
-    ).rejects.toThrow(SUPERSEDED_LINK_REQUIRED_PATTERN);
+    try {
+      await sql`UPDATE memory_candidate_entries SET status = 'superseded' WHERE id = ${`${prefix}-supersedable`}`;
+      throw new Error('Expected superseded status update to require a supersession link');
+    } catch (error) {
+      expect(String(error)).toMatch(SUPERSEDED_LINK_REQUIRED_PATTERN);
+    }
     await sql`
       INSERT INTO memory_candidate_supersession_entries (
         id,

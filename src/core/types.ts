@@ -803,6 +803,10 @@ export interface MemoryCandidateFilters {
   candidate_type?: MemoryCandidateType;
   target_object_type?: MemoryCandidateTargetObjectType;
   target_object_id?: string;
+  created_since?: Date;
+  created_until?: Date;
+  reviewed_since?: Date;
+  reviewed_until?: Date;
   limit?: number;
   offset?: number;
 }

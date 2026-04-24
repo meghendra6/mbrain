@@ -52,6 +52,39 @@ function optionalAuditDate(
   return normalized;
 }
 
+function normalizeAuditDateForValidation(
+  input: string | undefined,
+  fallback: Date,
+): Date {
+  if (input === undefined) {
+    return fallback;
+  }
+  const relative = input.match(/^(\d+)([hd])$/);
+  if (relative) {
+    const amount = Number(relative[1]);
+    const millis = relative[2] === 'h'
+      ? amount * 60 * 60 * 1000
+      : amount * 24 * 60 * 60 * 1000;
+    return new Date(Date.now() - millis);
+  }
+  return new Date(input);
+}
+
+function validateAuditWindow(
+  deps: { OperationError: OperationErrorCtor },
+  input: {
+    since?: string;
+    until?: string;
+  },
+): void {
+  const now = new Date();
+  const until = normalizeAuditDateForValidation(input.until, now);
+  const since = normalizeAuditDateForValidation(input.since, new Date(until.getTime() - 24 * 60 * 60 * 1000));
+  if (since >= until) {
+    throw invalidParams(deps, 'since must be before until');
+  }
+}
+
 function optionalScope(
   deps: { OperationError: OperationErrorCtor },
   value: unknown,
@@ -120,6 +153,7 @@ export function createBrainLoopAuditOperations(
         scope: optionalScope(deps, p.scope),
         limit: optionalLimit(deps, p.limit),
       };
+      validateAuditWindow(deps, input);
       const json = optionalBoolean(deps, 'json', p.json);
 
       if (ctx.dryRun) {

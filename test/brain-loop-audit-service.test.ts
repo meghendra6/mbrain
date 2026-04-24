@@ -223,11 +223,24 @@ test('auditBrainLoop returns a zeroed report for an empty window', async () => {
     expect(report.total_traces).toBe(0);
     expect(report.linked_writes.handoff_count).toBe(0);
     expect(report.linked_writes.traces_without_linked_write).toBe(0);
+    expect(report.canonical_vs_derived.canonical_ratio).toBe(0);
     expect(report.summary_lines.join(' ').toLowerCase()).toContain('no');
     expect(report.summary_lines.join(' ').toLowerCase()).toContain('activity');
   } finally {
     await harness.cleanup();
   }
+});
+
+test('auditBrainLoop rejects invalid and inverted audit windows before scanning', async () => {
+  await expect(auditBrainLoop({} as BrainEngine, {
+    since: new Date('invalid-date'),
+    until: new Date(),
+  })).rejects.toThrow('Invalid audit date');
+
+  await expect(auditBrainLoop({} as BrainEngine, {
+    since: new Date('2026-04-24T11:00:00.000Z'),
+    until: new Date('2026-04-24T10:00:00.000Z'),
+  })).rejects.toThrow('since must be before until');
 });
 
 test('auditBrainLoop groups legacy null intent traces under unknown_legacy', async () => {
@@ -250,6 +263,52 @@ test('auditBrainLoop groups legacy null intent traces under unknown_legacy', asy
     const report = await auditBrainLoop(harness.engine, { since, until });
 
     expect(report.by_selected_intent.unknown_legacy).toBe(1);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test('auditBrainLoop suppresses approximate candidate counts for filtered audits', async () => {
+  const harness = await createSqliteEngine();
+  const since = new Date(Date.now() - 60 * 60 * 1000);
+  const until = new Date(Date.now() + 60 * 60 * 1000);
+
+  try {
+    await harness.engine.createTaskThread({
+      id: 'task-filtered-approximate',
+      scope: 'work',
+      title: 'Filtered approximate task',
+      status: 'active',
+    });
+    await harness.engine.putRetrievalTrace({
+      id: 'trace-filtered-approximate',
+      task_id: 'task-filtered-approximate',
+      scope: 'work',
+      route: [],
+      source_refs: [],
+      verification: [],
+      selected_intent: 'task_resume',
+      outcome: 'filtered approximate trace',
+    });
+    await createCandidate(harness.engine, 'candidate-unrelated-filtered-audit');
+
+    const taskReport = await auditBrainLoop(harness.engine, {
+      since,
+      until,
+      task_id: 'task-filtered-approximate',
+    });
+    const scopeReport = await auditBrainLoop(harness.engine, {
+      since,
+      until,
+      scope: 'work',
+    });
+
+    expect(taskReport.approximate.candidate_creation_same_window).toBe(0);
+    expect(taskReport.approximate.candidate_rejection_same_window).toBe(0);
+    expect(taskReport.approximate.note).toContain('suppressed');
+    expect(scopeReport.approximate.candidate_creation_same_window).toBe(0);
+    expect(scopeReport.approximate.candidate_rejection_same_window).toBe(0);
+    expect(scopeReport.approximate.note).toContain('suppressed');
   } finally {
     await harness.cleanup();
   }
@@ -387,6 +446,32 @@ test('auditBrainLoop chunks linked-write lookups across large trace windows', as
   expect(Math.max(...lookupSizes)).toBeLessThanOrEqual(500);
   expect(report.linked_writes.handoff_count).toBe(1);
   expect(report.linked_writes.traces_with_any_linked_write).toBe(1);
+});
+
+test('auditBrainLoop scans approximate candidates through window filters', async () => {
+  const since = new Date('2026-04-24T10:00:00.000Z');
+  const until = new Date('2026-04-24T11:00:00.000Z');
+  const candidateFilters: Array<Record<string, unknown>> = [];
+  const engine = {
+    listRetrievalTracesByWindow: async () => [],
+    listCanonicalHandoffEntriesByInteractionIds: async () => [],
+    listMemoryCandidateSupersessionEntriesByInteractionIds: async () => [],
+    listMemoryCandidateContradictionEntriesByInteractionIds: async () => [],
+    listMemoryCandidateEntries: async (filters: Record<string, unknown>) => {
+      candidateFilters.push(filters);
+      return [];
+    },
+    listTaskThreads: async () => [],
+  } as unknown as BrainEngine;
+
+  await auditBrainLoop(engine, { since, until });
+
+  expect(candidateFilters).toHaveLength(2);
+  expect(candidateFilters[0].created_since).toEqual(since);
+  expect(candidateFilters[0].created_until).toEqual(until);
+  expect(candidateFilters[1].status).toBe('rejected');
+  expect(candidateFilters[1].reviewed_since).toEqual(since);
+  expect(candidateFilters[1].reviewed_until).toEqual(until);
 });
 
 test('auditBrainLoop labels unlinked candidate events as approximate', async () => {

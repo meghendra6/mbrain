@@ -815,6 +815,29 @@ const MIGRATIONS: Migration[] = [
       END $$;
     `,
   },
+  {
+    version: 24,
+    name: 'brain_loop_audit_window_indexes',
+    sql: `
+      DO $$
+      BEGIN
+        IF to_regclass('retrieval_traces') IS NOT NULL THEN
+          CREATE INDEX IF NOT EXISTS idx_retrieval_traces_created
+            ON retrieval_traces(created_at DESC, id DESC);
+          CREATE INDEX IF NOT EXISTS idx_retrieval_traces_scope_created
+            ON retrieval_traces(scope, created_at DESC, id DESC);
+        END IF;
+
+        IF to_regclass('memory_candidate_entries') IS NOT NULL THEN
+          CREATE INDEX IF NOT EXISTS idx_memory_candidates_created
+            ON memory_candidate_entries(created_at DESC, id ASC);
+          CREATE INDEX IF NOT EXISTS idx_memory_candidates_status_reviewed
+            ON memory_candidate_entries(status, reviewed_at DESC, id ASC)
+            WHERE reviewed_at IS NOT NULL;
+        END IF;
+      END $$;
+    `,
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS.length > 0

@@ -1300,6 +1300,22 @@ export class PGLiteEngine implements BrainEngine {
       params.push(filters.target_object_id);
       clauses.push(`target_object_id = $${params.length}`);
     }
+    if (filters?.created_since !== undefined) {
+      params.push(filters.created_since.toISOString());
+      clauses.push(`created_at >= $${params.length}`);
+    }
+    if (filters?.created_until !== undefined) {
+      params.push(filters.created_until.toISOString());
+      clauses.push(`created_at < $${params.length}`);
+    }
+    if (filters?.reviewed_since !== undefined) {
+      params.push(filters.reviewed_since.toISOString());
+      clauses.push(`reviewed_at >= $${params.length}`);
+    }
+    if (filters?.reviewed_until !== undefined) {
+      params.push(filters.reviewed_until.toISOString());
+      clauses.push(`reviewed_at < $${params.length}`);
+    }
 
     params.push(limit);
     params.push(offset);
