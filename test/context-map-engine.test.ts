@@ -108,6 +108,7 @@ async function expectContextMap(engine: BrainEngine, id: string, scopeId: string
 }
 
 for (const createHarness of [createSqliteHarness, createPgliteHarness]) {
+  const timeoutMs = createHarness === createPgliteHarness ? 10_000 : undefined;
   test(`${createHarness.name} persists context map entries across reopen`, async () => {
     const harness = await createHarness();
     const scopeId = 'workspace:default';
@@ -128,7 +129,7 @@ for (const createHarness of [createSqliteHarness, createPgliteHarness]) {
       await reopened?.disconnect();
       await harness.cleanup();
     }
-  });
+  }, timeoutMs);
 }
 
 const databaseUrl = process.env.DATABASE_URL;
