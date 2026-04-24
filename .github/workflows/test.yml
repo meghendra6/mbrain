@@ -28,6 +28,8 @@ jobs:
         with:
           bun-version: latest
       - run: bun install
+      - name: Typecheck
+        run: bunx tsc --noEmit --pretty false
       - run: bun test
 
   postgres-jsonb:
