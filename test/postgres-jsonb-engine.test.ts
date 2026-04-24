@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { runMigrations } from '../src/core/migrate.ts';
 import { PostgresEngine } from '../src/core/postgres-engine.ts';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -271,6 +272,62 @@ if (databaseUrl) {
     } finally {
       await engine.deleteContextAtlasEntry(atlasId).catch(() => undefined);
       await engine.deleteContextMapEntry(mapId).catch(() => undefined);
+      await engine.disconnect();
+    }
+  });
+
+  test('postgres migrations repair legacy JSONB scalar strings before JSONB operators run', async () => {
+    const engine = new PostgresEngine();
+    const candidateId = `candidate-${crypto.randomUUID()}`;
+
+    await engine.connect({ engine: 'postgres', database_url: databaseUrl });
+    await engine.initSchema();
+
+    try {
+      await engine.sql`
+        INSERT INTO memory_candidate_entries (
+          id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
+          extraction_kind, confidence_score, importance_score, recurrence_score,
+          sensitivity, status, target_object_type, target_object_id
+        ) VALUES (
+          ${candidateId},
+          'workspace:legacy-jsonb',
+          'fact',
+          'Legacy source_refs were stored as a JSONB scalar string.',
+          to_jsonb(${JSON.stringify(['legacy:source'])}::text),
+          'agent',
+          'extracted',
+          0.9,
+          0.8,
+          0.7,
+          'work',
+          'staged_for_review',
+          'curated_note',
+          'systems/legacy-jsonb'
+        )
+      `;
+
+      const before = await engine.sql`
+        SELECT jsonb_typeof(source_refs) AS source_refs_kind
+        FROM memory_candidate_entries
+        WHERE id = ${candidateId}
+      `;
+      expect(before[0]?.source_refs_kind).toBe('string');
+
+      await engine.setConfig('version', '21');
+      await runMigrations(engine);
+
+      const after = await engine.sql`
+        SELECT jsonb_typeof(source_refs) AS source_refs_kind
+        FROM memory_candidate_entries
+        WHERE id = ${candidateId}
+      `;
+      expect(after[0]?.source_refs_kind).toBe('array');
+
+      const promoted = await engine.promoteMemoryCandidateEntry(candidateId);
+      expect(promoted?.status).toBe('promoted');
+    } finally {
+      await engine.sql`DELETE FROM memory_candidate_entries WHERE id = ${candidateId}`;
       await engine.disconnect();
     }
   });
