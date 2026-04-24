@@ -35,6 +35,12 @@ for the full spec (14 scenarios + invariant catalog + rollout plan).
 | S12 | `s12-baseline-gated-acceptance.test.ts` | E1 | ✅ green (tests regression-fail case) |
 | S13 | `s13-personal-export-boundary.test.ts` | I5, G2 | ✅ green |
 | S14 | `s14-retrieval-trace-fidelity.test.ts` | L6 | ✅ green |
+| S15 | `s15-brain-loop-audit.test.ts` | L6 | ✅ green |
+| S16 | `s16-interaction-linked-writes-audit.test.ts` | L6, G1, G2 | ✅ green |
+| S17 | `s17-task-less-trace.test.ts` | L6 | ✅ green |
+| S18 | `s18-interaction-id-handoff.test.ts` | L6, G1 | ✅ green |
+| S19 | `s19-interaction-id-supersession.test.ts` | L6, L5 | ✅ green on SQLite + PGLite, Postgres when `DATABASE_URL` is set |
+| S20 | `s20-interaction-id-nullable.test.ts` | L6 | ✅ green |
 
 Legend:
 - ✅ green = passes on current code
@@ -53,4 +59,8 @@ Legend:
 - **L1** request-level intent classifier (spec §5)
 - **L2** canonical-first ranking in broad synthesis (spec §5)
 - **L4** code claim verification subsystem (spec §5)
+
+Sprint 1.1B adds S15/S16 audit scenarios so loop observability is checked from
+structured trace columns and `interaction_id` linked-write rows, not from
+best-effort timestamp correlation.
 Each is documented as a `test.todo` in the corresponding scenario file.

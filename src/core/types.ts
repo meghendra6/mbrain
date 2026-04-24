@@ -803,6 +803,10 @@ export interface MemoryCandidateFilters {
   candidate_type?: MemoryCandidateType;
   target_object_type?: MemoryCandidateTargetObjectType;
   target_object_id?: string;
+  created_since?: Date;
+  created_until?: Date;
+  reviewed_since?: Date;
+  reviewed_until?: Date;
   limit?: number;
   offset?: number;
 }
@@ -1374,6 +1378,7 @@ export interface TaskThreadFilters {
   scope?: TaskScope;
   status?: TaskStatus;
   limit?: number;
+  offset?: number;
 }
 
 export interface TaskWorkingSet {
@@ -1468,6 +1473,66 @@ export interface RetrievalTraceInput {
   scope_gate_policy?: ScopeGatePolicy | null;
   scope_gate_reason?: string | null;
   outcome: string;
+}
+
+export interface RetrievalTraceWindowFilters {
+  since: Date;
+  until: Date;
+  task_id?: string;
+  scope?: ScopeGateScope;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AuditLinkedWriteCounts {
+  handoff_count: number;
+  supersession_count: number;
+  contradiction_count: number;
+  traces_with_any_linked_write: number;
+  traces_without_linked_write: number;
+}
+
+export interface AuditApproximateCounts {
+  candidate_creation_same_window: number;
+  candidate_rejection_same_window: number;
+  note: string;
+}
+
+export interface AuditTaskCompliance {
+  tasks_with_traces: number;
+  tasks_without_traces: number;
+  task_scan_capped_at: number | null;
+  top_backlog: Array<{
+    task_id: string;
+    last_trace_at: string | null;
+    last_route_kind: string | null;
+  }>;
+}
+
+export interface AuditBrainLoopInput {
+  since?: Date | string;
+  until?: Date | string;
+  task_id?: string;
+  scope?: ScopeGateScope;
+  limit?: number;
+}
+
+export interface AuditBrainLoopReport {
+  window: { since: string; until: string };
+  total_traces: number;
+  by_selected_intent: Partial<Record<RetrievalRouteIntent | 'unknown_legacy', number>>;
+  by_scope: Partial<Record<ScopeGateScope, number>>;
+  by_scope_gate_policy: Partial<Record<ScopeGatePolicy, number>>;
+  most_common_defer_reason: string | null;
+  canonical_vs_derived: {
+    canonical_ref_count: number;
+    derived_ref_count: number;
+    canonical_ratio: number;
+  };
+  linked_writes: AuditLinkedWriteCounts;
+  approximate: AuditApproximateCounts;
+  task_compliance: AuditTaskCompliance;
+  summary_lines: string[];
 }
 
 // Errors

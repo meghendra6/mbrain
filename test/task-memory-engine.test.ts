@@ -149,6 +149,27 @@ for (const createHarness of [createSqliteHarness, createPgliteHarness]) {
       await harness.cleanup();
     }
   });
+
+  test(`${createHarness.name} listTaskThreads honors limit and offset`, async () => {
+    const harness = await createHarness();
+
+    try {
+      for (const suffix of ['a', 'b', 'c']) {
+        await harness.engine.createTaskThread({
+          id: `task-page-${harness.label}-${suffix}`,
+          scope: 'work',
+          title: `Paged task ${suffix}`,
+          status: 'active',
+        });
+      }
+
+      const page = await harness.engine.listTaskThreads({ limit: 1, offset: 1 });
+
+      expect(page.map((thread) => thread.id)).toEqual([`task-page-${harness.label}-b`]);
+    } finally {
+      await harness.cleanup();
+    }
+  });
 }
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -183,6 +204,45 @@ if (databaseUrl) {
       await engine.disconnect().catch(() => undefined);
     }
   });
+
+  test('postgres listTaskThreads honors limit and offset', async () => {
+    const engine = new PostgresEngine();
+    const stamp = Date.now();
+    const ids = [
+      `task-postgres-page-${stamp}-a`,
+      `task-postgres-page-${stamp}-b`,
+      `task-postgres-page-${stamp}-c`,
+    ];
+
+    try {
+      await engine.connect({ engine: 'postgres', database_url: databaseUrl });
+      await engine.initSchema();
+      for (const id of ids) {
+        await engine.createTaskThread({
+          id,
+          scope: 'work',
+          title: `Postgres paged task ${id}`,
+          status: 'abandoned',
+        });
+      }
+
+      const firstTwo = await engine.listTaskThreads({ status: 'abandoned', limit: 2 });
+      const page = await engine.listTaskThreads({ status: 'abandoned', limit: 1, offset: 1 });
+
+      expect(page.map((thread) => thread.id)).toEqual([firstTwo[1]?.id]);
+    } finally {
+      const cleanupEngine = engine as PostgresEngine;
+      if (!(cleanupEngine as any)._sql) {
+        await cleanupEngine.connect({ engine: 'postgres', database_url: databaseUrl });
+      }
+      const sql = (cleanupEngine as any).sql;
+      for (const id of ids) {
+        await sql`DELETE FROM task_threads WHERE id = ${id}`;
+      }
+      await engine.disconnect().catch(() => undefined);
+    }
+  });
 } else {
   test.skip('postgres task-memory persistence skipped: DATABASE_URL is not configured', () => {});
+  test.skip('postgres listTaskThreads offset skipped: DATABASE_URL is not configured', () => {});
 }

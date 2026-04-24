@@ -49,6 +49,7 @@ import type {
   EngineConfig,
   RetrievalTrace,
   RetrievalTraceInput,
+  RetrievalTraceWindowFilters,
   TaskAttempt,
   TaskAttemptInput,
   TaskDecision,
@@ -87,6 +88,8 @@ import {
   rowToTaskThread,
   rowToTaskWorkingSet,
 } from './utils.ts';
+
+const INTERACTION_ID_LOOKUP_BATCH_SIZE = 500;
 
 export class PostgresEngine implements BrainEngine {
   private _sql: ReturnType<typeof postgres> | null = null;
@@ -903,6 +906,7 @@ export class PostgresEngine implements BrainEngine {
   async listTaskThreads(filters?: TaskThreadFilters): Promise<TaskThread[]> {
     const sql = this.sql;
     const limit = filters?.limit ?? 50;
+    const offset = filters?.offset ?? 0;
     const params: unknown[] = [];
     const clauses: string[] = [];
 
@@ -916,13 +920,15 @@ export class PostgresEngine implements BrainEngine {
     }
 
     params.push(limit);
+    params.push(offset);
     const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const rows = await sql.unsafe(
       `SELECT id, scope, title, goal, status, repo_path, branch_name, current_summary, created_at, updated_at
        FROM task_threads
        ${whereClause}
        ORDER BY updated_at DESC, id DESC
-       LIMIT $${params.length}`,
+       LIMIT $${params.length - 1}
+       OFFSET $${params.length}`,
       params,
     );
     return (rows as Record<string, unknown>[]).map(rowToTaskThread);
@@ -1076,6 +1082,35 @@ export class PostgresEngine implements BrainEngine {
       ORDER BY created_at DESC, id DESC
       LIMIT ${opts?.limit ?? 20}
     `;
+    return (rows as Record<string, unknown>[]).map(rowToRetrievalTrace);
+  }
+
+  async listRetrievalTracesByWindow(filters: RetrievalTraceWindowFilters): Promise<RetrievalTrace[]> {
+    const sql = this.sql;
+    const params: unknown[] = [filters.since.toISOString(), filters.until.toISOString()];
+    const clauses = ['created_at >= $1', 'created_at < $2'];
+
+    if (filters.task_id !== undefined) {
+      params.push(filters.task_id);
+      clauses.push(`task_id = $${params.length}`);
+    }
+    if (filters.scope !== undefined) {
+      params.push(filters.scope);
+      clauses.push(`scope = $${params.length}`);
+    }
+
+    params.push(filters.limit ?? 500);
+    params.push(filters.offset ?? 0);
+    const rows = await sql.unsafe(
+      `SELECT id, task_id, scope, route, source_refs, derived_consulted, verification,
+        write_outcome, selected_intent, scope_gate_policy, scope_gate_reason, outcome, created_at
+       FROM retrieval_traces
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY created_at DESC, id DESC
+       LIMIT $${params.length - 1}
+       OFFSET $${params.length}`,
+      params,
+    );
     return (rows as Record<string, unknown>[]).map(rowToRetrievalTrace);
   }
 
@@ -1301,7 +1336,7 @@ export class PostgresEngine implements BrainEngine {
     const sql = this.sql;
     const limit = filters?.limit ?? 100;
     const offset = filters?.offset ?? 0;
-    const params: unknown[] = [];
+    const params: Array<string | number> = [];
     const clauses: string[] = [];
 
     if (filters?.scope_id) {
@@ -1323,6 +1358,22 @@ export class PostgresEngine implements BrainEngine {
     if (filters?.target_object_id !== undefined) {
       params.push(filters.target_object_id);
       clauses.push(`target_object_id = $${params.length}`);
+    }
+    if (filters?.created_since !== undefined) {
+      params.push(filters.created_since.toISOString());
+      clauses.push(`created_at >= $${params.length}`);
+    }
+    if (filters?.created_until !== undefined) {
+      params.push(filters.created_until.toISOString());
+      clauses.push(`created_at < $${params.length}`);
+    }
+    if (filters?.reviewed_since !== undefined) {
+      params.push(filters.reviewed_since.toISOString());
+      clauses.push(`reviewed_at >= $${params.length}`);
+    }
+    if (filters?.reviewed_until !== undefined) {
+      params.push(filters.reviewed_until.toISOString());
+      clauses.push(`reviewed_at < $${params.length}`);
     }
 
     params.push(limit);
@@ -1499,6 +1550,27 @@ export class PostgresEngine implements BrainEngine {
     return rowToMemoryCandidateSupersessionEntry(rows[0] as Record<string, unknown>);
   }
 
+  async listMemoryCandidateSupersessionEntriesByInteractionIds(
+    interactionIds: string[],
+  ): Promise<MemoryCandidateSupersessionEntry[]> {
+    if (interactionIds.length === 0) return [];
+    const sql = this.sql;
+    const entries: MemoryCandidateSupersessionEntry[] = [];
+    for (const chunk of chunkInteractionIds(interactionIds)) {
+      const placeholders = chunk.map((_, index) => `$${index + 1}`).join(', ');
+      const rows = await sql.unsafe(
+        `SELECT id, scope_id, superseded_candidate_id, replacement_candidate_id,
+                reviewed_at, review_reason, interaction_id, created_at, updated_at
+         FROM memory_candidate_supersession_entries
+         WHERE interaction_id IN (${placeholders})
+         ORDER BY created_at DESC, id ASC`,
+        chunk,
+      );
+      entries.push(...(rows as Record<string, unknown>[]).map(rowToMemoryCandidateSupersessionEntry));
+    }
+    return sortByCreatedAtDescIdAsc(entries);
+  }
+
   async createMemoryCandidateContradictionEntry(
     input: MemoryCandidateContradictionEntryInput,
   ): Promise<MemoryCandidateContradictionEntry | null> {
@@ -1559,6 +1631,27 @@ export class PostgresEngine implements BrainEngine {
       return null;
     }
     return rowToMemoryCandidateContradictionEntry(rows[0] as Record<string, unknown>);
+  }
+
+  async listMemoryCandidateContradictionEntriesByInteractionIds(
+    interactionIds: string[],
+  ): Promise<MemoryCandidateContradictionEntry[]> {
+    if (interactionIds.length === 0) return [];
+    const sql = this.sql;
+    const entries: MemoryCandidateContradictionEntry[] = [];
+    for (const chunk of chunkInteractionIds(interactionIds)) {
+      const placeholders = chunk.map((_, index) => `$${index + 1}`).join(', ');
+      const rows = await sql.unsafe(
+        `SELECT id, scope_id, candidate_id, challenged_candidate_id, outcome, supersession_entry_id,
+                reviewed_at, review_reason, interaction_id, created_at, updated_at
+         FROM memory_candidate_contradiction_entries
+         WHERE interaction_id IN (${placeholders})
+         ORDER BY created_at DESC, id ASC`,
+        chunk,
+      );
+      entries.push(...(rows as Record<string, unknown>[]).map(rowToMemoryCandidateContradictionEntry));
+    }
+    return sortByCreatedAtDescIdAsc(entries);
   }
 
   async createCanonicalHandoffEntry(
@@ -1644,6 +1737,27 @@ export class PostgresEngine implements BrainEngine {
       params,
     );
     return (rows as Record<string, unknown>[]).map(rowToCanonicalHandoffEntry);
+  }
+
+  async listCanonicalHandoffEntriesByInteractionIds(
+    interactionIds: string[],
+  ): Promise<CanonicalHandoffEntry[]> {
+    if (interactionIds.length === 0) return [];
+    const sql = this.sql;
+    const entries: CanonicalHandoffEntry[] = [];
+    for (const chunk of chunkInteractionIds(interactionIds)) {
+      const placeholders = chunk.map((_, index) => `$${index + 1}`).join(', ');
+      const rows = await sql.unsafe(
+        `SELECT id, scope_id, candidate_id, target_object_type, target_object_id, source_refs,
+                reviewed_at, review_reason, interaction_id, created_at, updated_at
+         FROM canonical_handoff_entries
+         WHERE interaction_id IN (${placeholders})
+         ORDER BY created_at DESC, id ASC`,
+        chunk,
+      );
+      entries.push(...(rows as Record<string, unknown>[]).map(rowToCanonicalHandoffEntry));
+    }
+    return sortByCreatedAtDescIdAsc(entries);
   }
 
   async deleteMemoryCandidateEntry(id: string): Promise<void> {
@@ -2085,6 +2199,21 @@ export class PostgresEngine implements BrainEngine {
 
 function vectorLiteral(embedding: Float32Array): string {
   return `[${Array.from(embedding).join(',')}]`;
+}
+
+function chunkInteractionIds(interactionIds: string[]): string[][] {
+  const chunks: string[][] = [];
+  for (let index = 0; index < interactionIds.length; index += INTERACTION_ID_LOOKUP_BATCH_SIZE) {
+    chunks.push(interactionIds.slice(index, index + INTERACTION_ID_LOOKUP_BATCH_SIZE));
+  }
+  return chunks;
+}
+
+function sortByCreatedAtDescIdAsc<T extends { created_at: Date; id: string }>(entries: T[]): T[] {
+  return entries.sort((a, b) => {
+    const createdDelta = b.created_at.getTime() - a.created_at.getTime();
+    return createdDelta !== 0 ? createdDelta : a.id.localeCompare(b.id);
+  });
 }
 
 function vectorValueToFloat32(value: unknown): Float32Array | null {

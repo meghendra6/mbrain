@@ -19,6 +19,7 @@ import {
 } from './services/context-atlas-service.ts';
 import { getAtlasOrientationCard } from './services/atlas-orientation-card-service.ts';
 import { getAtlasOrientationBundle } from './services/atlas-orientation-bundle-service.ts';
+import { createBrainLoopAuditOperations } from './operations-brain-loop-audit.ts';
 import { createMemoryInboxOperations, DEFAULT_MEMORY_INBOX_SCOPE_ID } from './operations-memory-inbox.ts';
 import { getStructuralContextAtlasOverview } from './services/context-atlas-overview-service.ts';
 import { getStructuralContextAtlasReport } from './services/context-atlas-report-service.ts';
@@ -1680,6 +1681,10 @@ const record_personal_episode: Operation = {
 
 const memoryInboxOperations = createMemoryInboxOperations({
   defaultScopeId: DEFAULT_MEMORY_INBOX_SCOPE_ID,
+  OperationError,
+});
+
+const brainLoopAuditOperations = createBrainLoopAuditOperations({
   OperationError,
 });
 
@@ -3445,7 +3450,7 @@ export const operations: Operation[] = [
   // Context atlas registry
   build_context_atlas, get_context_atlas_entry, list_context_atlas_entries, select_context_atlas_entry, get_context_atlas_overview, get_context_atlas_report, get_atlas_orientation_card, get_atlas_orientation_bundle,
   // Operational memory
-  list_tasks, start_task, update_task, resume_task, get_task_working_set, record_retrieval_trace, list_task_traces, list_task_attempts, list_task_decisions, refresh_task_working_set, record_attempt, record_decision,
+  list_tasks, start_task, update_task, resume_task, get_task_working_set, record_retrieval_trace, list_task_traces, list_task_attempts, list_task_decisions, refresh_task_working_set, record_attempt, record_decision, ...brainLoopAuditOperations,
   // Ingest log
   log_ingest, get_ingest_log,
   // Files
