@@ -487,10 +487,45 @@ test('auditBrainLoop reports precise candidate status-event counts by interactio
     expect(report.candidate_status_events.linked_event_count).toBe(2);
     expect(report.candidate_status_events.unlinked_event_count).toBe(0);
     expect(report.candidate_status_events.traces_with_candidate_events).toBe(1);
+    expect(report.linked_writes.traces_with_any_linked_write).toBe(1);
+    expect(report.linked_writes.traces_without_linked_write).toBe(0);
     expect(report.approximate.candidate_creation_same_window).toBe(0);
   } finally {
     await harness.cleanup();
   }
+});
+
+test('auditBrainLoop counts candidate-event trace ids only when the trace is in the audit window', async () => {
+  const since = new Date('2026-04-25T10:00:00.000Z');
+  const until = new Date('2026-04-25T11:00:00.000Z');
+  const engine = {
+    listRetrievalTracesByWindow: async () => [],
+    listCanonicalHandoffEntriesByInteractionIds: async () => [],
+    listMemoryCandidateSupersessionEntriesByInteractionIds: async () => [],
+    listMemoryCandidateContradictionEntriesByInteractionIds: async () => [],
+    listMemoryCandidateStatusEvents: async () => [{
+      id: 'audit-status-event-outside-trace',
+      candidate_id: 'candidate-outside-trace',
+      scope_id: 'workspace:default',
+      from_status: null,
+      to_status: 'captured',
+      event_kind: 'created',
+      interaction_id: 'trace-outside-window',
+      reviewed_at: null,
+      review_reason: null,
+      created_at: new Date('2026-04-25T10:30:00.000Z'),
+    }],
+    listMemoryCandidateStatusEventsByInteractionIds: async () => [],
+    listMemoryCandidateEntries: async () => [],
+    listTaskThreads: async () => [],
+  } as unknown as BrainEngine;
+
+  const report = await auditBrainLoop(engine, { since, until });
+
+  expect(report.total_traces).toBe(0);
+  expect(report.candidate_status_events.linked_event_count).toBe(1);
+  expect(report.candidate_status_events.traces_with_candidate_events).toBe(0);
+  expect(report.linked_writes.traces_with_any_linked_write).toBe(0);
 });
 
 test('auditBrainLoop keeps approximate counters compatible for raw candidate rows', async () => {

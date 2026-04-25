@@ -84,6 +84,10 @@ describe('S21 — candidate status events audit', () => {
       expect(report.candidate_status_events.rejected_count).toBe(1);
       expect(report.candidate_status_events.linked_event_count).toBe(4);
       expect(report.candidate_status_events.traces_with_candidate_events).toBe(1);
+      expect(report.linked_writes.traces_with_any_linked_write).toBe(1);
+      expect(report.linked_writes.traces_without_linked_write).toBe(0);
+      expect(report.summary_lines).toContain('linked_writes=1');
+      expect(report.summary_lines).toContain('read_without_linked_write=0');
       expect(report.approximate.candidate_creation_same_window).toBe(0);
       expect(report.approximate.candidate_rejection_same_window).toBe(0);
     } finally {

@@ -1,4 +1,5 @@
 import { Database } from 'bun:sqlite';
+import { AsyncLocalStorage } from 'async_hooks';
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
@@ -87,6 +88,10 @@ import {
 const DEFAULT_EMBEDDING_MODEL = 'nomic-embed-text';
 const BASELINE_VERSION = 1;
 const INTERACTION_ID_LOOKUP_BATCH_SIZE = 500;
+
+interface SQLiteTransactionContext {
+  depth: number;
+}
 
 const SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -395,7 +400,8 @@ CREATE TABLE IF NOT EXISTS config (
 
 export class SQLiteEngine implements BrainEngine {
   private db: Database | null = null;
-  private transactionDepth = 0;
+  private transactionQueue: Promise<void> = Promise.resolve();
+  private readonly transactionContext = new AsyncLocalStorage<SQLiteTransactionContext>();
 
   private get database(): Database {
     if (!this.db) throw new Error('SQLite engine is not connected');
@@ -427,7 +433,7 @@ export class SQLiteEngine implements BrainEngine {
     if (this.db) {
       this.db.close();
       this.db = null;
-      this.transactionDepth = 0;
+      this.transactionQueue = Promise.resolve();
     }
   }
 
@@ -465,10 +471,47 @@ export class SQLiteEngine implements BrainEngine {
   }
 
   async transaction<T>(fn: (engine: BrainEngine) => Promise<T>): Promise<T> {
+    const context = this.transactionContext.getStore();
+    if (context) {
+      return this.runTransactionInContext(fn, context);
+    }
+
+    return this.runWithTransactionLock(() => this.transactionContext.run(
+      { depth: 0 },
+      () => {
+        const newContext = this.transactionContext.getStore();
+        if (!newContext) {
+          throw new Error('SQLite transaction context was not initialized');
+        }
+        return this.runTransactionInContext(fn, newContext);
+      },
+    ));
+  }
+
+  private async runWithTransactionLock<T>(fn: () => Promise<T>): Promise<T> {
+    const previous = this.transactionQueue;
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.transactionQueue = previous.then(() => current);
+
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
+  private async runTransactionInContext<T>(
+    fn: (engine: BrainEngine) => Promise<T>,
+    context: SQLiteTransactionContext,
+  ): Promise<T> {
     const db = this.database;
-    const depth = this.transactionDepth;
+    const depth = context.depth;
     const savepoint = `mbrain_sp_${depth}`;
-    this.transactionDepth += 1;
+    context.depth += 1;
 
     try {
       if (depth === 0) {
@@ -498,7 +541,7 @@ export class SQLiteEngine implements BrainEngine {
       }
       throw error;
     } finally {
-      this.transactionDepth -= 1;
+      context.depth -= 1;
     }
   }
 
@@ -3135,8 +3178,10 @@ export class SQLiteEngine implements BrainEngine {
       );
       CREATE INDEX IF NOT EXISTS idx_memory_candidate_status_events_candidate_created
         ON memory_candidate_status_events(candidate_id, created_at DESC, id DESC);
+      DROP INDEX IF EXISTS idx_memory_candidate_status_events_interaction;
       CREATE INDEX IF NOT EXISTS idx_memory_candidate_status_events_interaction
-        ON memory_candidate_status_events(interaction_id);
+        ON memory_candidate_status_events(interaction_id)
+        WHERE interaction_id IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_memory_candidate_status_events_scope_created
         ON memory_candidate_status_events(scope_id, created_at DESC, id DESC);
       CREATE INDEX IF NOT EXISTS idx_memory_candidate_status_events_kind_created
@@ -3163,7 +3208,8 @@ export class SQLiteEngine implements BrainEngine {
         reviewed_at,
         review_reason,
         created_at
-      FROM memory_candidate_entries;
+      FROM memory_candidate_entries
+      WHERE status IN ('captured', 'candidate', 'staged_for_review');
     `);
   }
 

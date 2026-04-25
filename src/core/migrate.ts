@@ -893,6 +893,7 @@ const MIGRATIONS: Migration[] = [
             review_reason,
             created_at
           FROM memory_candidate_entries
+          WHERE status IN ('captured', 'candidate', 'staged_for_review')
           ON CONFLICT (id) DO NOTHING;
         END IF;
       END $$;

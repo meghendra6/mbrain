@@ -115,17 +115,23 @@ describe('memory-inbox schema', () => {
   const expectedStatusEventBackfillRows = (
     prefix: string,
     expectedToStatus: string | Record<string, string>,
-  ) => ['promotable', 'rejectable', 'replacement', 'supersedable'].map((suffix) => ({
-    id: `candidate-status-created:${prefix}-${suffix}`,
-    candidate_id: `${prefix}-${suffix}`,
-    from_status: null,
-    to_status: typeof expectedToStatus === 'string' ? expectedToStatus : expectedToStatus[suffix],
-    event_kind: 'created',
-    interaction_id: null,
-    reviewed_at_matches: true,
-    review_reason_matches: true,
-    created_at_matches: true,
-  }));
+  ) => ['promotable', 'rejectable', 'replacement', 'supersedable'].flatMap((suffix) => {
+    const toStatus = typeof expectedToStatus === 'string' ? expectedToStatus : expectedToStatus[suffix];
+    if (!['captured', 'candidate', 'staged_for_review'].includes(toStatus)) {
+      return [];
+    }
+    return [{
+      id: `candidate-status-created:${prefix}-${suffix}`,
+      candidate_id: `${prefix}-${suffix}`,
+      from_status: null,
+      to_status: toStatus,
+      event_kind: 'created',
+      interaction_id: null,
+      reviewed_at_matches: true,
+      review_reason_matches: true,
+      created_at_matches: true,
+    }];
+  });
 
   const expectPgliteStatusEventSchema = async (engine: PGLiteEngine) => {
     const db = (engine as any).db;
@@ -862,7 +868,7 @@ describe('memory-inbox schema', () => {
       const quotedSchema = `"${schema.replace(/"/g, '""')}"`;
       const admin = postgres(databaseUrl, { max: 1, idle_timeout: 1, connect_timeout: 10 });
       const schemaUrl = new URL(databaseUrl);
-      schemaUrl.searchParams.set('options', `-c search_path=${schema}`);
+      schemaUrl.searchParams.set('options', `-c search_path=${schema},public`);
 
       const engine = new PostgresEngine();
       try {
@@ -883,7 +889,7 @@ describe('memory-inbox schema', () => {
       const quotedSchema = `"${schema.replace(/"/g, '""')}"`;
       const admin = postgres(databaseUrl, { max: 1, idle_timeout: 1, connect_timeout: 10 });
       const schemaUrl = new URL(databaseUrl);
-      schemaUrl.searchParams.set('options', `-c search_path=${schema}`);
+      schemaUrl.searchParams.set('options', `-c search_path=${schema},public`);
 
       const engine = new PostgresEngine();
       try {

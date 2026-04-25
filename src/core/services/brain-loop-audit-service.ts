@@ -47,11 +47,11 @@ export async function auditBrainLoop(
     scope: input.scope,
   });
   const traceIds = traces.map((trace) => trace.id);
-  const linkedWrites = await countLinkedWrites(engine, traceIds);
   const candidateStatusEvents = await countCandidateStatusEvents(engine, traceIds, since, until, {
     task_id: input.task_id,
     scope: input.scope,
   });
+  const linkedWrites = await countLinkedWrites(engine, traceIds, candidateStatusEvents.events);
   const approximate = await approximateUnlinkedCandidateEvents(engine, since, until, {
     task_id: input.task_id,
     scope: input.scope,
@@ -122,6 +122,7 @@ async function listAllRetrievalTracesInWindow(
 async function countLinkedWrites(
   engine: BrainEngine,
   traceIds: string[],
+  candidateStatusEvents: MemoryCandidateStatusEvent[],
 ): Promise<AuditLinkedWriteCounts> {
   if (traceIds.length === 0) {
     return {
@@ -133,6 +134,7 @@ async function countLinkedWrites(
     };
   }
 
+  const traceIdSet = new Set(traceIds);
   const handoffs: CanonicalHandoffEntry[] = [];
   const supersessions: MemoryCandidateSupersessionEntry[] = [];
   const contradictions: MemoryCandidateContradictionEntry[] = [];
@@ -156,6 +158,11 @@ async function countLinkedWrites(
   }
   for (const contradiction of contradictions) {
     if (contradiction.interaction_id) linkedTraceIds.add(contradiction.interaction_id);
+  }
+  for (const event of candidateStatusEvents) {
+    if (event.interaction_id && traceIdSet.has(event.interaction_id)) {
+      linkedTraceIds.add(event.interaction_id);
+    }
   }
 
   return {
@@ -181,9 +188,12 @@ async function countCandidateStatusEvents(
     ? await listCandidateStatusEventsByTraceIds(engine, traceIds)
     : await listAllCandidateStatusEventsInWindow(engine, since, until);
   const inWindow = events.filter((event) => isInAuditWindow(event.created_at, since, until));
+  const traceIdSet = new Set(traceIds);
   const linkedTraceIds = new Set<string>();
   for (const event of inWindow) {
-    if (event.interaction_id) linkedTraceIds.add(event.interaction_id);
+    if (event.interaction_id && traceIdSet.has(event.interaction_id)) {
+      linkedTraceIds.add(event.interaction_id);
+    }
   }
 
   return {
