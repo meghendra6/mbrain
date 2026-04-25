@@ -14,8 +14,8 @@ bun test test/scenarios/
 
 ## Design doc
 
-See `docs/superpowers/specs/2026-04-23-mbrain-scenario-test-design.md`
-for the full spec (14 scenarios + invariant catalog + rollout plan).
+The durable invariant catalog lives in `docs/architecture/redesign/`. Local
+agent planning/spec files are intentionally not tracked.
 
 ## Current Scenario Contract
 

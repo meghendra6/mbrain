@@ -1,8 +1,8 @@
 /**
  * Test helpers for the scenario-based test suite.
  *
- * See docs/superpowers/specs/2026-04-23-mbrain-scenario-test-design.md
- * for the design contract these scenarios validate.
+ * See docs/architecture/redesign/ for the durable design contracts these
+ * scenarios validate.
  */
 
 import { mkdtempSync, rmSync } from 'fs';

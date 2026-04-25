@@ -10,3 +10,5 @@ bin/
 .gstack/
 supabase/.temp/
 .claude/skills/
+HANDOFF.md
+docs/superpowers/
