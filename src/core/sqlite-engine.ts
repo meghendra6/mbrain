@@ -5,6 +5,7 @@ import { dirname, join } from 'path';
 import type { BrainEngine } from './engine.ts';
 import {
   assertMemoryCandidateCreateStatus,
+  assertMemoryCandidateStatusEventInput,
   isAllowedMemoryCandidateStatusUpdate,
 } from './memory-inbox-status.ts';
 import { LATEST_VERSION } from './migrate.ts';
@@ -34,6 +35,9 @@ import type {
   MemoryCandidateEntryInput,
   MemoryCandidateFilters,
   MemoryCandidatePromotionPatch,
+  MemoryCandidateStatusEvent,
+  MemoryCandidateStatusEventFilters,
+  MemoryCandidateStatusEventInput,
   MemoryCandidateSupersessionEntry,
   MemoryCandidateSupersessionInput,
   MemoryCandidateStatusPatch,
@@ -76,6 +80,7 @@ import {
   importContentHash,
   rowToCanonicalHandoffEntry,
   rowToMemoryCandidateContradictionEntry,
+  rowToMemoryCandidateStatusEvent,
   rowToMemoryCandidateSupersessionEntry,
 } from './utils.ts';
 
@@ -1666,6 +1671,111 @@ export class SQLiteEngine implements BrainEngine {
       OFFSET ?
     `).all(...sqliteBindings(params)) as Record<string, unknown>[];
     return rows.map(rowToMemoryCandidateEntry);
+  }
+
+  async createMemoryCandidateStatusEvent(
+    input: MemoryCandidateStatusEventInput,
+  ): Promise<MemoryCandidateStatusEvent> {
+    assertMemoryCandidateStatusEventInput(input);
+    const createdAt = toNullableIso(input.created_at) ?? nowIso();
+    this.database.run(`
+      INSERT INTO memory_candidate_status_events (
+        id, candidate_id, scope_id, from_status, to_status, event_kind,
+        interaction_id, reviewed_at, review_reason, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      input.id,
+      input.candidate_id,
+      input.scope_id,
+      input.from_status ?? null,
+      input.to_status,
+      input.event_kind,
+      input.interaction_id ?? null,
+      toNullableIso(input.reviewed_at),
+      input.review_reason ?? null,
+      createdAt,
+    ]);
+
+    const row = this.database.query(`
+      SELECT id, candidate_id, scope_id, from_status, to_status, event_kind,
+             interaction_id, reviewed_at, review_reason, created_at
+      FROM memory_candidate_status_events
+      WHERE id = ?
+    `).get(input.id) as Record<string, unknown> | null;
+    if (!row) throw new Error(`Memory candidate status event not found after create: ${input.id}`);
+    return rowToMemoryCandidateStatusEvent(row);
+  }
+
+  async listMemoryCandidateStatusEvents(
+    filters?: MemoryCandidateStatusEventFilters,
+  ): Promise<MemoryCandidateStatusEvent[]> {
+    const limit = filters?.limit ?? 100;
+    const offset = filters?.offset ?? 0;
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+
+    if (filters?.candidate_id) {
+      clauses.push('candidate_id = ?');
+      params.push(filters.candidate_id);
+    }
+    if (filters?.scope_id) {
+      clauses.push('scope_id = ?');
+      params.push(filters.scope_id);
+    }
+    if (filters?.event_kind) {
+      clauses.push('event_kind = ?');
+      params.push(filters.event_kind);
+    }
+    if (filters?.to_status) {
+      clauses.push('to_status = ?');
+      params.push(filters.to_status);
+    }
+    if (filters?.interaction_id !== undefined) {
+      clauses.push('interaction_id = ?');
+      params.push(filters.interaction_id);
+    }
+    if (filters?.created_since !== undefined) {
+      clauses.push('created_at >= ?');
+      params.push(filters.created_since.toISOString());
+    }
+    if (filters?.created_until !== undefined) {
+      clauses.push('created_at < ?');
+      params.push(filters.created_until.toISOString());
+    }
+
+    params.push(limit);
+    params.push(offset);
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = this.database.query(`
+      SELECT id, candidate_id, scope_id, from_status, to_status, event_kind,
+             interaction_id, reviewed_at, review_reason, created_at
+      FROM memory_candidate_status_events
+      ${whereClause}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?
+      OFFSET ?
+    `).all(...sqliteBindings(params)) as Record<string, unknown>[];
+    return rows.map(rowToMemoryCandidateStatusEvent);
+  }
+
+  async listMemoryCandidateStatusEventsByInteractionIds(
+    interactionIds: string[],
+  ): Promise<MemoryCandidateStatusEvent[]> {
+    const uniqueInteractionIds = [...new Set(interactionIds)];
+    if (uniqueInteractionIds.length === 0) return [];
+    const entries: MemoryCandidateStatusEvent[] = [];
+    for (const chunk of chunkInteractionIds(uniqueInteractionIds)) {
+      const placeholders = chunk.map(() => '?').join(', ');
+      const rows = this.database.query(`
+        SELECT id, candidate_id, scope_id, from_status, to_status, event_kind,
+               interaction_id, reviewed_at, review_reason, created_at
+        FROM memory_candidate_status_events
+        WHERE interaction_id IN (${placeholders})
+        ORDER BY created_at DESC, id DESC
+      `).all(...chunk) as Record<string, unknown>[];
+      entries.push(...rows.map(rowToMemoryCandidateStatusEvent));
+    }
+    return sortByCreatedAtDescIdDesc(entries);
   }
 
   async updateMemoryCandidateEntryStatus(id: string, patch: MemoryCandidateStatusPatch): Promise<MemoryCandidateEntry | null> {
@@ -3536,6 +3646,13 @@ function sortByCreatedAtDescIdAsc<T extends { created_at: Date; id: string }>(en
   return entries.sort((a, b) => {
     const createdDelta = b.created_at.getTime() - a.created_at.getTime();
     return createdDelta !== 0 ? createdDelta : a.id.localeCompare(b.id);
+  });
+}
+
+function sortByCreatedAtDescIdDesc<T extends { created_at: Date; id: string }>(entries: T[]): T[] {
+  return entries.sort((a, b) => {
+    const createdDelta = b.created_at.getTime() - a.created_at.getTime();
+    return createdDelta !== 0 ? createdDelta : b.id.localeCompare(a.id);
   });
 }
 

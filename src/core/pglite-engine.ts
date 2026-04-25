@@ -5,6 +5,7 @@ import type { Transaction } from '@electric-sql/pglite';
 import type { BrainEngine } from './engine.ts';
 import {
   assertMemoryCandidateCreateStatus,
+  assertMemoryCandidateStatusEventInput,
   isAllowedMemoryCandidateStatusUpdate,
 } from './memory-inbox-status.ts';
 import { runMigrations } from './migrate.ts';
@@ -33,6 +34,9 @@ import type {
   MemoryCandidateEntryInput,
   MemoryCandidateFilters,
   MemoryCandidatePromotionPatch,
+  MemoryCandidateStatusEvent,
+  MemoryCandidateStatusEventFilters,
+  MemoryCandidateStatusEventInput,
   MemoryCandidateSupersessionEntry,
   MemoryCandidateSupersessionInput,
   MemoryCandidateStatusPatch,
@@ -78,6 +82,7 @@ import {
   rowToContextMapEntry,
   rowToMemoryCandidateEntry,
   rowToMemoryCandidateContradictionEntry,
+  rowToMemoryCandidateStatusEvent,
   rowToMemoryCandidateSupersessionEntry,
   rowToCanonicalHandoffEntry,
   rowToNoteManifestEntry,
@@ -1347,6 +1352,108 @@ export class PGLiteEngine implements BrainEngine {
     return (rows as Record<string, unknown>[]).map(rowToMemoryCandidateEntry);
   }
 
+  async createMemoryCandidateStatusEvent(
+    input: MemoryCandidateStatusEventInput,
+  ): Promise<MemoryCandidateStatusEvent> {
+    assertMemoryCandidateStatusEventInput(input);
+    const createdAt = toNullableIso(input.created_at) ?? new Date().toISOString();
+    const { rows } = await this.db.query(
+      `INSERT INTO memory_candidate_status_events (
+        id, candidate_id, scope_id, from_status, to_status, event_kind,
+        interaction_id, reviewed_at, review_reason, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING id, candidate_id, scope_id, from_status, to_status, event_kind,
+                interaction_id, reviewed_at, review_reason, created_at`,
+      [
+        input.id,
+        input.candidate_id,
+        input.scope_id,
+        input.from_status ?? null,
+        input.to_status,
+        input.event_kind,
+        input.interaction_id ?? null,
+        toNullableIso(input.reviewed_at),
+        input.review_reason ?? null,
+        createdAt,
+      ],
+    );
+    return rowToMemoryCandidateStatusEvent(rows[0] as Record<string, unknown>);
+  }
+
+  async listMemoryCandidateStatusEvents(
+    filters?: MemoryCandidateStatusEventFilters,
+  ): Promise<MemoryCandidateStatusEvent[]> {
+    const limit = filters?.limit ?? 100;
+    const offset = filters?.offset ?? 0;
+    const params: unknown[] = [];
+    const clauses: string[] = [];
+
+    if (filters?.candidate_id) {
+      params.push(filters.candidate_id);
+      clauses.push(`candidate_id = $${params.length}`);
+    }
+    if (filters?.scope_id) {
+      params.push(filters.scope_id);
+      clauses.push(`scope_id = $${params.length}`);
+    }
+    if (filters?.event_kind) {
+      params.push(filters.event_kind);
+      clauses.push(`event_kind = $${params.length}`);
+    }
+    if (filters?.to_status) {
+      params.push(filters.to_status);
+      clauses.push(`to_status = $${params.length}`);
+    }
+    if (filters?.interaction_id !== undefined) {
+      params.push(filters.interaction_id);
+      clauses.push(`interaction_id = $${params.length}`);
+    }
+    if (filters?.created_since !== undefined) {
+      params.push(filters.created_since.toISOString());
+      clauses.push(`created_at >= $${params.length}`);
+    }
+    if (filters?.created_until !== undefined) {
+      params.push(filters.created_until.toISOString());
+      clauses.push(`created_at < $${params.length}`);
+    }
+
+    params.push(limit);
+    params.push(offset);
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const { rows } = await this.db.query(
+      `SELECT id, candidate_id, scope_id, from_status, to_status, event_kind,
+              interaction_id, reviewed_at, review_reason, created_at
+       FROM memory_candidate_status_events
+       ${whereClause}
+       ORDER BY created_at DESC, id DESC
+       LIMIT $${params.length - 1}
+       OFFSET $${params.length}`,
+      params,
+    );
+    return (rows as Record<string, unknown>[]).map(rowToMemoryCandidateStatusEvent);
+  }
+
+  async listMemoryCandidateStatusEventsByInteractionIds(
+    interactionIds: string[],
+  ): Promise<MemoryCandidateStatusEvent[]> {
+    const uniqueInteractionIds = [...new Set(interactionIds)];
+    if (uniqueInteractionIds.length === 0) return [];
+    const entries: MemoryCandidateStatusEvent[] = [];
+    for (const chunk of chunkInteractionIds(uniqueInteractionIds)) {
+      const placeholders = chunk.map((_, index) => `$${index + 1}`).join(', ');
+      const { rows } = await this.db.query(
+        `SELECT id, candidate_id, scope_id, from_status, to_status, event_kind,
+                interaction_id, reviewed_at, review_reason, created_at
+         FROM memory_candidate_status_events
+         WHERE interaction_id IN (${placeholders})
+         ORDER BY created_at DESC, id DESC`,
+        chunk,
+      );
+      entries.push(...(rows as Record<string, unknown>[]).map(rowToMemoryCandidateStatusEvent));
+    }
+    return sortByCreatedAtDescIdDesc(entries);
+  }
+
   async updateMemoryCandidateEntryStatus(id: string, patch: MemoryCandidateStatusPatch): Promise<MemoryCandidateEntry | null> {
     const current = await this.getMemoryCandidateEntry(id);
     if (!current) {
@@ -2190,6 +2297,18 @@ function sortByCreatedAtDescIdAsc<T extends { created_at: Date; id: string }>(en
     const createdDelta = b.created_at.getTime() - a.created_at.getTime();
     return createdDelta !== 0 ? createdDelta : a.id.localeCompare(b.id);
   });
+}
+
+function sortByCreatedAtDescIdDesc<T extends { created_at: Date; id: string }>(entries: T[]): T[] {
+  return entries.sort((a, b) => {
+    const createdDelta = b.created_at.getTime() - a.created_at.getTime();
+    return createdDelta !== 0 ? createdDelta : b.id.localeCompare(a.id);
+  });
+}
+
+function toNullableIso(value: Date | string | null | undefined): string | null {
+  if (value == null) return null;
+  return value instanceof Date ? value.toISOString() : String(value);
 }
 
 function vectorValueToFloat32(value: unknown): Float32Array | null {

@@ -758,6 +758,13 @@ export type MemoryCandidateCreateStatus =
   | 'candidate'
   | 'staged_for_review';
 
+export type MemoryCandidateStatusEventKind =
+  | 'created'
+  | 'advanced'
+  | 'promoted'
+  | 'rejected'
+  | 'superseded';
+
 export type MemoryCandidateTargetObjectType =
   | 'curated_note'
   | 'procedure'
@@ -833,6 +840,44 @@ export interface MemoryCandidateFilters {
   created_until?: Date;
   reviewed_since?: Date;
   reviewed_until?: Date;
+  limit?: number;
+  offset?: number;
+}
+
+export interface MemoryCandidateStatusEvent {
+  id: string;
+  candidate_id: string;
+  scope_id: string;
+  from_status: MemoryCandidateStatus | null;
+  to_status: MemoryCandidateStatus;
+  event_kind: MemoryCandidateStatusEventKind;
+  interaction_id: string | null;
+  reviewed_at: Date | null;
+  review_reason: string | null;
+  created_at: Date;
+}
+
+export interface MemoryCandidateStatusEventInput {
+  id: string;
+  candidate_id: string;
+  scope_id: string;
+  from_status?: MemoryCandidateStatus | null;
+  to_status: MemoryCandidateStatus;
+  event_kind: MemoryCandidateStatusEventKind;
+  interaction_id?: string | null;
+  reviewed_at?: Date | string | null;
+  review_reason?: string | null;
+  created_at?: Date | string | null;
+}
+
+export interface MemoryCandidateStatusEventFilters {
+  candidate_id?: string;
+  scope_id?: string;
+  event_kind?: MemoryCandidateStatusEventKind;
+  to_status?: MemoryCandidateStatus;
+  interaction_id?: string;
+  created_since?: Date;
+  created_until?: Date;
   limit?: number;
   offset?: number;
 }

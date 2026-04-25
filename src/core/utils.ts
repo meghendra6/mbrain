@@ -9,6 +9,7 @@ import type {
   ContextAtlasEntry,
   MemoryCandidateEntry,
   MemoryCandidateContradictionEntry,
+  MemoryCandidateStatusEvent,
   MemoryCandidateSupersessionEntry,
   CanonicalHandoffEntry,
   ProfileMemoryEntry,
@@ -255,6 +256,23 @@ export function rowToMemoryCandidateEntry(row: Record<string, unknown>): MemoryC
     review_reason: (row.review_reason as string | null) ?? null,
     created_at: new Date(row.created_at as string),
     updated_at: new Date(row.updated_at as string),
+  };
+}
+
+export function rowToMemoryCandidateStatusEvent(
+  row: Record<string, unknown>,
+): MemoryCandidateStatusEvent {
+  return {
+    id: row.id as string,
+    candidate_id: row.candidate_id as string,
+    scope_id: row.scope_id as string,
+    from_status: (row.from_status as MemoryCandidateStatusEvent['from_status']) ?? null,
+    to_status: row.to_status as MemoryCandidateStatusEvent['to_status'],
+    event_kind: row.event_kind as MemoryCandidateStatusEvent['event_kind'],
+    interaction_id: row.interaction_id == null ? null : String(row.interaction_id),
+    reviewed_at: row.reviewed_at ? new Date(row.reviewed_at as string) : null,
+    review_reason: (row.review_reason as string | null) ?? null,
+    created_at: new Date(row.created_at as string),
   };
 }
 

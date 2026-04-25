@@ -100,6 +100,215 @@ async function expectMemoryCandidate(engine: BrainEngine, id: string, scopeId: s
   expect(entries.map((candidate) => candidate.id)).toContain(id);
 }
 
+let statusEventCounter = 0;
+
+function nextStatusEventPrefix(label: string): string {
+  statusEventCounter += 1;
+  return `memory-candidate-status-event:${label}:${Date.now()}:${statusEventCounter}`;
+}
+
+function ids(rows: Array<{ id: string }>): string[] {
+  return rows.map((row) => row.id);
+}
+
+async function expectMemoryCandidateStatusEventEngine(engine: BrainEngine, prefix: string) {
+  const scopeId = `${prefix}:scope`;
+  const otherScopeId = `${prefix}:other-scope`;
+  const candidateA = `${prefix}:candidate-a`;
+  const candidateB = `${prefix}:candidate-b`;
+  const candidateC = `${prefix}:candidate-c`;
+  const candidateD = `${prefix}:candidate-d`;
+  const traceA = `${prefix}:interaction-a`;
+  const traceB = `${prefix}:interaction-b`;
+  const traceSort = `${prefix}:interaction-sort`;
+  const eventCreated = `${prefix}:event-created`;
+  const eventAdvanced = `${prefix}:event-advanced`;
+  const eventRejected = `${prefix}:event-rejected`;
+  const eventPromotedOtherScope = `${prefix}:event-promoted-other-scope`;
+  const eventSameA = `${prefix}:event-same-a`;
+  const eventSameB = `${prefix}:event-same-b`;
+
+  const created = await engine.createMemoryCandidateStatusEvent({
+    id: eventCreated,
+    candidate_id: candidateA,
+    scope_id: scopeId,
+    from_status: null,
+    to_status: 'captured',
+    event_kind: 'created',
+    interaction_id: traceA,
+    reviewed_at: null,
+    review_reason: null,
+    created_at: new Date('2026-04-22T06:00:00.000Z'),
+  });
+  expect(created.id).toBe(eventCreated);
+  expect(created.from_status).toBeNull();
+  expect(created.to_status).toBe('captured');
+  expect(created.event_kind).toBe('created');
+  expect(created.interaction_id).toBe(traceA);
+  expect(created.reviewed_at).toBeNull();
+  expect(created.created_at.toISOString()).toBe('2026-04-22T06:00:00.000Z');
+
+  const advanced = await engine.createMemoryCandidateStatusEvent({
+    id: eventAdvanced,
+    candidate_id: candidateA,
+    scope_id: scopeId,
+    from_status: 'captured',
+    to_status: 'candidate',
+    event_kind: 'advanced',
+    interaction_id: traceB,
+    reviewed_at: '2026-04-22T06:04:00.000Z',
+    review_reason: 'Advanced into candidate queue.',
+    created_at: new Date('2026-04-22T06:05:00.000Z'),
+  });
+  expect(advanced.reviewed_at?.toISOString()).toBe('2026-04-22T06:04:00.000Z');
+  expect(advanced.review_reason).toBe('Advanced into candidate queue.');
+
+  const rejected = await engine.createMemoryCandidateStatusEvent({
+    id: eventRejected,
+    candidate_id: candidateB,
+    scope_id: scopeId,
+    from_status: 'staged_for_review',
+    to_status: 'rejected',
+    event_kind: 'rejected',
+    interaction_id: traceA,
+    reviewed_at: new Date('2026-04-22T06:09:00.000Z'),
+    review_reason: 'Rejected during explicit review.',
+    created_at: new Date('2026-04-22T06:10:00.000Z'),
+  });
+  expect(rejected.reviewed_at?.toISOString()).toBe('2026-04-22T06:09:00.000Z');
+
+  await engine.createMemoryCandidateStatusEvent({
+    id: eventPromotedOtherScope,
+    candidate_id: candidateC,
+    scope_id: otherScopeId,
+    from_status: 'staged_for_review',
+    to_status: 'promoted',
+    event_kind: 'promoted',
+    interaction_id: null,
+    reviewed_at: null,
+    review_reason: 'Promoted outside the default scope.',
+    created_at: new Date('2026-04-22T06:15:00.000Z'),
+  });
+
+  await engine.createMemoryCandidateStatusEvent({
+    id: eventSameA,
+    candidate_id: candidateD,
+    scope_id: scopeId,
+    from_status: 'candidate',
+    to_status: 'staged_for_review',
+    event_kind: 'advanced',
+    interaction_id: traceSort,
+    reviewed_at: null,
+    review_reason: null,
+    created_at: new Date('2026-04-22T06:20:00.000Z'),
+  });
+  await engine.createMemoryCandidateStatusEvent({
+    id: eventSameB,
+    candidate_id: candidateD,
+    scope_id: scopeId,
+    from_status: 'staged_for_review',
+    to_status: 'promoted',
+    event_kind: 'promoted',
+    interaction_id: traceSort,
+    reviewed_at: null,
+    review_reason: null,
+    created_at: new Date('2026-04-22T06:20:00.000Z'),
+  });
+
+  const beforeDefaultCreate = Date.now();
+  const defaultTimestampEvent = await engine.createMemoryCandidateStatusEvent({
+    id: `${prefix}:event-default-created-at`,
+    candidate_id: `${prefix}:candidate-default-created-at`,
+    scope_id: `${prefix}:clock-scope`,
+    from_status: null,
+    to_status: 'captured',
+    event_kind: 'created',
+    interaction_id: null,
+    reviewed_at: null,
+    review_reason: null,
+    created_at: null,
+  });
+  const afterDefaultCreate = Date.now();
+  expect(defaultTimestampEvent.created_at.getTime()).toBeGreaterThanOrEqual(beforeDefaultCreate - 1_000);
+  expect(defaultTimestampEvent.created_at.getTime()).toBeLessThanOrEqual(afterDefaultCreate + 1_000);
+
+  await expect(engine.createMemoryCandidateStatusEvent({
+    id: `${prefix}:event-invalid-kind-status`,
+    candidate_id: `${prefix}:candidate-invalid-kind-status`,
+    scope_id: scopeId,
+    from_status: 'staged_for_review',
+    to_status: 'captured',
+    event_kind: 'promoted',
+    interaction_id: null,
+  })).rejects.toThrow(/Invalid memory candidate status event/);
+  await expect(engine.createMemoryCandidateStatusEvent({
+    id: `${prefix}:event-invalid-created-final-status`,
+    candidate_id: `${prefix}:candidate-invalid-created-final-status`,
+    scope_id: scopeId,
+    from_status: null,
+    to_status: 'promoted',
+    event_kind: 'created',
+    interaction_id: null,
+  })).rejects.toThrow(/Invalid memory candidate status event/);
+
+  expect(ids(await engine.listMemoryCandidateStatusEvents({ candidate_id: candidateA }))).toEqual([
+    eventAdvanced,
+    eventCreated,
+  ]);
+  expect(ids(await engine.listMemoryCandidateStatusEvents({ scope_id: scopeId }))).toEqual([
+    eventSameB,
+    eventSameA,
+    eventRejected,
+    eventAdvanced,
+    eventCreated,
+  ]);
+  expect(ids(await engine.listMemoryCandidateStatusEvents({ scope_id: scopeId, event_kind: 'rejected' }))).toEqual([
+    eventRejected,
+  ]);
+  expect(ids(await engine.listMemoryCandidateStatusEvents({ scope_id: scopeId, to_status: 'candidate' }))).toEqual([
+    eventAdvanced,
+  ]);
+  expect(ids(await engine.listMemoryCandidateStatusEvents({ interaction_id: traceA }))).toEqual([
+    eventRejected,
+    eventCreated,
+  ]);
+  expect(ids(await engine.listMemoryCandidateStatusEvents({
+    scope_id: scopeId,
+    created_since: new Date('2026-04-22T06:09:00.000Z'),
+  }))).toEqual([
+    eventSameB,
+    eventSameA,
+    eventRejected,
+  ]);
+  expect(ids(await engine.listMemoryCandidateStatusEvents({
+    scope_id: scopeId,
+    created_until: new Date('2026-04-22T06:11:00.000Z'),
+  }))).toEqual([
+    eventRejected,
+    eventAdvanced,
+    eventCreated,
+  ]);
+  expect(ids(await engine.listMemoryCandidateStatusEvents({
+    scope_id: scopeId,
+    limit: 2,
+    offset: 1,
+  }))).toEqual([
+    eventSameA,
+    eventRejected,
+  ]);
+  expect(await engine.listMemoryCandidateStatusEventsByInteractionIds([])).toEqual([]);
+  expect(ids(await engine.listMemoryCandidateStatusEventsByInteractionIds([traceA, traceSort]))).toEqual([
+    eventSameB,
+    eventSameA,
+    eventRejected,
+    eventCreated,
+  ]);
+  expect(ids(await engine.listMemoryCandidateStatusEventsByInteractionIds(Array.from({ length: 501 }, () => traceA)))).toEqual([
+    eventRejected,
+    eventCreated,
+  ]);
+}
+
 for (const createHarness of [createSqliteHarness, createPgliteHarness]) {
   const timeoutMs = createHarness === createPgliteHarness
     ? ENGINE_COLD_START_BUDGET_MS
@@ -337,6 +546,16 @@ for (const createHarness of [createSqliteHarness, createPgliteHarness]) {
       await harness.cleanup();
     }
   }, timeoutMs);
+
+  test(`${createHarness.name} creates and lists memory candidate status events`, async () => {
+    const harness = await createHarness();
+
+    try {
+      await expectMemoryCandidateStatusEventEngine(harness.engine, nextStatusEventPrefix(harness.label));
+    } finally {
+      await harness.cleanup();
+    }
+  }, timeoutMs);
 }
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -418,6 +637,31 @@ if (databaseUrl) {
       await engine.disconnect().catch(() => undefined);
     }
   });
+
+  test('postgres creates and lists memory candidate status events', async () => {
+    const prefix = nextStatusEventPrefix('postgres');
+    const engine = new PostgresEngine();
+
+    try {
+      await engine.connect({ engine: 'postgres', database_url: databaseUrl });
+      await engine.initSchema();
+      await expectMemoryCandidateStatusEventEngine(engine, prefix);
+    } finally {
+      await cleanupPostgresStatusEvents(engine, prefix).catch(() => undefined);
+      await engine.disconnect().catch(() => undefined);
+    }
+  });
 } else {
   test.skip('postgres memory inbox persistence skipped: DATABASE_URL is not configured', () => {});
+}
+
+async function cleanupPostgresStatusEvents(engine: PostgresEngine, prefix: string): Promise<void> {
+  if (!(engine as any)._sql) {
+    return;
+  }
+  const sql = (engine as any).sql;
+  await sql`
+    DELETE FROM memory_candidate_status_events
+    WHERE id LIKE ${`${prefix}:%`}
+  `;
 }
