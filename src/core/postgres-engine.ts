@@ -1787,7 +1787,7 @@ export class PostgresEngine implements BrainEngine {
   async createMemorySession(input: MemorySessionInput): Promise<MemorySession> {
     const sql = this.sql;
     const normalized = normalizeMemorySessionInput(input);
-    const rows = await sql`
+    await sql`
       INSERT INTO memory_sessions (
         id, task_id, status, actor_ref, expires_at
       ) VALUES (
@@ -1797,14 +1797,27 @@ export class PostgresEngine implements BrainEngine {
         ${normalized.actor_ref ?? null},
         ${toNullableIso(normalized.expires_at)}
       )
-      RETURNING id, task_id, status, actor_ref, created_at, closed_at, expires_at
     `;
-    return rowToMemorySession(rows[0] as Record<string, unknown>);
+    const session = await this.getMemorySession(normalized.id);
+    if (!session) throw new Error(`Memory session not found after create: ${normalized.id}`);
+    return session;
   }
 
   async getMemorySession(id: string): Promise<MemorySession | null> {
     const rows = await this.sql`
-      SELECT id, task_id, status, actor_ref, created_at, closed_at, expires_at
+      SELECT id,
+             task_id,
+             CASE
+               WHEN status = 'active'
+                 AND expires_at IS NOT NULL
+                 AND expires_at <= now()
+               THEN 'expired'
+               ELSE status
+             END AS status,
+             actor_ref,
+             created_at,
+             closed_at,
+             expires_at
       FROM memory_sessions
       WHERE id = ${id}
     `;
@@ -1864,7 +1877,7 @@ export class PostgresEngine implements BrainEngine {
     params.push(offset);
     const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const rows = await sql.unsafe(
-      `SELECT s.id, s.task_id, s.status, s.actor_ref, s.created_at, s.closed_at, s.expires_at
+      `SELECT s.id, s.task_id, ${effectiveStatusSql} AS status, s.actor_ref, s.created_at, s.closed_at, s.expires_at
        FROM memory_sessions s
        ${whereClause}
        ORDER BY s.created_at DESC, s.id DESC

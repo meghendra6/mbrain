@@ -2107,7 +2107,19 @@ export class SQLiteEngine implements BrainEngine {
 
   async getMemorySession(id: string): Promise<MemorySession | null> {
     const row = this.database.query(`
-      SELECT id, task_id, status, actor_ref, created_at, closed_at, expires_at
+      SELECT id,
+             task_id,
+             CASE
+               WHEN status = 'active'
+                 AND expires_at IS NOT NULL
+                 AND expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+               THEN 'expired'
+               ELSE status
+             END AS status,
+             actor_ref,
+             created_at,
+             closed_at,
+             expires_at
       FROM memory_sessions
       WHERE id = ?
     `).get(id) as Record<string, unknown> | null;
@@ -2165,7 +2177,7 @@ export class SQLiteEngine implements BrainEngine {
     params.push(offset);
     const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const rows = this.database.query(`
-      SELECT s.id, s.task_id, s.status, s.actor_ref, s.created_at, s.closed_at, s.expires_at
+      SELECT s.id, s.task_id, ${effectiveStatusSql} AS status, s.actor_ref, s.created_at, s.closed_at, s.expires_at
       FROM memory_sessions s
       ${whereClause}
       ORDER BY s.created_at DESC, s.id DESC
@@ -2183,8 +2195,8 @@ export class SQLiteEngine implements BrainEngine {
           closed_at = COALESCE(closed_at, ?)
       WHERE id = ?
         AND status = 'active'
-        AND (expires_at IS NULL OR expires_at > ?)
-    `, sqliteBindings([timestamp, id, timestamp]));
+        AND (expires_at IS NULL OR expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    `, sqliteBindings([timestamp, id]));
     if (result.changes === 0) return null;
     return this.getMemorySession(id);
   }
@@ -2202,7 +2214,7 @@ export class SQLiteEngine implements BrainEngine {
         FROM memory_sessions
         WHERE id = ?
           AND status = 'active'
-          AND (expires_at IS NULL OR expires_at > ?)
+          AND (expires_at IS NULL OR expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
       )
       ON CONFLICT(session_id, realm_id) DO UPDATE SET
         access = excluded.access,
@@ -2215,7 +2227,6 @@ export class SQLiteEngine implements BrainEngine {
       attachment.instructions,
       timestamp,
       attachment.session_id,
-      timestamp,
     ]));
     if (result.changes === 0) {
       const session = await this.getMemorySession(attachment.session_id);

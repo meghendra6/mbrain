@@ -416,16 +416,10 @@ export function applyMemoryRealmUpsertDefaults(
 
 export function rowToMemorySession(row: Record<string, unknown>): MemorySession {
   const expiresAt = row.expires_at == null ? null : new Date(row.expires_at as string);
-  const storedStatus = row.status as MemorySession['status'];
-  const status = storedStatus === 'active'
-    && expiresAt !== null
-    && expiresAt.getTime() <= Date.now()
-    ? 'expired'
-    : storedStatus;
   return {
     id: row.id as string,
     task_id: (row.task_id as string | null) ?? null,
-    status,
+    status: row.status as MemorySession['status'],
     actor_ref: (row.actor_ref as string | null) ?? null,
     created_at: new Date(row.created_at as string),
     closed_at: row.closed_at == null ? null : new Date(row.closed_at as string),
@@ -456,14 +450,15 @@ export function applyMemorySessionCreateDefaults(input: MemorySessionInput): {
   actor_ref: string | null;
   expires_at: Date | null;
 } {
+  const expiresAt = input.expires_at === undefined
+    ? null
+    : normalizeOptionalMemorySessionTimestamp('expires_at', input.expires_at);
   return {
     id: input.id,
     task_id: input.task_id ?? null,
-    status: 'active',
+    status: effectiveMemorySessionStatus('active', expiresAt),
     actor_ref: input.actor_ref ?? null,
-    expires_at: input.expires_at === undefined
-      ? null
-      : normalizeOptionalMemorySessionTimestamp('expires_at', input.expires_at),
+    expires_at: expiresAt,
   };
 }
 
@@ -539,6 +534,17 @@ function normalizeOptionalMemorySessionTimestamp(
     throw new Error(`memory session ${field} must be a valid timestamp`);
   }
   return parsed;
+}
+
+function effectiveMemorySessionStatus(
+  status: MemorySession['status'],
+  expiresAt: Date | null,
+  now = new Date(),
+): MemorySession['status'] {
+  if (status === 'active' && expiresAt !== null && expiresAt.getTime() <= now.getTime()) {
+    return 'expired';
+  }
+  return status;
 }
 
 function normalizeMemorySessionAttachmentInstructions(value: unknown): string {

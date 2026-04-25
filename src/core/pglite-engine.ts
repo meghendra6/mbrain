@@ -1701,11 +1701,11 @@ export class PGLiteEngine implements BrainEngine {
 
   async createMemorySession(input: MemorySessionInput): Promise<MemorySession> {
     const normalized = normalizeMemorySessionInput(input);
-    const { rows } = await this.db.query(
+    await this.db.query(
       `INSERT INTO memory_sessions (
         id, task_id, status, actor_ref, expires_at
       ) VALUES ($1, $2, 'active', $3, $4)
-      RETURNING id, task_id, status, actor_ref, created_at, closed_at, expires_at`,
+      `,
       [
         normalized.id,
         normalized.task_id ?? null,
@@ -1713,12 +1713,26 @@ export class PGLiteEngine implements BrainEngine {
         toNullableIso(normalized.expires_at),
       ],
     );
-    return rowToMemorySession(rows[0] as Record<string, unknown>);
+    const session = await this.getMemorySession(normalized.id);
+    if (!session) throw new Error(`Memory session not found after create: ${normalized.id}`);
+    return session;
   }
 
   async getMemorySession(id: string): Promise<MemorySession | null> {
     const { rows } = await this.db.query(
-      `SELECT id, task_id, status, actor_ref, created_at, closed_at, expires_at
+      `SELECT id,
+              task_id,
+              CASE
+                WHEN status = 'active'
+                  AND expires_at IS NOT NULL
+                  AND expires_at <= now()
+                THEN 'expired'
+                ELSE status
+              END AS status,
+              actor_ref,
+              created_at,
+              closed_at,
+              expires_at
        FROM memory_sessions
        WHERE id = $1`,
       [id],
@@ -1778,7 +1792,7 @@ export class PGLiteEngine implements BrainEngine {
     params.push(offset);
     const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const { rows } = await this.db.query(
-      `SELECT s.id, s.task_id, s.status, s.actor_ref, s.created_at, s.closed_at, s.expires_at
+      `SELECT s.id, s.task_id, ${effectiveStatusSql} AS status, s.actor_ref, s.created_at, s.closed_at, s.expires_at
        FROM memory_sessions s
        ${whereClause}
        ORDER BY s.created_at DESC, s.id DESC

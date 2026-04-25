@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { operations } from '../src/core/operations.ts';
 import type { Operation, OperationContext } from '../src/core/operations.ts';
+import { PGLiteEngine } from '../src/core/pglite-engine.ts';
 import { SQLiteEngine } from '../src/core/sqlite-engine.ts';
 
 async function createSqliteHarness(label: string): Promise<{
@@ -20,6 +21,30 @@ async function createSqliteHarness(label: string): Promise<{
     ctx: (dryRun = false) => ({
       engine,
       config: { engine: 'sqlite', database_path: join(dir, 'brain.db') },
+      logger: console,
+      dryRun,
+    } as unknown as OperationContext),
+    cleanup: async () => {
+      await engine.disconnect().catch(() => undefined);
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+async function createPgliteHarness(label: string): Promise<{
+  engine: PGLiteEngine;
+  ctx: (dryRun?: boolean) => OperationContext;
+  cleanup: () => Promise<void>;
+}> {
+  const dir = mkdtempSync(join(tmpdir(), `mbrain-memory-session-${label}-`));
+  const engine = new PGLiteEngine();
+  await engine.connect({ engine: 'pglite', database_path: join(dir, 'brain-pglite') });
+  await engine.initSchema();
+  return {
+    engine,
+    ctx: (dryRun = false) => ({
+      engine,
+      config: { engine: 'pglite', database_path: join(dir, 'brain-pglite') },
       logger: console,
       dryRun,
     } as unknown as OperationContext),
@@ -358,6 +383,21 @@ describe('memory session attachment operations', () => {
         expires_at: '2000-01-01T00:00:00.000Z',
       });
 
+      const dryCreateExpired = await createSession.handler(harness.ctx(true), {
+        id: 'session-expired-dry-run',
+        task_id: 'task-expired',
+        actor_ref: 'agent:expired',
+        expires_at: '2000-01-01T00:00:00.000Z',
+      }) as any;
+      expect(dryCreateExpired).toMatchObject({
+        action: 'create_memory_session',
+        dry_run: true,
+        session: {
+          id: 'session-expired-dry-run',
+          status: 'expired',
+        },
+      });
+
       const fetched = await getSession.handler(harness.ctx(), {
         id: 'session-expired',
       }) as any;
@@ -422,6 +462,45 @@ describe('memory session attachment operations', () => {
         target_id: 'session-expired:realm:expired-session',
       })).toEqual([]);
     } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test('list session status filters return rows matching the requested status under app clock skew', async () => {
+    const harness = await createSqliteHarness('list-session-clock-skew');
+    const originalDateNow = Date.now;
+    try {
+      const createSession = getOperation('create_memory_session');
+      const listSessions = getOperation('list_memory_sessions');
+
+      await createSession.handler(harness.ctx(), {
+        id: 'session-clock-skew-active',
+        expires_at: '2999-01-01T00:00:00.000Z',
+      });
+      await createSession.handler(harness.ctx(), {
+        id: 'session-clock-skew-expired',
+        expires_at: '2000-01-01T00:00:00.000Z',
+      });
+
+      Date.now = () => Date.parse('3000-01-01T00:00:00.000Z');
+      const active = await listSessions.handler(harness.ctx(), {
+        status: 'active',
+      }) as any[];
+      expect(active.map((entry) => [entry.id, entry.status])).toContainEqual([
+        'session-clock-skew-active',
+        'active',
+      ]);
+
+      Date.now = () => Date.parse('1999-01-01T00:00:00.000Z');
+      const expired = await listSessions.handler(harness.ctx(), {
+        status: 'expired',
+      }) as any[];
+      expect(expired.map((entry) => [entry.id, entry.status])).toContainEqual([
+        'session-clock-skew-expired',
+        'expired',
+      ]);
+    } finally {
+      Date.now = originalDateNow;
       await harness.cleanup();
     }
   });
@@ -512,6 +591,62 @@ describe('memory session attachment operations', () => {
       await harness.cleanup();
     }
   });
+
+  test('PGLite session operations enforce effective expiry and realm filters', async () => {
+    const harness = await createPgliteHarness('pglite-expiry-flow');
+    try {
+      const upsertRealm = getOperation('upsert_memory_realm');
+      const createSession = getOperation('create_memory_session');
+      const attachRealm = getOperation('attach_memory_realm_to_session');
+      const listSessions = getOperation('list_memory_sessions');
+
+      await upsertRealm.handler(harness.ctx(), {
+        id: 'realm:pglite-session-flow',
+        name: 'PGLite Session Flow Realm',
+        scope: 'work',
+      });
+      await createSession.handler(harness.ctx(), {
+        id: 'session-pglite-active',
+        actor_ref: 'agent:pglite',
+        expires_at: '2999-01-01T00:00:00.000Z',
+      });
+      await createSession.handler(harness.ctx(), {
+        id: 'session-pglite-expired',
+        actor_ref: 'agent:pglite',
+        expires_at: '2000-01-01T00:00:00.000Z',
+      });
+
+      await attachRealm.handler(harness.ctx(), {
+        session_id: 'session-pglite-active',
+        realm_id: 'realm:pglite-session-flow',
+        access: 'read_only',
+      });
+
+      const activeByRealm = await listSessions.handler(harness.ctx(), {
+        status: 'active',
+        realm_id: 'realm:pglite-session-flow',
+      }) as any[];
+      expect(activeByRealm.map((entry) => [entry.id, entry.status])).toEqual([
+        ['session-pglite-active', 'active'],
+      ]);
+
+      const expired = await listSessions.handler(harness.ctx(), {
+        status: 'expired',
+        actor_ref: 'agent:pglite',
+      }) as any[];
+      expect(expired.map((entry) => [entry.id, entry.status])).toEqual([
+        ['session-pglite-expired', 'expired'],
+      ]);
+
+      await expect(attachRealm.handler(harness.ctx(), {
+        session_id: 'session-pglite-expired',
+        realm_id: 'realm:pglite-session-flow',
+        access: 'read_write',
+      })).rejects.toThrow('memory session is expired: session-pglite-expired');
+    } finally {
+      await harness.cleanup();
+    }
+  }, 10_000);
 
   test('create rejects invalid expires_at before storage', async () => {
     const harness = await createSqliteHarness('invalid-expiry');
