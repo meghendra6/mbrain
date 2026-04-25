@@ -17,6 +17,9 @@ import type {
   MemoryCandidateContradictionEntryInput,
   MemoryCandidateEntryInput,
   MemoryCandidateFilters,
+  MemoryMutationEvent,
+  MemoryMutationEventFilters,
+  MemoryMutationEventInput,
   MemoryCandidatePromotionPatch,
   MemoryCandidateStatusEvent,
   MemoryCandidateStatusEventFilters,
@@ -167,6 +170,10 @@ export interface BrainEngine {
   listMemoryCandidateSupersessionEntriesByInteractionIds(interactionIds: string[]): Promise<MemoryCandidateSupersessionEntry[]>;
   listMemoryCandidateContradictionEntriesByInteractionIds(interactionIds: string[]): Promise<MemoryCandidateContradictionEntry[]>;
   deleteMemoryCandidateEntry(id: string): Promise<void>;
+
+  // Memory mutation ledger
+  createMemoryMutationEvent(input: MemoryMutationEventInput): Promise<MemoryMutationEvent>;
+  listMemoryMutationEvents(filters?: MemoryMutationEventFilters): Promise<MemoryMutationEvent[]>;
 
   // Note manifest
   upsertNoteManifestEntry(input: NoteManifestEntryInput): Promise<NoteManifestEntry>;

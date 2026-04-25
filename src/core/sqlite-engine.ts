@@ -35,6 +35,9 @@ import type {
   MemoryCandidateContradictionEntryInput,
   MemoryCandidateEntryInput,
   MemoryCandidateFilters,
+  MemoryMutationEvent,
+  MemoryMutationEventFilters,
+  MemoryMutationEventInput,
   MemoryCandidatePromotionPatch,
   MemoryCandidateStatusEvent,
   MemoryCandidateStatusEventFilters,
@@ -81,6 +84,7 @@ import {
   importContentHash,
   rowToCanonicalHandoffEntry,
   rowToMemoryCandidateContradictionEntry,
+  rowToMemoryMutationEvent,
   rowToMemoryCandidateStatusEvent,
   rowToMemoryCandidateSupersessionEntry,
 } from './utils.ts';
@@ -1819,6 +1823,110 @@ export class SQLiteEngine implements BrainEngine {
       entries.push(...rows.map(rowToMemoryCandidateStatusEvent));
     }
     return sortByCreatedAtDescIdDesc(entries);
+  }
+
+  async createMemoryMutationEvent(input: MemoryMutationEventInput): Promise<MemoryMutationEvent> {
+    const createdAt = toNullableIso(input.created_at) ?? nowIso();
+    this.database.run(`
+      INSERT INTO memory_mutation_events (
+        id, session_id, realm_id, actor, operation, target_kind, target_id, scope_id,
+        source_refs, expected_target_snapshot_hash, current_target_snapshot_hash, result,
+        conflict_info, dry_run, metadata, redaction_visibility, created_at, decided_at, applied_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, sqliteBindings([
+      input.id,
+      input.session_id,
+      input.realm_id,
+      input.actor,
+      input.operation,
+      input.target_kind,
+      input.target_id ?? null,
+      input.scope_id ?? null,
+      JSON.stringify(input.source_refs ?? []),
+      input.expected_target_snapshot_hash ?? null,
+      input.current_target_snapshot_hash ?? null,
+      input.result,
+      input.conflict_info == null ? null : JSON.stringify(input.conflict_info),
+      input.dry_run ?? false,
+      JSON.stringify(input.metadata ?? {}),
+      input.redaction_visibility ?? 'visible',
+      createdAt,
+      toNullableIso(input.decided_at),
+      toNullableIso(input.applied_at),
+    ]));
+
+    const row = this.database.query(`
+      SELECT id, session_id, realm_id, actor, operation, target_kind, target_id, scope_id,
+             source_refs, expected_target_snapshot_hash, current_target_snapshot_hash, result,
+             conflict_info, dry_run, metadata, redaction_visibility, created_at, decided_at, applied_at
+      FROM memory_mutation_events
+      WHERE id = ?
+    `).get(input.id) as Record<string, unknown> | null;
+    if (!row) throw new Error(`Memory mutation event not found after create: ${input.id}`);
+    return rowToMemoryMutationEvent(row);
+  }
+
+  async listMemoryMutationEvents(filters?: MemoryMutationEventFilters): Promise<MemoryMutationEvent[]> {
+    const limit = filters?.limit ?? 100;
+    const offset = filters?.offset ?? 0;
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+
+    if (filters?.session_id) {
+      clauses.push('session_id = ?');
+      params.push(filters.session_id);
+    }
+    if (filters?.realm_id) {
+      clauses.push('realm_id = ?');
+      params.push(filters.realm_id);
+    }
+    if (filters?.actor) {
+      clauses.push('actor = ?');
+      params.push(filters.actor);
+    }
+    if (filters?.operation) {
+      clauses.push('operation = ?');
+      params.push(filters.operation);
+    }
+    if (filters?.target_kind) {
+      clauses.push('target_kind = ?');
+      params.push(filters.target_kind);
+    }
+    if (filters?.target_id) {
+      clauses.push('target_id = ?');
+      params.push(filters.target_id);
+    }
+    if (filters?.scope_id) {
+      clauses.push('scope_id = ?');
+      params.push(filters.scope_id);
+    }
+    if (filters?.result) {
+      clauses.push('result = ?');
+      params.push(filters.result);
+    }
+    if (filters?.created_since !== undefined) {
+      clauses.push('created_at >= ?');
+      params.push(filters.created_since.toISOString());
+    }
+    if (filters?.created_until !== undefined) {
+      clauses.push('created_at < ?');
+      params.push(filters.created_until.toISOString());
+    }
+
+    params.push(limit);
+    params.push(offset);
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = this.database.query(`
+      SELECT id, session_id, realm_id, actor, operation, target_kind, target_id, scope_id,
+             source_refs, expected_target_snapshot_hash, current_target_snapshot_hash, result,
+             conflict_info, dry_run, metadata, redaction_visibility, created_at, decided_at, applied_at
+      FROM memory_mutation_events
+      ${whereClause}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?
+      OFFSET ?
+    `).all(...sqliteBindings(params)) as Record<string, unknown>[];
+    return rows.map(rowToMemoryMutationEvent);
   }
 
   async updateMemoryCandidateEntryStatus(id: string, patch: MemoryCandidateStatusPatch): Promise<MemoryCandidateEntry | null> {

@@ -9,6 +9,7 @@ import type {
   ContextAtlasEntry,
   MemoryCandidateEntry,
   MemoryCandidateContradictionEntry,
+  MemoryMutationEvent,
   MemoryCandidateStatusEvent,
   MemoryCandidateSupersessionEntry,
   CanonicalHandoffEntry,
@@ -276,6 +277,30 @@ export function rowToMemoryCandidateStatusEvent(
   };
 }
 
+export function rowToMemoryMutationEvent(row: Record<string, unknown>): MemoryMutationEvent {
+  return {
+    id: row.id as string,
+    session_id: row.session_id as string,
+    realm_id: row.realm_id as string,
+    actor: row.actor as string,
+    operation: row.operation as MemoryMutationEvent['operation'],
+    target_kind: row.target_kind as MemoryMutationEvent['target_kind'],
+    target_id: (row.target_id as string | null) ?? null,
+    scope_id: (row.scope_id as string | null) ?? null,
+    source_refs: parseJsonStringArray(row.source_refs),
+    expected_target_snapshot_hash: (row.expected_target_snapshot_hash as string | null) ?? null,
+    current_target_snapshot_hash: (row.current_target_snapshot_hash as string | null) ?? null,
+    result: row.result as MemoryMutationEvent['result'],
+    conflict_info: parseNullableJsonObject(row.conflict_info),
+    dry_run: Boolean(row.dry_run),
+    metadata: parseJsonObject(row.metadata),
+    redaction_visibility: row.redaction_visibility as MemoryMutationEvent['redaction_visibility'],
+    created_at: new Date(row.created_at as string),
+    decided_at: row.decided_at == null ? null : new Date(row.decided_at as string),
+    applied_at: row.applied_at == null ? null : new Date(row.applied_at as string),
+  };
+}
+
 export function rowToMemoryCandidateSupersessionEntry(
   row: Record<string, unknown>,
 ): MemoryCandidateSupersessionEntry {
@@ -403,6 +428,11 @@ function parseJsonObject(value: unknown): Record<string, unknown> {
   if (!value) return {};
   if (typeof value === 'string') return JSON.parse(value) as Record<string, unknown>;
   return value as Record<string, unknown>;
+}
+
+function parseNullableJsonObject(value: unknown): Record<string, unknown> | null {
+  if (value == null) return null;
+  return parseJsonObject(value);
 }
 
 function parseJsonStringArray(value: unknown): string[] {
