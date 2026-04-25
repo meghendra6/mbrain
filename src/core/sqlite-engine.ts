@@ -3141,6 +3141,13 @@ export class SQLiteEngine implements BrainEngine {
         ON memory_candidate_status_events(scope_id, created_at DESC, id DESC);
       CREATE INDEX IF NOT EXISTS idx_memory_candidate_status_events_kind_created
         ON memory_candidate_status_events(event_kind, created_at DESC, id DESC);
+    `);
+
+    if (!this.sqliteTableExists('memory_candidate_entries')) {
+      return;
+    }
+
+    this.database.exec(`
       INSERT OR IGNORE INTO memory_candidate_status_events (
         id, candidate_id, scope_id, from_status, to_status, event_kind,
         interaction_id, reviewed_at, review_reason, created_at
