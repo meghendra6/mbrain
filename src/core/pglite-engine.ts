@@ -79,6 +79,7 @@ import {
   validateSlug,
   contentHash,
   importContentHash,
+  normalizeMemoryMutationEventInput,
   rowToPage,
   rowToChunk,
   rowToContextAtlasEntry,
@@ -1478,7 +1479,8 @@ export class PGLiteEngine implements BrainEngine {
   }
 
   async createMemoryMutationEvent(input: MemoryMutationEventInput): Promise<MemoryMutationEvent> {
-    const createdAt = toNullableIso(input.created_at) ?? new Date().toISOString();
+    const event = normalizeMemoryMutationEventInput(input);
+    const createdAt = toNullableIso(event.created_at) ?? new Date().toISOString();
     const { rows } = await this.db.query(
       `INSERT INTO memory_mutation_events (
         id, session_id, realm_id, actor, operation, target_kind, target_id, scope_id,
@@ -1492,25 +1494,25 @@ export class PGLiteEngine implements BrainEngine {
                 source_refs, expected_target_snapshot_hash, current_target_snapshot_hash, result,
                 conflict_info, dry_run, metadata, redaction_visibility, created_at, decided_at, applied_at`,
       [
-        input.id,
-        input.session_id,
-        input.realm_id,
-        input.actor,
-        input.operation,
-        input.target_kind,
-        input.target_id ?? null,
-        input.scope_id ?? null,
-        JSON.stringify(input.source_refs ?? []),
-        input.expected_target_snapshot_hash ?? null,
-        input.current_target_snapshot_hash ?? null,
-        input.result,
-        input.conflict_info == null ? null : JSON.stringify(input.conflict_info),
-        input.dry_run ?? false,
-        JSON.stringify(input.metadata ?? {}),
-        input.redaction_visibility ?? 'visible',
+        event.id,
+        event.session_id,
+        event.realm_id,
+        event.actor,
+        event.operation,
+        event.target_kind,
+        event.target_id,
+        event.scope_id ?? null,
+        JSON.stringify(event.source_refs),
+        event.expected_target_snapshot_hash ?? null,
+        event.current_target_snapshot_hash ?? null,
+        event.result,
+        event.conflict_info == null ? null : JSON.stringify(event.conflict_info),
+        event.dry_run ?? false,
+        JSON.stringify(event.metadata ?? {}),
+        event.redaction_visibility ?? 'visible',
         createdAt,
-        toNullableIso(input.decided_at),
-        toNullableIso(input.applied_at),
+        toNullableIso(event.decided_at),
+        toNullableIso(event.applied_at),
       ],
     );
     return rowToMemoryMutationEvent(rows[0] as Record<string, unknown>);

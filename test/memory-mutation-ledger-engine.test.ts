@@ -72,7 +72,7 @@ async function expectMemoryMutationLedgerEngine(engine: BrainEngine, prefix: str
   const eventTieA = `${prefix}:event-tie-a`;
   const eventTieB = `${prefix}:event-tie-b`;
   const eventDefault = `${prefix}:event-defaults`;
-  const eventEmptyTargetScope = `${prefix}:event-empty-target-scope`;
+  const eventEmptyScope = `${prefix}:event-empty-scope`;
 
   const created = await engine.createMemoryMutationEvent({
     id: eventOld,
@@ -115,6 +115,7 @@ async function expectMemoryMutationLedgerEngine(engine: BrainEngine, prefix: str
     target_kind: 'page',
     target_id: targetB,
     scope_id: scopeA,
+    source_refs: ['[Source: User, dry-run preview, 2026-04-25 12:05 PM KST]'],
     result: 'dry_run',
     dry_run: true,
     metadata: { note: 'middle' },
@@ -130,6 +131,7 @@ async function expectMemoryMutationLedgerEngine(engine: BrainEngine, prefix: str
     target_kind: 'page',
     target_id: targetA,
     scope_id: scopeB,
+    source_refs: ['[Source: User, conflict fixture, 2026-04-25 12:10 PM KST]'],
     result: 'conflict',
     conflict_info: { reason: 'hash_mismatch' },
     created_at: new Date('2026-04-25T01:10:00.000Z'),
@@ -141,20 +143,22 @@ async function expectMemoryMutationLedgerEngine(engine: BrainEngine, prefix: str
     actor: 'agent',
     operation: 'record_personal_episode',
     target_kind: 'personal_episode',
-    target_id: null,
+    target_id: targetB,
     scope_id: scopeB,
+    source_refs: ['[Source: User, personal episode fixture, 2026-04-25 12:10 PM KST]'],
     result: 'failed',
     created_at: new Date('2026-04-25T01:10:00.000Z'),
   });
   await engine.createMemoryMutationEvent({
-    id: eventEmptyTargetScope,
+    id: eventEmptyScope,
     session_id: sessionA,
     realm_id: realmA,
     actor: 'agent',
     operation: 'sync_memory_artifact',
     target_kind: 'page',
-    target_id: '',
+    target_id: `${prefix}:empty-scope-target`,
     scope_id: '',
+    source_refs: ['[Source: User, empty scope fixture, 2026-04-25 12:12 PM KST]'],
     result: 'applied',
     created_at: new Date('2026-04-25T01:12:00.000Z'),
   });
@@ -167,12 +171,14 @@ async function expectMemoryMutationLedgerEngine(engine: BrainEngine, prefix: str
     actor: 'agent',
     operation: 'record_memory_mutation_event',
     target_kind: 'ledger_event',
+    target_id: `${prefix}:default-target`,
+    source_refs: ['[Source: User, default fixture, 2026-04-25 12:13 PM KST]'],
     result: 'staged_for_review',
   });
   const afterDefaultCreate = Date.now();
-  expect(defaulted.target_id).toBeNull();
+  expect(defaulted.target_id).toBe(`${prefix}:default-target`);
   expect(defaulted.scope_id).toBeNull();
-  expect(defaulted.source_refs).toEqual([]);
+  expect(defaulted.source_refs).toEqual(['[Source: User, default fixture, 2026-04-25 12:13 PM KST]']);
   expect(defaulted.expected_target_snapshot_hash).toBeNull();
   expect(defaulted.current_target_snapshot_hash).toBeNull();
   expect(defaulted.conflict_info).toBeNull();
@@ -186,7 +192,7 @@ async function expectMemoryMutationLedgerEngine(engine: BrainEngine, prefix: str
 
   expect(ids(await engine.listMemoryMutationEvents({ realm_id: realmA }))).toEqual([
     eventDefault,
-    eventEmptyTargetScope,
+    eventEmptyScope,
     eventTieA,
     eventMiddle,
     eventOld,
@@ -205,8 +211,7 @@ async function expectMemoryMutationLedgerEngine(engine: BrainEngine, prefix: str
     eventTieA,
   ]);
   expect(ids(await engine.listMemoryMutationEvents({ result: 'conflict' }))).toEqual([eventTieA]);
-  expect(ids(await engine.listMemoryMutationEvents({ target_id: '' }))).toEqual([eventEmptyTargetScope]);
-  expect(ids(await engine.listMemoryMutationEvents({ scope_id: '' }))).toEqual([eventEmptyTargetScope]);
+  expect(ids(await engine.listMemoryMutationEvents({ scope_id: '' }))).toEqual([eventEmptyScope]);
   expect(ids(await engine.listMemoryMutationEvents({
     realm_id: realmA,
     created_since: new Date('2026-04-25T01:04:00.000Z'),
@@ -225,6 +230,84 @@ async function expectMemoryMutationLedgerEngine(engine: BrainEngine, prefix: str
   await expect(engine.listMemoryMutationEvents({ limit: 1.5 })).rejects.toThrow(/limit/i);
   await expect(engine.listMemoryMutationEvents({ offset: -1 })).rejects.toThrow(/offset/i);
   await expect(engine.listMemoryMutationEvents({ offset: 1.5 })).rejects.toThrow(/offset/i);
+
+  await expect(engine.createMemoryMutationEvent({
+    id: `${prefix}:missing-target`,
+    session_id: sessionA,
+    realm_id: realmA,
+    actor: 'agent',
+    operation: 'put_page',
+    target_kind: 'page',
+    source_refs: ['[Source: User, invalid fixture, 2026-04-25 12:20 PM KST]'],
+    result: 'applied',
+  } as any)).rejects.toThrow(/target_id/i);
+  await expect(engine.createMemoryMutationEvent({
+    id: `${prefix}:empty-target`,
+    session_id: sessionA,
+    realm_id: realmA,
+    actor: 'agent',
+    operation: 'put_page',
+    target_kind: 'page',
+    target_id: '   ',
+    source_refs: ['[Source: User, invalid fixture, 2026-04-25 12:21 PM KST]'],
+    result: 'applied',
+  })).rejects.toThrow(/target_id/i);
+  await expect(engine.createMemoryMutationEvent({
+    id: `${prefix}:missing-source-refs`,
+    session_id: sessionA,
+    realm_id: realmA,
+    actor: 'agent',
+    operation: 'put_page',
+    target_kind: 'page',
+    target_id: targetA,
+    result: 'applied',
+  } as any)).rejects.toThrow(/source_refs/i);
+  await expect(engine.createMemoryMutationEvent({
+    id: `${prefix}:empty-source-refs`,
+    session_id: sessionA,
+    realm_id: realmA,
+    actor: 'agent',
+    operation: 'put_page',
+    target_kind: 'page',
+    target_id: targetA,
+    source_refs: [],
+    result: 'applied',
+  })).rejects.toThrow(/source_refs/i);
+  await expect(engine.createMemoryMutationEvent({
+    id: `${prefix}:blank-source-ref`,
+    session_id: sessionA,
+    realm_id: realmA,
+    actor: 'agent',
+    operation: 'put_page',
+    target_kind: 'page',
+    target_id: targetA,
+    source_refs: ['   '],
+    result: 'applied',
+  })).rejects.toThrow(/source_refs/i);
+  await expect(engine.createMemoryMutationEvent({
+    id: `${prefix}:dry-run-result-mismatch`,
+    session_id: sessionA,
+    realm_id: realmA,
+    actor: 'agent',
+    operation: 'put_page',
+    target_kind: 'page',
+    target_id: targetA,
+    source_refs: ['[Source: User, invalid fixture, 2026-04-25 12:22 PM KST]'],
+    result: 'dry_run',
+    dry_run: false,
+  })).rejects.toThrow(/dry_run/i);
+  await expect(engine.createMemoryMutationEvent({
+    id: `${prefix}:applied-result-mismatch`,
+    session_id: sessionA,
+    realm_id: realmA,
+    actor: 'agent',
+    operation: 'put_page',
+    target_kind: 'page',
+    target_id: targetA,
+    source_refs: ['[Source: User, invalid fixture, 2026-04-25 12:23 PM KST]'],
+    result: 'applied',
+    dry_run: true,
+  })).rejects.toThrow(/dry_run/i);
 }
 
 for (const createHarness of [createSqliteHarness, createPgliteHarness]) {
@@ -252,6 +335,8 @@ test('sqlite surfaces memory mutation ledger operation and result constraint err
       actor: 'agent',
       operation: 'invented_operation' as any,
       target_kind: 'page',
+      target_id: 'constraint-target',
+      source_refs: ['Source: sqlite constraint invalid operation'],
       result: 'applied',
     })).rejects.toThrow();
     await expect(harness.engine.createMemoryMutationEvent({
@@ -261,6 +346,8 @@ test('sqlite surfaces memory mutation ledger operation and result constraint err
       actor: 'agent',
       operation: 'put_page',
       target_kind: 'page',
+      target_id: 'constraint-target',
+      source_refs: ['Source: sqlite constraint invalid result'],
       result: 'approved' as any,
     })).rejects.toThrow();
   } finally {

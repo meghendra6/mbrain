@@ -1850,6 +1850,7 @@ const brainLoopAuditOperations = createBrainLoopAuditOperations({
 
 const memoryMutationLedgerOperations = createMemoryMutationLedgerOperations({
   OperationError,
+  allowPrivilegedLedgerRecord: () => process.env.MBRAIN_ENABLE_PRIVILEGED_LEDGER_RECORD === '1',
 });
 
 const write_profile_memory_entry: Operation = {

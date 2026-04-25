@@ -71,6 +71,10 @@ describe('E2E: MCP Tool Generation', () => {
     expect((recordMutationEvent?.inputSchema.properties as any).privileged.type).toBe('boolean');
     expect(recordMutationEvent?.inputSchema.required).toContain('privileged');
     expect(recordMutationEvent?.inputSchema.required).toContain('privileged_reason');
+    expect(recordMutationEvent?.inputSchema.required).toContain('target_id');
+    expect(recordMutationEvent?.inputSchema.required).toContain('source_refs');
+    expect((recordMutationEvent?.inputSchema.properties as any).source_ref).toBeUndefined();
+    expect((recordMutationEvent?.inputSchema.properties as any).mutation_dry_run.type).toBe('boolean');
   });
 
   test('MCP server module can be imported', async () => {

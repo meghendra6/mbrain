@@ -791,7 +791,7 @@ export interface MemoryMutationEvent {
   actor: string;
   operation: MemoryMutationOperationName;
   target_kind: MemoryMutationTargetKind;
-  target_id: string | null;
+  target_id: string;
   scope_id: string | null;
   source_refs: string[];
   expected_target_snapshot_hash: string | null;
@@ -813,9 +813,9 @@ export interface MemoryMutationEventInput {
   actor: string;
   operation: MemoryMutationOperationName;
   target_kind: MemoryMutationTargetKind;
-  target_id?: string | null;
+  target_id: string;
   scope_id?: string | null;
-  source_refs?: string[];
+  source_refs: string[];
   expected_target_snapshot_hash?: string | null;
   current_target_snapshot_hash?: string | null;
   result: MemoryMutationResult;

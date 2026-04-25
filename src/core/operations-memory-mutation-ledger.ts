@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import type { Operation } from './operations.ts';
+import { recordMemoryMutationEvent } from './services/memory-mutation-ledger-service.ts';
 import type {
   MemoryMutationEventFilters,
   MemoryMutationEventInput,
@@ -88,7 +89,7 @@ const MEMORY_MUTATION_OPERATION_NAMES = [
   'physical_delete_memory_record',
 ] as const satisfies readonly MemoryMutationOperationName[];
 
-const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T/;
+const ISO_DATETIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(?:Z|([+-])(\d{2}):(\d{2}))$/;
 
 function invalidParams(
   deps: { OperationError: OperationErrorCtor },
@@ -152,7 +153,7 @@ function isoDate(
 ): Date | undefined {
   if (value == null) return undefined;
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
-  if (typeof value !== 'string' || !ISO_TIMESTAMP_PATTERN.test(value)) {
+  if (typeof value !== 'string' || !isValidIsoDatetime(value)) {
     throw invalidParams(deps, `${field} must be an ISO timestamp`);
   }
   const parsed = new Date(value);
@@ -160,6 +161,41 @@ function isoDate(
     throw invalidParams(deps, `${field} must be a valid ISO timestamp`);
   }
   return parsed;
+}
+
+function isValidIsoDatetime(value: string): boolean {
+  const match = ISO_DATETIME_PATTERN.exec(value);
+  if (!match) {
+    return false;
+  }
+
+  const [, yearRaw, monthRaw, dayRaw, hourRaw, minuteRaw, secondRaw, _millisRaw, offsetSign, offsetHourRaw, offsetMinuteRaw] = match;
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+  const second = Number(secondRaw);
+
+  if (month < 1 || month > 12) {
+    return false;
+  }
+  const maxDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (day < 1 || day > maxDay) {
+    return false;
+  }
+  if (hour > 23 || minute > 59 || second > 59) {
+    return false;
+  }
+  if (offsetSign) {
+    const offsetHour = Number(offsetHourRaw);
+    const offsetMinute = Number(offsetMinuteRaw);
+    if (offsetHour > 23 || offsetMinute > 59) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function integerParam(
@@ -202,27 +238,18 @@ function optionalObject(
   return value as Record<string, unknown>;
 }
 
-function sourceRefs(
+function requiredSourceRefs(
   deps: { OperationError: OperationErrorCtor },
   params: Record<string, unknown>,
-): string[] | undefined {
-  const refs: string[] = [];
+): string[] {
   const rawRefs = params.source_refs;
   if (Array.isArray(rawRefs)) {
-    for (const [index, ref] of rawRefs.entries()) {
-      refs.push(requiredString(deps, `source_refs[${index}]`, ref));
+    if (rawRefs.length === 0) {
+      throw invalidParams(deps, 'source_refs must contain at least one provenance reference');
     }
-  } else if (typeof rawRefs === 'string') {
-    refs.push(requiredString(deps, 'source_refs', rawRefs));
-  } else if (rawRefs != null) {
-    throw invalidParams(deps, 'source_refs must be an array of strings');
+    return rawRefs.map((ref, index) => requiredString(deps, `source_refs[${index}]`, ref));
   }
-
-  const singleRef = optionalString(deps, 'source_ref', params.source_ref);
-  if (singleRef !== undefined) {
-    refs.push(singleRef);
-  }
-  return refs.length > 0 ? refs : undefined;
+  throw invalidParams(deps, 'source_refs must be a non-empty array of strings');
 }
 
 function listFilters(
@@ -246,14 +273,28 @@ function listFilters(
 }
 
 function recordInput(
-  deps: { OperationError: OperationErrorCtor },
+  deps: {
+    OperationError: OperationErrorCtor;
+    allowPrivilegedLedgerRecord?: () => boolean;
+  },
   p: Record<string, unknown>,
 ): MemoryMutationEventInput & { privileged_reason: string } {
   if (p.privileged !== true) {
     throw invalidParams(deps, 'record_memory_mutation_event requires privileged: true');
   }
   const privilegedReason = requiredString(deps, 'privileged_reason', p.privileged_reason);
+  if (deps.allowPrivilegedLedgerRecord?.() !== true) {
+    throw invalidParams(deps, 'record_memory_mutation_event requires runtime privileged ledger recording to be enabled');
+  }
   const metadata = optionalObject(deps, 'metadata', p.metadata) ?? {};
+  const result = enumValue(deps, 'result', p.result, MEMORY_MUTATION_RESULTS, true)!;
+  const mutationDryRun = optionalBoolean(deps, 'mutation_dry_run', p.mutation_dry_run);
+  if (result === 'dry_run' && mutationDryRun === false) {
+    throw invalidParams(deps, 'mutation_dry_run cannot be false when result is dry_run');
+  }
+  if (result !== 'dry_run' && mutationDryRun === true) {
+    throw invalidParams(deps, 'mutation_dry_run can only be true when result is dry_run');
+  }
 
   return {
     privileged_reason: privilegedReason,
@@ -263,14 +304,14 @@ function recordInput(
     actor: requiredString(deps, 'actor', p.actor),
     operation: enumValue(deps, 'operation', p.operation, MEMORY_MUTATION_OPERATION_NAMES, true)!,
     target_kind: enumValue(deps, 'target_kind', p.target_kind, MEMORY_MUTATION_TARGET_KINDS, true)!,
-    target_id: optionalNullableString(deps, 'target_id', p.target_id),
+    target_id: requiredString(deps, 'target_id', p.target_id),
     scope_id: optionalNullableString(deps, 'scope_id', p.scope_id),
-    source_refs: sourceRefs(deps, p),
+    source_refs: requiredSourceRefs(deps, p),
     expected_target_snapshot_hash: optionalNullableString(deps, 'expected_target_snapshot_hash', p.expected_target_snapshot_hash),
     current_target_snapshot_hash: optionalNullableString(deps, 'current_target_snapshot_hash', p.current_target_snapshot_hash),
-    result: enumValue(deps, 'result', p.result, MEMORY_MUTATION_RESULTS, true)!,
+    result,
     conflict_info: optionalObject(deps, 'conflict_info', p.conflict_info),
-    dry_run: optionalBoolean(deps, 'dry_run', p.dry_run),
+    dry_run: result === 'dry_run',
     metadata: { ...metadata, privileged_reason: privilegedReason },
     redaction_visibility: enumValue(deps, 'redaction_visibility', p.redaction_visibility, MEMORY_MUTATION_REDACTION_VISIBILITIES),
     created_at: isoDate(deps, 'created_at', p.created_at),
@@ -282,6 +323,7 @@ function recordInput(
 export function createMemoryMutationLedgerOperations(
   deps: {
     OperationError: OperationErrorCtor;
+    allowPrivilegedLedgerRecord?: () => boolean;
   },
 ): Operation[] {
   const list_memory_mutation_events: Operation = {
@@ -318,15 +360,15 @@ export function createMemoryMutationLedgerOperations(
       actor: { type: 'string', required: true },
       operation: { type: 'string', required: true, enum: [...MEMORY_MUTATION_OPERATION_NAMES] },
       target_kind: { type: 'string', required: true, enum: [...MEMORY_MUTATION_TARGET_KINDS] },
-      target_id: { type: 'string' },
+      target_id: { type: 'string', required: true },
       scope_id: { type: 'string' },
-      source_ref: { type: 'string', description: 'Optional single provenance reference.' },
-      source_refs: { type: 'array', items: { type: 'string' }, description: 'Optional provenance references.' },
+      source_refs: { type: 'array', required: true, items: { type: 'string' }, description: 'Required provenance references.' },
       expected_target_snapshot_hash: { type: 'string' },
       current_target_snapshot_hash: { type: 'string' },
       result: { type: 'string', required: true, enum: [...MEMORY_MUTATION_RESULTS] },
       conflict_info: { type: 'object' },
-      dry_run: { type: 'boolean', description: 'Records that the underlying memory mutation was a dry run.' },
+      dry_run: { type: 'boolean', description: 'Preview recording without inserting a ledger event.' },
+      mutation_dry_run: { type: 'boolean', description: 'Whether the underlying memory mutation result being recorded was a dry run. Must match result=dry_run.' },
       metadata: { type: 'object', description: 'Additional event metadata. privileged_reason is added here.' },
       redaction_visibility: { type: 'string', enum: [...MEMORY_MUTATION_REDACTION_VISIBILITIES] },
       created_at: { type: 'string', description: 'Optional ISO timestamp.' },
@@ -335,16 +377,17 @@ export function createMemoryMutationLedgerOperations(
     },
     mutating: true,
     handler: async (ctx, p) => {
+      const preview = ctx.dryRun || optionalBoolean(deps, 'dry_run', p.dry_run) === true;
       const input = recordInput(deps, p);
       const { privileged_reason: _privilegedReason, ...eventInput } = input;
-      if (ctx.dryRun) {
+      if (preview) {
         return {
           action: 'record_memory_mutation_event',
-          ...eventInput,
           dry_run: true,
+          event: eventInput,
         };
       }
-      return ctx.engine.createMemoryMutationEvent(eventInput);
+      return recordMemoryMutationEvent(ctx.engine, eventInput);
     },
     cliHints: { name: 'memory-mutation-event-record' },
   };

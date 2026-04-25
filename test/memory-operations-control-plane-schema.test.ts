@@ -50,6 +50,7 @@ function validInsertSql(id: string): string {
       target_kind,
       target_id,
       scope_id,
+      source_refs,
       result,
       dry_run,
       redaction_visibility
@@ -62,11 +63,16 @@ function validInsertSql(id: string): string {
       'page',
       'concepts/phase-9.md',
       'workspace:default',
+      '["Source: schema contract test"]'::jsonb,
       'applied',
       false,
       'visible'
     )
   `;
+}
+
+function sqliteSql(sql: string): string {
+  return sql.replaceAll('::jsonb', '').replaceAll('false', '0').replaceAll('true', '1');
 }
 
 function invalidInsertSql(column: string, value: string): string {
@@ -78,6 +84,8 @@ function invalidInsertSql(column: string, value: string): string {
       actor,
       operation,
       target_kind,
+      target_id,
+      source_refs,
       result,
       dry_run,
       redaction_visibility
@@ -88,11 +96,85 @@ function invalidInsertSql(column: string, value: string): string {
       'agent:test',
       ${column === 'operation' ? `'${value}'` : "'put_page'"},
       ${column === 'target_kind' ? `'${value}'` : "'page'"},
+      'concepts/phase-9.md',
+      '["Source: invalid schema contract test"]'::jsonb,
       ${column === 'result' ? `'${value}'` : "'applied'"},
       ${column === 'dry_run' ? value : 'false'},
       ${column === 'redaction_visibility' ? `'${value}'` : "'visible'"}
     )
   `;
+}
+
+function missingSourceRefsSql(id: string): string {
+  return validInsertSql(id).replace(
+    `
+      source_refs,
+`,
+    '',
+  ).replace(
+    `
+      '["Source: schema contract test"]'::jsonb,
+`,
+    '',
+  );
+}
+
+function emptySourceRefsSql(id: string): string {
+  return validInsertSql(id).replace("'[\"Source: schema contract test\"]'::jsonb", "'[]'::jsonb");
+}
+
+function invalidSourceRefsSql(id: string, sourceRefsJson: string): string {
+  return validInsertSql(id).replace("'[\"Source: schema contract test\"]'::jsonb", `'${sourceRefsJson}'::jsonb`);
+}
+
+function emptyTargetIdSql(id: string): string {
+  return validInsertSql(id).replace("'concepts/phase-9.md'", "''");
+}
+
+function targetIdSql(id: string, targetIdExpression: string): string {
+  return validInsertSql(id).replace("'concepts/phase-9.md'", targetIdExpression);
+}
+
+function dryRunMismatchSql(id: string, result: 'dry_run' | 'applied', dryRun: 'true' | 'false'): string {
+  return validInsertSql(id)
+    .replace("'applied'", `'${result}'`)
+    .replace('false', dryRun);
+}
+
+function expectSqliteMutationEventRequiredContract(db: any): void {
+  expect(() => db.query(sqliteSql(missingSourceRefsSql('sqlite-missing-source-refs'))).run()).toThrow();
+  expect(() => db.query(sqliteSql(emptySourceRefsSql('sqlite-empty-source-refs'))).run()).toThrow();
+  expect(() => db.query(sqliteSql(invalidSourceRefsSql('sqlite-blank-source-ref', '["   "]'))).run()).toThrow();
+  expect(() => db.query(sqliteSql(invalidSourceRefsSql('sqlite-null-source-ref', '[null]'))).run()).toThrow();
+  expect(() => db.query(sqliteSql(invalidSourceRefsSql('sqlite-number-source-ref', '[123]'))).run()).toThrow();
+  expect(() => db.query(sqliteSql(invalidSourceRefsSql('sqlite-object-source-ref', '[{}]'))).run()).toThrow();
+  expect(() => db.query(sqliteSql(invalidSourceRefsSql('sqlite-tab-source-ref', '["\\t"]'))).run()).toThrow();
+  expect(() => db.query(sqliteSql(invalidSourceRefsSql('sqlite-newline-source-ref', '["\\n"]'))).run()).toThrow();
+  expect(() => db.query(sqliteSql(invalidSourceRefsSql('sqlite-nbsp-source-ref', '["\\u00A0"]'))).run()).toThrow();
+  expect(() => db.query(sqliteSql(emptyTargetIdSql('sqlite-empty-target-id'))).run()).toThrow();
+  expect(() => db.query(sqliteSql(targetIdSql('sqlite-tab-target-id', 'char(9)'))).run()).toThrow();
+  expect(() => db.query(sqliteSql(targetIdSql('sqlite-newline-target-id', 'char(10)'))).run()).toThrow();
+  expect(() => db.query(sqliteSql(targetIdSql('sqlite-nbsp-target-id', 'char(160)'))).run()).toThrow();
+  expect(() => db.query(sqliteSql(dryRunMismatchSql('sqlite-dry-mismatch-a', 'dry_run', 'false'))).run()).toThrow();
+  expect(() => db.query(sqliteSql(dryRunMismatchSql('sqlite-dry-mismatch-b', 'applied', 'true'))).run()).toThrow();
+}
+
+async function expectPgMutationEventRequiredContract(db: { query: (sql: string) => Promise<unknown> }): Promise<void> {
+  await expect(db.query(missingSourceRefsSql('pg-missing-source-refs'))).rejects.toThrow();
+  await expect(db.query(emptySourceRefsSql('pg-empty-source-refs'))).rejects.toThrow();
+  await expect(db.query(invalidSourceRefsSql('pg-blank-source-ref', '["   "]'))).rejects.toThrow();
+  await expect(db.query(invalidSourceRefsSql('pg-null-source-ref', '[null]'))).rejects.toThrow();
+  await expect(db.query(invalidSourceRefsSql('pg-number-source-ref', '[123]'))).rejects.toThrow();
+  await expect(db.query(invalidSourceRefsSql('pg-object-source-ref', '[{}]'))).rejects.toThrow();
+  await expect(db.query(invalidSourceRefsSql('pg-tab-source-ref', '["\\t"]'))).rejects.toThrow();
+  await expect(db.query(invalidSourceRefsSql('pg-newline-source-ref', '["\\n"]'))).rejects.toThrow();
+  await expect(db.query(invalidSourceRefsSql('pg-nbsp-source-ref', '["\\u00A0"]'))).rejects.toThrow();
+  await expect(db.query(emptyTargetIdSql('pg-empty-target-id'))).rejects.toThrow();
+  await expect(db.query(targetIdSql('pg-tab-target-id', 'chr(9)'))).rejects.toThrow();
+  await expect(db.query(targetIdSql('pg-newline-target-id', 'chr(10)'))).rejects.toThrow();
+  await expect(db.query(targetIdSql('pg-nbsp-target-id', 'chr(160)'))).rejects.toThrow();
+  await expect(db.query(dryRunMismatchSql('pg-dry-mismatch-a', 'dry_run', 'false'))).rejects.toThrow();
+  await expect(db.query(dryRunMismatchSql('pg-dry-mismatch-b', 'applied', 'true'))).rejects.toThrow();
 }
 
 const OLD_V26_POSTGRES_MUTATION_EVENT_SQL = `
@@ -165,9 +247,9 @@ const OLD_V26_POSTGRES_MUTATION_EVENT_SQL = `
   CREATE INDEX idx_memory_mutation_events_scope_created
     ON memory_mutation_events(scope_id, created_at DESC, id DESC);
   INSERT INTO memory_mutation_events (
-    id, session_id, realm_id, actor, operation, target_kind, target_id, scope_id, result
+    id, session_id, realm_id, actor, operation, target_kind, target_id, scope_id, source_refs, result
   ) VALUES (
-    'old-v26-valid', 'session-1', 'work', 'agent:test', 'put_page', 'page', 'concepts/phase-9.md', 'workspace:default', 'applied'
+    'old-v26-valid', 'session-1', 'work', 'agent:test', 'put_page', 'page', '  concepts/phase-9.md  ', 'workspace:default', '["Source: old v26 contract test"]', 'applied'
   );
 `;
 
@@ -210,7 +292,8 @@ describe('memory operations control-plane schema', () => {
     expect(table?.sql).toContain("operation TEXT NOT NULL CHECK");
     expect(table?.sql).toContain("target_kind TEXT NOT NULL CHECK");
     expect(table?.sql).toContain("result TEXT NOT NULL CHECK");
-    expect(table?.sql).toContain("dry_run INTEGER NOT NULL DEFAULT 0 CHECK (dry_run IN (0, 1))");
+    expect(table?.sql).toContain("dry_run INTEGER NOT NULL DEFAULT 0 CHECK");
+    expect(table?.sql).toContain("result = 'dry_run' AND dry_run = 1");
     expect(table?.sql).toContain("redaction_visibility TEXT NOT NULL DEFAULT 'visible' CHECK");
 
     const columns = db.query(`PRAGMA table_info(memory_mutation_events)`).all() as Array<{ name: string }>;
@@ -231,12 +314,13 @@ describe('memory operations control-plane schema', () => {
     const scopeIndex = indexes.find((row) => row.name === 'idx_memory_mutation_events_scope_created');
     expect(scopeIndex?.sql).toContain('WHERE scope_id IS NOT NULL');
 
-    expect(() => db.query(validInsertSql('sqlite-valid').replace('false', '0')).run()).not.toThrow();
-    expect(() => db.query(invalidInsertSql('operation', 'invented_operation').replace('false', '0')).run()).toThrow();
-    expect(() => db.query(invalidInsertSql('result', 'approved').replace('false', '0')).run()).toThrow();
-    expect(() => db.query(invalidInsertSql('target_kind', 'note').replace('false', '0')).run()).toThrow();
-    expect(() => db.query(invalidInsertSql('redaction_visibility', 'hidden').replace('false', '0')).run()).toThrow();
-    expect(() => db.query(invalidInsertSql('dry_run', '2')).run()).toThrow();
+    expect(() => db.query(sqliteSql(validInsertSql('sqlite-valid'))).run()).not.toThrow();
+    expect(() => db.query(sqliteSql(invalidInsertSql('operation', 'invented_operation'))).run()).toThrow();
+    expect(() => db.query(sqliteSql(invalidInsertSql('result', 'approved'))).run()).toThrow();
+    expect(() => db.query(sqliteSql(invalidInsertSql('target_kind', 'note'))).run()).toThrow();
+    expect(() => db.query(sqliteSql(invalidInsertSql('redaction_visibility', 'hidden'))).run()).toThrow();
+    expect(() => db.query(sqliteSql(invalidInsertSql('dry_run', '2'))).run()).toThrow();
+    expectSqliteMutationEventRequiredContract(db);
 
     await engine.disconnect();
   });
@@ -298,6 +382,7 @@ describe('memory operations control-plane schema', () => {
     await expect(db.query(invalidInsertSql('target_kind', 'note'))).rejects.toThrow();
     await expect(db.query(invalidInsertSql('redaction_visibility', 'hidden'))).rejects.toThrow();
     await expect(db.query(invalidInsertSql('dry_run', '2'))).rejects.toThrow();
+    await expectPgMutationEventRequiredContract(db);
 
     await engine.disconnect();
   }, 10_000);
@@ -388,8 +473,8 @@ describe('memory operations control-plane schema', () => {
 
     const version = db.query(`SELECT value FROM config WHERE key = 'version'`).get() as { value: string };
     const existing = db
-      .query(`SELECT id, operation FROM memory_mutation_events WHERE id = 'old-v26-valid'`)
-      .get() as { id: string; operation: string } | null;
+      .query(`SELECT id, operation, target_id FROM memory_mutation_events WHERE id = 'old-v26-valid'`)
+      .get() as { id: string; operation: string; target_id: string } | null;
     const scopeIndex = db
       .query(
         `SELECT sql
@@ -401,9 +486,10 @@ describe('memory operations control-plane schema', () => {
       .get() as { sql: string } | null;
 
     expect(version.value).toBe(String(LATEST_VERSION));
-    expect(existing).toEqual({ id: 'old-v26-valid', operation: 'put_page' });
+    expect(existing).toEqual({ id: 'old-v26-valid', operation: 'put_page', target_id: 'concepts/phase-9.md' });
     expect(scopeIndex?.sql).toContain('WHERE scope_id IS NOT NULL');
-    expect(() => db.query(invalidInsertSql('operation', 'invented_operation').replace('false', '0')).run()).toThrow();
+    expect(() => db.query(sqliteSql(invalidInsertSql('operation', 'invented_operation'))).run()).toThrow();
+    expectSqliteMutationEventRequiredContract(db);
 
     await engine.disconnect();
   });
@@ -428,7 +514,7 @@ describe('memory operations control-plane schema', () => {
 
     const version = await db.query(`SELECT value FROM config WHERE key = 'version'`);
     const existing = await db.query(
-      `SELECT id, operation
+      `SELECT id, operation, target_id
        FROM memory_mutation_events
        WHERE id = 'old-v26-valid'`,
     );
@@ -441,9 +527,10 @@ describe('memory operations control-plane schema', () => {
     );
 
     expect(version.rows).toEqual([{ value: String(LATEST_VERSION) }]);
-    expect(existing.rows).toEqual([{ id: 'old-v26-valid', operation: 'put_page' }]);
+    expect(existing.rows).toEqual([{ id: 'old-v26-valid', operation: 'put_page', target_id: 'concepts/phase-9.md' }]);
     expect(String(indexDefinitions.rows[0]?.indexdef)).toContain('WHERE (scope_id IS NOT NULL)');
     await expect(db.query(invalidInsertSql('operation', 'invented_operation'))).rejects.toThrow();
+    await expectPgMutationEventRequiredContract(db);
 
     await engine.disconnect();
   }, 10_000);
@@ -495,6 +582,7 @@ describe('memory operations control-plane schema', () => {
         await expect(engine.sql.unsafe(invalidInsertSql('target_kind', 'note'))).rejects.toThrow();
         await expect(engine.sql.unsafe(invalidInsertSql('redaction_visibility', 'hidden'))).rejects.toThrow();
         await expect(engine.sql.unsafe(invalidInsertSql('dry_run', '2'))).rejects.toThrow();
+        await expectPgMutationEventRequiredContract({ query: (sql) => engine.sql.unsafe(sql) });
       } finally {
         await engine.sql.unsafe(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
         await engine.disconnect();

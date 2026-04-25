@@ -3,16 +3,31 @@ import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { BrainEngine } from '../src/core/engine.ts';
+import { createMemoryMutationLedgerOperations } from '../src/core/operations-memory-mutation-ledger.ts';
 import { OperationError, operations } from '../src/core/operations.ts';
 import type { Operation, OperationContext } from '../src/core/operations.ts';
 import { SQLiteEngine } from '../src/core/sqlite-engine.ts';
 
-function getOperation(name: string): Operation {
-  const operation = operations.find((candidate) => candidate.name === name);
+const privilegedLedgerOperations = createMemoryMutationLedgerOperations({
+  OperationError,
+  allowPrivilegedLedgerRecord: () => true,
+});
+
+const disabledLedgerOperations = createMemoryMutationLedgerOperations({
+  OperationError,
+  allowPrivilegedLedgerRecord: () => false,
+});
+
+function getOperation(name: string, source: Operation[] = operations): Operation {
+  const operation = source.find((candidate) => candidate.name === name);
   if (!operation) {
     throw new Error(`${name} operation is missing`);
   }
   return operation;
+}
+
+function getPrivilegedLedgerOperation(name: string): Operation {
+  return getOperation(name, privilegedLedgerOperations);
 }
 
 async function withSqliteEngine<T>(fn: (ctx: OperationContext) => Promise<T>): Promise<T> {
@@ -55,11 +70,38 @@ test('memory mutation ledger operations are registered with privileged boundary 
   expect(record.params.actor.required).toBe(true);
   expect(record.params.operation.required).toBe(true);
   expect(record.params.target_kind.required).toBe(true);
+  expect(record.params.target_id.required).toBe(true);
+  expect(record.params.source_refs.required).toBe(true);
   expect(record.params.result.required).toBe(true);
+  expect(record.params.source_ref).toBeUndefined();
+  expect(record.params.mutation_dry_run.type).toBe('boolean');
+});
+
+test('record_memory_mutation_event rejects when runtime privileged ledger recording is disabled', async () => {
+  const record = getOperation('record_memory_mutation_event', disabledLedgerOperations);
+  const ctx = {
+    engine: {} as any,
+    config: {} as any,
+    logger: console,
+    dryRun: true,
+  };
+
+  await expect(record.handler(ctx, {
+    privileged: true,
+    privileged_reason: 'repair',
+    session_id: 'session-a',
+    realm_id: 'realm-a',
+    actor: 'agent',
+    operation: 'repair_memory_ledger',
+    target_kind: 'ledger_event',
+    target_id: 'event-a',
+    source_refs: ['Source: privileged gate test'],
+    result: 'applied',
+  })).rejects.toBeInstanceOf(OperationError);
 });
 
 test('record_memory_mutation_event rejects missing privilege fields', async () => {
-  const record = getOperation('record_memory_mutation_event');
+  const record = getPrivilegedLedgerOperation('record_memory_mutation_event');
   const ctx = {
     engine: {} as any,
     config: {} as any,
@@ -72,6 +114,8 @@ test('record_memory_mutation_event rejects missing privilege fields', async () =
     actor: 'agent',
     operation: 'repair_memory_ledger',
     target_kind: 'ledger_event',
+    target_id: 'event-a',
+    source_refs: ['Source: privilege field test'],
     result: 'applied',
   };
 
@@ -82,7 +126,7 @@ test('record_memory_mutation_event rejects missing privilege fields', async () =
 
 test('record_memory_mutation_event writes privileged events with normalized source refs and metadata', async () => {
   await withSqliteEngine(async (ctx) => {
-    const record = getOperation('record_memory_mutation_event');
+    const record = getPrivilegedLedgerOperation('record_memory_mutation_event');
 
     const written = await record.handler(ctx, {
       privileged: true,
@@ -94,8 +138,7 @@ test('record_memory_mutation_event writes privileged events with normalized sour
       target_kind: 'ledger_event',
       target_id: 'event-target',
       scope_id: 'scope-write',
-      source_ref: 'single source ref',
-      source_refs: ['array source ref'],
+      source_refs: [' array source ref '],
       expected_target_snapshot_hash: 'expected-hash',
       current_target_snapshot_hash: 'current-hash',
       result: 'applied',
@@ -109,7 +152,7 @@ test('record_memory_mutation_event writes privileged events with normalized sour
 
     expect(typeof written.id).toBe('string');
     expect(written.id.length).toBeGreaterThan(10);
-    expect(written.source_refs).toEqual(['array source ref', 'single source ref']);
+    expect(written.source_refs).toEqual(['array source ref']);
     expect(written.metadata).toEqual({
       existing: true,
       privileged_reason: 'backfill import ledger from trusted archive',
@@ -125,7 +168,7 @@ test('record_memory_mutation_event writes privileged events with normalized sour
 test('list_memory_mutation_events filters and paginates through the operation layer', async () => {
   await withSqliteEngine(async (ctx) => {
     const list = getOperation('list_memory_mutation_events');
-    const record = getOperation('record_memory_mutation_event');
+    const record = getPrivilegedLedgerOperation('record_memory_mutation_event');
     const base = {
       privileged: true,
       privileged_reason: 'test fixture import',
@@ -134,6 +177,7 @@ test('list_memory_mutation_events filters and paginates through the operation la
       actor: 'agent',
       operation: 'put_page',
       target_kind: 'page',
+      source_refs: ['Source: list fixture'],
       result: 'applied',
     };
 
@@ -165,7 +209,7 @@ test('list_memory_mutation_events filters and paginates through the operation la
 
 test('memory mutation ledger operations reject invalid enums timestamps and pagination', async () => {
   const list = getOperation('list_memory_mutation_events');
-  const record = getOperation('record_memory_mutation_event');
+  const record = getPrivilegedLedgerOperation('record_memory_mutation_event');
   const ctx = {
     engine: {} as any,
     config: {} as any,
@@ -180,6 +224,8 @@ test('memory mutation ledger operations reject invalid enums timestamps and pagi
     actor: 'agent',
     operation: 'repair_memory_ledger',
     target_kind: 'ledger_event',
+    target_id: 'event-a',
+    source_refs: ['Source: validation test'],
     result: 'applied',
   };
 
@@ -188,19 +234,50 @@ test('memory mutation ledger operations reject invalid enums timestamps and pagi
   await expect(record.handler(ctx, { ...base, result: 'invented_result' })).rejects.toBeInstanceOf(OperationError);
   await expect(record.handler(ctx, { ...base, redaction_visibility: 'hidden' })).rejects.toBeInstanceOf(OperationError);
   await expect(record.handler(ctx, { ...base, created_at: 'not-a-date' })).rejects.toBeInstanceOf(OperationError);
+  await expect(record.handler(ctx, { ...base, created_at: '2026-02-31T01:00:00.000Z' })).rejects.toBeInstanceOf(OperationError);
+  await expect(record.handler(ctx, { ...base, created_at: '2026-04-25T01:00:00' })).rejects.toBeInstanceOf(OperationError);
+  await expect(record.handler(ctx, { ...base, target_id: undefined })).rejects.toBeInstanceOf(OperationError);
+  await expect(record.handler(ctx, { ...base, source_refs: [] })).rejects.toBeInstanceOf(OperationError);
+  await expect(record.handler(ctx, { ...base, source_refs: 'single source ref' })).rejects.toBeInstanceOf(OperationError);
+  await expect(record.handler(ctx, { ...base, result: 'applied', mutation_dry_run: true })).rejects.toBeInstanceOf(OperationError);
+  await expect(record.handler(ctx, { ...base, result: 'dry_run', mutation_dry_run: false })).rejects.toBeInstanceOf(OperationError);
 
   await expect(list.handler(ctx, { operation: 'invented_operation' })).rejects.toBeInstanceOf(OperationError);
   await expect(list.handler(ctx, { target_kind: 'invented_kind' })).rejects.toBeInstanceOf(OperationError);
   await expect(list.handler(ctx, { result: 'invented_result' })).rejects.toBeInstanceOf(OperationError);
   await expect(list.handler(ctx, { created_since: 'not-a-date' })).rejects.toBeInstanceOf(OperationError);
+  await expect(list.handler(ctx, { created_since: '2026-02-31T01:00:00.000Z' })).rejects.toBeInstanceOf(OperationError);
+  await expect(list.handler(ctx, { created_since: '2026-04-25T01:00:00' })).rejects.toBeInstanceOf(OperationError);
   await expect(list.handler(ctx, { limit: 101 })).rejects.toBeInstanceOf(OperationError);
   await expect(list.handler(ctx, { limit: -1 })).rejects.toBeInstanceOf(OperationError);
   await expect(list.handler(ctx, { offset: -1 })).rejects.toBeInstanceOf(OperationError);
 });
 
+test('record_memory_mutation_event keeps result and mutation dry-run state consistent', async () => {
+  await withSqliteEngine(async (ctx) => {
+    const record = getPrivilegedLedgerOperation('record_memory_mutation_event');
+
+    const written = await record.handler(ctx, {
+      privileged: true,
+      privileged_reason: 'backfill dry-run ledger from trusted archive',
+      session_id: 'session-mutation-dry-run',
+      realm_id: 'realm-mutation-dry-run',
+      actor: 'importer',
+      operation: 'repair_memory_ledger',
+      target_kind: 'ledger_event',
+      target_id: 'event-dry-run',
+      source_refs: ['Source: dry-run archive'],
+      result: 'dry_run',
+    }) as any;
+
+    expect(written.result).toBe('dry_run');
+    expect(written.dry_run).toBe(true);
+  });
+});
+
 test('record_memory_mutation_event dry-run mode does not write', async () => {
   await withSqliteEngine(async (ctx) => {
-    const record = getOperation('record_memory_mutation_event');
+    const record = getPrivilegedLedgerOperation('record_memory_mutation_event');
     const dryCtx = { ...ctx, dryRun: true };
 
     const result = await record.handler(dryCtx, {
@@ -211,14 +288,19 @@ test('record_memory_mutation_event dry-run mode does not write', async () => {
       actor: 'agent',
       operation: 'repair_memory_ledger',
       target_kind: 'ledger_event',
+      target_id: 'event-dry-run',
+      source_refs: ['Source: preview repair'],
       result: 'applied',
     }) as any;
 
     expect(result).toMatchObject({
       dry_run: true,
       action: 'record_memory_mutation_event',
-      session_id: 'session-dry-run',
-      realm_id: 'realm-dry-run',
+      event: {
+        session_id: 'session-dry-run',
+        realm_id: 'realm-dry-run',
+        dry_run: false,
+      },
     });
     expect(await ctx.engine.listMemoryMutationEvents({ realm_id: 'realm-dry-run' })).toEqual([]);
   });

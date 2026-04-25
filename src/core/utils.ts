@@ -10,6 +10,7 @@ import type {
   MemoryCandidateEntry,
   MemoryCandidateContradictionEntry,
   MemoryMutationEvent,
+  MemoryMutationEventInput,
   MemoryCandidateStatusEvent,
   MemoryCandidateSupersessionEntry,
   CanonicalHandoffEntry,
@@ -285,9 +286,9 @@ export function rowToMemoryMutationEvent(row: Record<string, unknown>): MemoryMu
     actor: row.actor as string,
     operation: row.operation as MemoryMutationEvent['operation'],
     target_kind: row.target_kind as MemoryMutationEvent['target_kind'],
-    target_id: (row.target_id as string | null) ?? null,
+    target_id: normalizeRequiredMemoryMutationString('target_id', row.target_id),
     scope_id: (row.scope_id as string | null) ?? null,
-    source_refs: parseJsonStringArray(row.source_refs),
+    source_refs: normalizeMemoryMutationSourceRefs(parseJsonStringArray(row.source_refs)),
     expected_target_snapshot_hash: (row.expected_target_snapshot_hash as string | null) ?? null,
     current_target_snapshot_hash: (row.current_target_snapshot_hash as string | null) ?? null,
     result: row.result as MemoryMutationEvent['result'],
@@ -299,6 +300,41 @@ export function rowToMemoryMutationEvent(row: Record<string, unknown>): MemoryMu
     decided_at: row.decided_at == null ? null : new Date(row.decided_at as string),
     applied_at: row.applied_at == null ? null : new Date(row.applied_at as string),
   };
+}
+
+export function normalizeMemoryMutationEventInput(input: MemoryMutationEventInput): MemoryMutationEventInput {
+  const targetId = normalizeRequiredMemoryMutationString('target_id', input.target_id);
+  const sourceRefs = normalizeMemoryMutationSourceRefs(input.source_refs);
+
+  if (input.result === 'dry_run' && input.dry_run === false) {
+    throw new Error('memory mutation dry_run cannot be false when result is dry_run');
+  }
+  if (input.result !== 'dry_run' && input.dry_run === true) {
+    throw new Error('memory mutation dry_run can only be true when result is dry_run');
+  }
+
+  return {
+    ...input,
+    target_id: targetId,
+    source_refs: sourceRefs,
+    dry_run: input.result === 'dry_run',
+  };
+}
+
+function normalizeMemoryMutationSourceRefs(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error('memory mutation source_refs must be a non-empty array of strings');
+  }
+  return value.map((ref, index) =>
+    normalizeRequiredMemoryMutationString(`source_refs[${index}]`, ref),
+  );
+}
+
+function normalizeRequiredMemoryMutationString(field: string, value: unknown): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`memory mutation ${field} must be a non-empty string`);
+  }
+  return value.trim();
 }
 
 export function rowToMemoryCandidateSupersessionEntry(

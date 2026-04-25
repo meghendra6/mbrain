@@ -1069,6 +1069,87 @@ const MIGRATIONS: Migration[] = [
         WHERE scope_id IS NOT NULL;
     `,
   },
+  {
+    version: 28,
+    name: 'memory_mutation_events_required_target_provenance_contract',
+    sql: `
+      CREATE OR REPLACE FUNCTION mbrain_trim_memory_text(input text)
+      RETURNS text
+      LANGUAGE sql
+      IMMUTABLE
+      AS $mbrain$
+        SELECT btrim(
+          input,
+          chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) ||
+          chr(160) || chr(5760) ||
+          chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) ||
+          chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201) ||
+          chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287) ||
+          chr(12288) || chr(65279)
+        )
+      $mbrain$;
+
+      CREATE OR REPLACE FUNCTION mbrain_jsonb_non_empty_string_array(input jsonb)
+      RETURNS boolean
+      LANGUAGE sql
+      IMMUTABLE
+      AS $mbrain$
+        SELECT CASE
+          WHEN jsonb_typeof(input) IS DISTINCT FROM 'array' THEN false
+          WHEN jsonb_array_length(input) = 0 THEN false
+          ELSE COALESCE((
+            SELECT bool_and(
+              jsonb_typeof(entry.value) = 'string'
+              AND mbrain_trim_memory_text(entry.value #>> '{}') <> ''
+            )
+            FROM jsonb_array_elements(input) AS entry(value)
+          ), false)
+        END
+      $mbrain$;
+
+      UPDATE memory_mutation_events
+      SET target_id = CASE
+        WHEN target_id IS NULL OR mbrain_trim_memory_text(target_id) = '' THEN 'unknown:' || id
+        ELSE mbrain_trim_memory_text(target_id)
+      END
+      WHERE target_id IS NULL
+         OR mbrain_trim_memory_text(target_id) = ''
+         OR target_id <> mbrain_trim_memory_text(target_id);
+
+      UPDATE memory_mutation_events
+      SET source_refs = '["Source: mbrain migration 28 required provenance backfill"]'::jsonb
+      WHERE NOT mbrain_jsonb_non_empty_string_array(source_refs);
+
+      UPDATE memory_mutation_events
+      SET dry_run = (result = 'dry_run');
+
+      DO $$
+      BEGIN
+        IF to_regclass('memory_mutation_events') IS NOT NULL THEN
+          ALTER TABLE memory_mutation_events
+            DROP CONSTRAINT IF EXISTS chk_memory_mutation_events_target_id_present;
+            ALTER TABLE memory_mutation_events
+              ADD CONSTRAINT chk_memory_mutation_events_target_id_present
+            CHECK (target_id IS NOT NULL AND mbrain_trim_memory_text(target_id) <> '');
+
+          ALTER TABLE memory_mutation_events
+            DROP CONSTRAINT IF EXISTS chk_memory_mutation_events_source_refs_non_empty;
+          ALTER TABLE memory_mutation_events
+            ADD CONSTRAINT chk_memory_mutation_events_source_refs_non_empty
+            CHECK (mbrain_jsonb_non_empty_string_array(source_refs));
+
+          ALTER TABLE memory_mutation_events
+            DROP CONSTRAINT IF EXISTS chk_memory_mutation_events_dry_run_result_consistency;
+          ALTER TABLE memory_mutation_events
+            ADD CONSTRAINT chk_memory_mutation_events_dry_run_result_consistency
+            CHECK (
+              (result = 'dry_run' AND dry_run = true)
+              OR (result <> 'dry_run' AND dry_run = false)
+            );
+        END IF;
+      END $$;
+    `,
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS.length > 0
