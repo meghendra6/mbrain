@@ -3,11 +3,14 @@ import type {
   AuditApproximateCounts,
   AuditBrainLoopInput,
   AuditBrainLoopReport,
+  AuditCandidateStatusEventCounts,
   AuditLinkedWriteCounts,
   AuditTaskCompliance,
   CanonicalHandoffEntry,
+  MemoryCandidateEntry,
   MemoryCandidateContradictionEntry,
   MemoryCandidateFilters,
+  MemoryCandidateStatusEvent,
   MemoryCandidateSupersessionEntry,
   RetrievalTrace,
   ScopeGateScope,
@@ -20,7 +23,13 @@ const LINKED_WRITE_LOOKUP_BATCH_SIZE = 500;
 const TASK_BATCH_SIZE = 500;
 const TASK_SCAN_CAP = 5000;
 const CANDIDATE_BATCH_SIZE = 100;
+const STATUS_EVENT_BATCH_SIZE = 500;
 const TRACE_HISTORY_START = new Date(0);
+
+interface CandidateStatusEventAudit {
+  counts: AuditCandidateStatusEventCounts;
+  events: MemoryCandidateStatusEvent[];
+}
 
 export async function auditBrainLoop(
   engine: BrainEngine,
@@ -39,10 +48,14 @@ export async function auditBrainLoop(
   });
   const traceIds = traces.map((trace) => trace.id);
   const linkedWrites = await countLinkedWrites(engine, traceIds);
-  const approximate = await approximateUnlinkedCandidateEvents(engine, since, until, {
+  const candidateStatusEvents = await countCandidateStatusEvents(engine, traceIds, since, until, {
     task_id: input.task_id,
     scope: input.scope,
   });
+  const approximate = await approximateUnlinkedCandidateEvents(engine, since, until, {
+    task_id: input.task_id,
+    scope: input.scope,
+  }, candidateStatusEvents);
   const taskCompliance = await computeTaskCompliance(
     engine,
     traces,
@@ -77,6 +90,7 @@ export async function auditBrainLoop(
       canonical_ratio: ratio(canonicalRefCount, derivedRefCount),
     },
     linked_writes: linkedWrites,
+    candidate_status_events: candidateStatusEvents.counts,
     approximate,
     task_compliance: taskCompliance,
     summary_lines: buildSummaryLines(traces, linkedWrites, canonicalRefCount, derivedRefCount),
@@ -153,6 +167,71 @@ async function countLinkedWrites(
   };
 }
 
+async function countCandidateStatusEvents(
+  engine: BrainEngine,
+  traceIds: string[],
+  since: Date,
+  until: Date,
+  filters: {
+    task_id?: string;
+    scope?: ScopeGateScope;
+  },
+): Promise<CandidateStatusEventAudit> {
+  const events = filters.task_id !== undefined || filters.scope !== undefined
+    ? await listCandidateStatusEventsByTraceIds(engine, traceIds)
+    : await listAllCandidateStatusEventsInWindow(engine, since, until);
+  const inWindow = events.filter((event) => isInAuditWindow(event.created_at, since, until));
+  const linkedTraceIds = new Set<string>();
+  for (const event of inWindow) {
+    if (event.interaction_id) linkedTraceIds.add(event.interaction_id);
+  }
+
+  return {
+    counts: {
+      created_count: countStatusEventsByKind(inWindow, 'created'),
+      advanced_count: countStatusEventsByKind(inWindow, 'advanced'),
+      promoted_count: countStatusEventsByKind(inWindow, 'promoted'),
+      rejected_count: countStatusEventsByKind(inWindow, 'rejected'),
+      superseded_count: countStatusEventsByKind(inWindow, 'superseded'),
+      linked_event_count: inWindow.filter((event) => event.interaction_id != null).length,
+      unlinked_event_count: inWindow.filter((event) => event.interaction_id == null).length,
+      traces_with_candidate_events: linkedTraceIds.size,
+    },
+    events: inWindow,
+  };
+}
+
+async function listAllCandidateStatusEventsInWindow(
+  engine: BrainEngine,
+  since: Date,
+  until: Date,
+): Promise<MemoryCandidateStatusEvent[]> {
+  const events: MemoryCandidateStatusEvent[] = [];
+  for (let offset = 0; ; offset += STATUS_EVENT_BATCH_SIZE) {
+    const batch = await engine.listMemoryCandidateStatusEvents({
+      created_since: since,
+      created_until: until,
+      limit: STATUS_EVENT_BATCH_SIZE,
+      offset,
+    });
+    events.push(...batch);
+    if (batch.length < STATUS_EVENT_BATCH_SIZE) break;
+  }
+  return events;
+}
+
+async function listCandidateStatusEventsByTraceIds(
+  engine: BrainEngine,
+  traceIds: string[],
+): Promise<MemoryCandidateStatusEvent[]> {
+  if (traceIds.length === 0) return [];
+  const events: MemoryCandidateStatusEvent[] = [];
+  for (const chunk of chunkArray(traceIds, LINKED_WRITE_LOOKUP_BATCH_SIZE)) {
+    events.push(...await engine.listMemoryCandidateStatusEventsByInteractionIds(chunk));
+  }
+  return events;
+}
+
 async function approximateUnlinkedCandidateEvents(
   engine: BrainEngine,
   since: Date,
@@ -161,35 +240,48 @@ async function approximateUnlinkedCandidateEvents(
     task_id?: string;
     scope?: ScopeGateScope;
   },
+  candidateStatusEvents: CandidateStatusEventAudit,
 ): Promise<AuditApproximateCounts> {
   if (filters.task_id !== undefined || filters.scope !== undefined) {
     return {
       candidate_creation_same_window: 0,
       candidate_rejection_same_window: 0,
-      note: 'suppressed for filtered audits; precise correlation requires interaction_id-linked writes',
+      note: 'suppressed for filtered audits; candidate_status_events are precise for trace-linked lifecycle transitions while legacy candidate rows remain unlinked',
     };
   }
 
-  const candidateCreationCount = await countMemoryCandidateEntries(engine, {
+  const createdEventCandidateIds = new Set(
+    candidateStatusEvents.events
+      .filter((event) => event.event_kind === 'created')
+      .map((event) => event.candidate_id),
+  );
+  const rejectedEventCandidateIds = new Set(
+    candidateStatusEvents.events
+      .filter((event) => event.event_kind === 'rejected')
+      .map((event) => event.candidate_id),
+  );
+
+  const candidateCreationCount = await countMemoryCandidateEntriesExcluding(engine, {
     created_since: since,
     created_until: until,
-  });
-  const candidateRejectionCount = await countMemoryCandidateEntries(engine, {
+  }, createdEventCandidateIds);
+  const candidateRejectionCount = await countMemoryCandidateEntriesExcluding(engine, {
     status: 'rejected',
     reviewed_since: since,
     reviewed_until: until,
-  });
+  }, rejectedEventCandidateIds);
 
   return {
-    candidate_creation_same_window: candidateCreationCount,
-    candidate_rejection_same_window: candidateRejectionCount,
-    note: 'approximate; precise correlation requires memory_candidate_status_events',
+    candidate_creation_same_window: candidateStatusEvents.counts.created_count + candidateCreationCount,
+    candidate_rejection_same_window: candidateStatusEvents.counts.rejected_count + candidateRejectionCount,
+    note: 'compatibility counters; candidate_status_events are precise for service-recorded lifecycle transitions; raw candidate rows remain approximate',
   };
 }
 
-async function countMemoryCandidateEntries(
+async function countMemoryCandidateEntriesExcluding(
   engine: BrainEngine,
   filters: MemoryCandidateFilters,
+  excludedCandidateIds: Set<string>,
 ): Promise<number> {
   let count = 0;
   for (let offset = 0; ; offset += CANDIDATE_BATCH_SIZE) {
@@ -198,7 +290,7 @@ async function countMemoryCandidateEntries(
       limit: CANDIDATE_BATCH_SIZE,
       offset,
     });
-    count += batch.length;
+    count += batch.filter((entry: MemoryCandidateEntry) => !excludedCandidateIds.has(entry.id)).length;
     if (batch.length < CANDIDATE_BATCH_SIZE) break;
   }
   return count;
@@ -386,6 +478,17 @@ function ratio(canonicalRefCount: number, derivedRefCount: number): number {
   const total = canonicalRefCount + derivedRefCount;
   if (total === 0) return 1;
   return canonicalRefCount / total;
+}
+
+function isInAuditWindow(value: Date, since: Date, until: Date): boolean {
+  return value >= since && value < until;
+}
+
+function countStatusEventsByKind(
+  events: MemoryCandidateStatusEvent[],
+  kind: MemoryCandidateStatusEvent['event_kind'],
+): number {
+  return events.filter((event) => event.event_kind === kind).length;
 }
 
 function chunkArray<T>(values: T[], size: number): T[][] {

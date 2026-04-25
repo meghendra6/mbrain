@@ -1601,6 +1601,17 @@ export interface AuditApproximateCounts {
   note: string;
 }
 
+export interface AuditCandidateStatusEventCounts {
+  created_count: number;
+  advanced_count: number;
+  promoted_count: number;
+  rejected_count: number;
+  superseded_count: number;
+  linked_event_count: number;
+  unlinked_event_count: number;
+  traces_with_candidate_events: number;
+}
+
 export interface AuditTaskCompliance {
   tasks_with_traces: number;
   tasks_without_traces: number;
@@ -1633,6 +1644,7 @@ export interface AuditBrainLoopReport {
     canonical_ratio: number;
   };
   linked_writes: AuditLinkedWriteCounts;
+  candidate_status_events: AuditCandidateStatusEventCounts;
   approximate: AuditApproximateCounts;
   task_compliance: AuditTaskCompliance;
   summary_lines: string[];

@@ -210,6 +210,14 @@ for (const createHarness of [createSqliteHarness, createPgliteHarness]) {
       expect(report.linked_writes.supersession_count).toBe(1);
       expect(report.linked_writes.contradiction_count).toBe(1);
       expect(report.linked_writes.traces_with_any_linked_write).toBe(1);
+      expect(report.candidate_status_events.created_count).toBe(0);
+      expect(report.candidate_status_events.advanced_count).toBe(0);
+      expect(report.candidate_status_events.promoted_count).toBe(0);
+      expect(report.candidate_status_events.rejected_count).toBe(0);
+      expect(report.candidate_status_events.superseded_count).toBe(0);
+      expect(report.candidate_status_events.linked_event_count).toBe(0);
+      expect(report.candidate_status_events.unlinked_event_count).toBe(0);
+      expect(report.candidate_status_events.traces_with_candidate_events).toBe(0);
     } finally {
       await harness.teardown();
     }
@@ -245,6 +253,14 @@ if (process.env.DATABASE_URL) {
       expect(report.linked_writes.supersession_count).toBe(1);
       expect(report.linked_writes.contradiction_count).toBe(1);
       expect(report.linked_writes.traces_with_any_linked_write).toBe(1);
+      expect(report.candidate_status_events.created_count).toBe(0);
+      expect(report.candidate_status_events.advanced_count).toBe(0);
+      expect(report.candidate_status_events.promoted_count).toBe(0);
+      expect(report.candidate_status_events.rejected_count).toBe(0);
+      expect(report.candidate_status_events.superseded_count).toBe(0);
+      expect(report.candidate_status_events.linked_event_count).toBe(0);
+      expect(report.candidate_status_events.unlinked_event_count).toBe(0);
+      expect(report.candidate_status_events.traces_with_candidate_events).toBe(0);
     } finally {
       await cleanupPostgresRows(harness.engine, ids);
       await harness.teardown();
