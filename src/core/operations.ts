@@ -22,6 +22,7 @@ import { getAtlasOrientationBundle } from './services/atlas-orientation-bundle-s
 import { createBrainLoopAuditOperations } from './operations-brain-loop-audit.ts';
 import { createMemoryInboxOperations, DEFAULT_MEMORY_INBOX_SCOPE_ID } from './operations-memory-inbox.ts';
 import { createMemoryMutationLedgerOperations } from './operations-memory-mutation-ledger.ts';
+import { recordMemoryMutationEvent } from './services/memory-mutation-ledger-service.ts';
 import { getStructuralContextAtlasOverview } from './services/context-atlas-overview-service.ts';
 import { getStructuralContextAtlasReport } from './services/context-atlas-report-service.ts';
 import { getBroadSynthesisRoute } from './services/broad-synthesis-route-service.ts';
@@ -95,6 +96,7 @@ export type ErrorCode =
   | 'invalid_params'
   | 'embedding_failed'
   | 'storage_error'
+  | 'write_conflict'
   | 'bucket_not_found'
   | 'database_error'
   | 'unsupported_capability';
@@ -1245,17 +1247,124 @@ const get_page: Operation = {
   cliHints: { name: 'get', positional: ['slug'] },
 };
 
+function optionalPutPageString(field: string, value: unknown): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new OperationError('invalid_params', `${field} must be a non-empty string`);
+  }
+  return value.trim();
+}
+
+function putPageSourceRefs(value: unknown): string[] {
+  if (value == null) {
+    return ['Source: mbrain put_page operation'];
+  }
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new OperationError('invalid_params', 'source_refs must be a non-empty array of strings');
+  }
+  return value.map((ref, index) => {
+    if (typeof ref !== 'string' || ref.trim().length === 0) {
+      throw new OperationError('invalid_params', `source_refs[${index}] must be a non-empty string`);
+    }
+    return ref.trim();
+  });
+}
+
+function putPageMetadata(value: unknown): Record<string, unknown> | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new OperationError('invalid_params', 'metadata must be an object');
+  }
+  return value as Record<string, unknown>;
+}
+
+function putPageAuditContext(p: Record<string, unknown>) {
+  return {
+    session_id: optionalPutPageString('session_id', p.session_id) ?? 'put_page:direct',
+    realm_id: optionalPutPageString('realm_id', p.realm_id) ?? 'work',
+    actor: optionalPutPageString('actor', p.actor) ?? 'mbrain:put_page',
+    scope_id: optionalPutPageString('scope_id', p.scope_id) ?? 'workspace:default',
+    source_refs: putPageSourceRefs(p.source_refs),
+    metadata: putPageMetadata(p.metadata),
+    redaction_visibility: 'visible' as const,
+  };
+}
+
 const put_page: Operation = {
   name: 'put_page',
   description: 'Create or update a knowledge page to record new information about people, companies, concepts, or systems discovered during the conversation. Markdown with YAML frontmatter; content should follow the compiled truth + timeline pattern. Chunks, embeds, and reconciles tags.',
   params: {
     slug: { type: 'string', required: true, description: 'Page slug' },
     content: { type: 'string', required: true, description: 'Full markdown content with YAML frontmatter' },
+    expected_content_hash: { type: 'string', description: 'Optional optimistic write precondition. Existing page content_hash must match before writing.' },
+    session_id: { type: 'string', description: 'Optional audit session id. Defaults to put_page:direct.' },
+    realm_id: { type: 'string', description: 'Optional audit realm id. Defaults to work.' },
+    actor: { type: 'string', description: 'Optional audit actor. Defaults to mbrain:put_page.' },
+    scope_id: { type: 'string', description: 'Optional audit scope id. Defaults to workspace:default.' },
+    source_refs: { type: 'array', items: { type: 'string' }, description: 'Optional non-empty audit provenance references.' },
+    metadata: { type: 'object', description: 'Optional audit metadata object.' },
   },
   mutating: true,
   handler: async (ctx, p) => {
     if (ctx.dryRun) return { dry_run: true, action: 'put_page', slug: p.slug };
-    const result = await importFromContent(ctx.engine, p.slug as string, p.content as string);
+    const slug = p.slug as string;
+    const audit = putPageAuditContext(p);
+    const expectedContentHash = optionalPutPageString('expected_content_hash', p.expected_content_hash);
+    const existing = await ctx.engine.getPage(slug);
+    const previousHash = existing?.content_hash ?? null;
+
+    if (expectedContentHash !== undefined && !existing) {
+      await recordMemoryMutationEvent(ctx.engine, {
+        ...audit,
+        operation: 'put_page',
+        target_kind: 'page',
+        target_id: slug,
+        expected_target_snapshot_hash: expectedContentHash,
+        current_target_snapshot_hash: null,
+        result: 'conflict',
+        conflict_info: {
+          reason: 'missing_page',
+          expected_content_hash: expectedContentHash,
+        },
+        dry_run: false,
+      });
+      throw new OperationError('write_conflict', `Page not found for expected content hash: ${slug}`);
+    }
+
+    if (expectedContentHash !== undefined && previousHash !== expectedContentHash) {
+      await recordMemoryMutationEvent(ctx.engine, {
+        ...audit,
+        operation: 'put_page',
+        target_kind: 'page',
+        target_id: slug,
+        expected_target_snapshot_hash: expectedContentHash,
+        current_target_snapshot_hash: previousHash,
+        result: 'conflict',
+        conflict_info: {
+          reason: 'content_hash_mismatch',
+          expected_content_hash: expectedContentHash,
+          current_content_hash: previousHash,
+        },
+        dry_run: false,
+      });
+      throw new OperationError('write_conflict', `content hash mismatch for ${slug}`);
+    }
+
+    const result = await importFromContent(ctx.engine, slug, p.content as string);
+    if (result.status === 'imported') {
+      const finalPage = await ctx.engine.getPage(slug);
+      await recordMemoryMutationEvent(ctx.engine, {
+        ...audit,
+        operation: 'put_page',
+        target_kind: 'page',
+        target_id: slug,
+        expected_target_snapshot_hash: expectedContentHash ?? previousHash,
+        current_target_snapshot_hash: finalPage?.content_hash ?? null,
+        result: 'applied',
+        conflict_info: null,
+        dry_run: false,
+      });
+    }
     return { slug: result.slug, status: result.status === 'imported' ? 'created_or_updated' : result.status, chunks: result.chunks };
   },
   cliHints: { name: 'put', positional: ['slug'], stdin: 'content' },
