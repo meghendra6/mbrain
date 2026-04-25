@@ -72,6 +72,7 @@ async function expectMemoryMutationLedgerEngine(engine: BrainEngine, prefix: str
   const eventTieA = `${prefix}:event-tie-a`;
   const eventTieB = `${prefix}:event-tie-b`;
   const eventDefault = `${prefix}:event-defaults`;
+  const eventEmptyTargetScope = `${prefix}:event-empty-target-scope`;
 
   const created = await engine.createMemoryMutationEvent({
     id: eventOld,
@@ -145,6 +146,18 @@ async function expectMemoryMutationLedgerEngine(engine: BrainEngine, prefix: str
     result: 'failed',
     created_at: new Date('2026-04-25T01:10:00.000Z'),
   });
+  await engine.createMemoryMutationEvent({
+    id: eventEmptyTargetScope,
+    session_id: sessionA,
+    realm_id: realmA,
+    actor: 'agent',
+    operation: 'sync_memory_artifact',
+    target_kind: 'page',
+    target_id: '',
+    scope_id: '',
+    result: 'applied',
+    created_at: new Date('2026-04-25T01:12:00.000Z'),
+  });
 
   const beforeDefaultCreate = Date.now();
   const defaulted = await engine.createMemoryMutationEvent({
@@ -173,6 +186,7 @@ async function expectMemoryMutationLedgerEngine(engine: BrainEngine, prefix: str
 
   expect(ids(await engine.listMemoryMutationEvents({ realm_id: realmA }))).toEqual([
     eventDefault,
+    eventEmptyTargetScope,
     eventTieA,
     eventMiddle,
     eventOld,
@@ -191,6 +205,8 @@ async function expectMemoryMutationLedgerEngine(engine: BrainEngine, prefix: str
     eventTieA,
   ]);
   expect(ids(await engine.listMemoryMutationEvents({ result: 'conflict' }))).toEqual([eventTieA]);
+  expect(ids(await engine.listMemoryMutationEvents({ target_id: '' }))).toEqual([eventEmptyTargetScope]);
+  expect(ids(await engine.listMemoryMutationEvents({ scope_id: '' }))).toEqual([eventEmptyTargetScope]);
   expect(ids(await engine.listMemoryMutationEvents({
     realm_id: realmA,
     created_since: new Date('2026-04-25T01:04:00.000Z'),
@@ -204,6 +220,11 @@ async function expectMemoryMutationLedgerEngine(engine: BrainEngine, prefix: str
     limit: 1,
     offset: 1,
   }))).toEqual([eventTieA]);
+  expect(await engine.listMemoryMutationEvents({ realm_id: realmA, limit: 0 })).toEqual([]);
+  await expect(engine.listMemoryMutationEvents({ limit: -1 })).rejects.toThrow(/limit/i);
+  await expect(engine.listMemoryMutationEvents({ limit: 1.5 })).rejects.toThrow(/limit/i);
+  await expect(engine.listMemoryMutationEvents({ offset: -1 })).rejects.toThrow(/offset/i);
+  await expect(engine.listMemoryMutationEvents({ offset: 1.5 })).rejects.toThrow(/offset/i);
 }
 
 for (const createHarness of [createSqliteHarness, createPgliteHarness]) {
@@ -221,7 +242,7 @@ for (const createHarness of [createSqliteHarness, createPgliteHarness]) {
   }, timeoutMs);
 }
 
-test('sqlite surfaces memory mutation ledger operation constraint errors', async () => {
+test('sqlite surfaces memory mutation ledger operation and result constraint errors', async () => {
   const harness = await createSqliteHarness();
   try {
     await expect(harness.engine.createMemoryMutationEvent({
@@ -232,6 +253,15 @@ test('sqlite surfaces memory mutation ledger operation constraint errors', async
       operation: 'invented_operation' as any,
       target_kind: 'page',
       result: 'applied',
+    })).rejects.toThrow();
+    await expect(harness.engine.createMemoryMutationEvent({
+      id: `${nextPrefix(harness.label)}:invalid-result`,
+      session_id: 'constraint-session',
+      realm_id: 'constraint-realm',
+      actor: 'agent',
+      operation: 'put_page',
+      target_kind: 'page',
+      result: 'approved' as any,
     })).rejects.toThrow();
   } finally {
     await harness.cleanup();

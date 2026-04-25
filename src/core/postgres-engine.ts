@@ -1607,40 +1607,40 @@ export class PostgresEngine implements BrainEngine {
 
   async listMemoryMutationEvents(filters?: MemoryMutationEventFilters): Promise<MemoryMutationEvent[]> {
     const sql = this.sql;
-    const limit = filters?.limit ?? 100;
-    const offset = filters?.offset ?? 0;
+    const { limit, offset } = normalizeMemoryMutationPagination(filters);
+    if (limit === 0) return [];
     const params: PostgresParam[] = [];
     const clauses: string[] = [];
 
-    if (filters?.session_id) {
+    if (filters?.session_id !== undefined) {
       params.push(filters.session_id);
       clauses.push(`session_id = $${params.length}`);
     }
-    if (filters?.realm_id) {
+    if (filters?.realm_id !== undefined) {
       params.push(filters.realm_id);
       clauses.push(`realm_id = $${params.length}`);
     }
-    if (filters?.actor) {
+    if (filters?.actor !== undefined) {
       params.push(filters.actor);
       clauses.push(`actor = $${params.length}`);
     }
-    if (filters?.operation) {
+    if (filters?.operation !== undefined) {
       params.push(filters.operation);
       clauses.push(`operation = $${params.length}`);
     }
-    if (filters?.target_kind) {
+    if (filters?.target_kind !== undefined) {
       params.push(filters.target_kind);
       clauses.push(`target_kind = $${params.length}`);
     }
-    if (filters?.target_id) {
+    if (filters?.target_id !== undefined) {
       params.push(filters.target_id);
       clauses.push(`target_id = $${params.length}`);
     }
-    if (filters?.scope_id) {
+    if (filters?.scope_id !== undefined) {
       params.push(filters.scope_id);
       clauses.push(`scope_id = $${params.length}`);
     }
-    if (filters?.result) {
+    if (filters?.result !== undefined) {
       params.push(filters.result);
       clauses.push(`result = $${params.length}`);
     }
@@ -2497,6 +2497,20 @@ function sortByCreatedAtDescIdDesc<T extends { created_at: Date; id: string }>(e
     const createdDelta = b.created_at.getTime() - a.created_at.getTime();
     return createdDelta !== 0 ? createdDelta : b.id.localeCompare(a.id);
   });
+}
+
+function normalizeMemoryMutationPagination(
+  filters?: MemoryMutationEventFilters,
+): { limit: number; offset: number } {
+  const limit = filters?.limit ?? 100;
+  const offset = filters?.offset ?? 0;
+  if (!Number.isInteger(limit) || limit < 0) {
+    throw new Error('Memory mutation event limit must be a non-negative integer');
+  }
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new Error('Memory mutation event offset must be a non-negative integer');
+  }
+  return { limit, offset };
 }
 
 function vectorValueToFloat32(value: unknown): Float32Array | null {

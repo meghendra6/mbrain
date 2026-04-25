@@ -1867,40 +1867,40 @@ export class SQLiteEngine implements BrainEngine {
   }
 
   async listMemoryMutationEvents(filters?: MemoryMutationEventFilters): Promise<MemoryMutationEvent[]> {
-    const limit = filters?.limit ?? 100;
-    const offset = filters?.offset ?? 0;
+    const { limit, offset } = normalizeMemoryMutationPagination(filters);
+    if (limit === 0) return [];
     const clauses: string[] = [];
     const params: Array<string | number> = [];
 
-    if (filters?.session_id) {
+    if (filters?.session_id !== undefined) {
       clauses.push('session_id = ?');
       params.push(filters.session_id);
     }
-    if (filters?.realm_id) {
+    if (filters?.realm_id !== undefined) {
       clauses.push('realm_id = ?');
       params.push(filters.realm_id);
     }
-    if (filters?.actor) {
+    if (filters?.actor !== undefined) {
       clauses.push('actor = ?');
       params.push(filters.actor);
     }
-    if (filters?.operation) {
+    if (filters?.operation !== undefined) {
       clauses.push('operation = ?');
       params.push(filters.operation);
     }
-    if (filters?.target_kind) {
+    if (filters?.target_kind !== undefined) {
       clauses.push('target_kind = ?');
       params.push(filters.target_kind);
     }
-    if (filters?.target_id) {
+    if (filters?.target_id !== undefined) {
       clauses.push('target_id = ?');
       params.push(filters.target_id);
     }
-    if (filters?.scope_id) {
+    if (filters?.scope_id !== undefined) {
       clauses.push('scope_id = ?');
       params.push(filters.scope_id);
     }
-    if (filters?.result) {
+    if (filters?.result !== undefined) {
       clauses.push('result = ?');
       params.push(filters.result);
     }
@@ -4571,6 +4571,20 @@ function extractSearchTerms(query: string): string[] {
     })
     .filter(Boolean);
   return Array.from(new Set(parts));
+}
+
+function normalizeMemoryMutationPagination(
+  filters?: MemoryMutationEventFilters,
+): { limit: number; offset: number } {
+  const limit = filters?.limit ?? 100;
+  const offset = filters?.offset ?? 0;
+  if (!Number.isInteger(limit) || limit < 0) {
+    throw new Error('Memory mutation event limit must be a non-negative integer');
+  }
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new Error('Memory mutation event offset must be a non-negative integer');
+  }
+  return { limit, offset };
 }
 
 function parseJsonObject(value: unknown): Record<string, unknown> {
