@@ -18,6 +18,7 @@
 
 import { readFileSync, writeFileSync, readdirSync, statSync, lstatSync, existsSync } from 'fs';
 import { join, relative } from 'path';
+import { findSlugQualityIssues } from '../core/slug-quality.ts';
 
 export interface LintIssue {
   file: string;
@@ -40,9 +41,21 @@ const LLM_PREAMBLES = [
 
 // ── Rules ──────────────────────────────────────────────────────────
 
-export function lintContent(content: string, filePath: string): LintIssue[] {
+export function lintContent(content: string, filePath: string, slugPath: string = filePath): LintIssue[] {
   const issues: LintIssue[] = [];
   const lines = content.split('\n');
+
+  if (shouldCheckSlugQuality(filePath)) {
+    for (const issue of findSlugQualityIssues(slugPath, filePath)) {
+      issues.push({
+        file: filePath,
+        line: issue.line ?? 1,
+        rule: issue.rule,
+        message: `${issue.message} Suggestion: ${issue.suggestion}`,
+        fixable: false,
+      });
+    }
+  }
 
   // Rule: LLM preamble artifacts
   for (const pattern of LLM_PREAMBLES) {
@@ -146,6 +159,10 @@ export function lintContent(content: string, filePath: string): LintIssue[] {
   return issues;
 }
 
+function shouldCheckSlugQuality(filePath: string): boolean {
+  return filePath.split(/[\\/]/).pop() !== 'README.md';
+}
+
 /** Auto-fix fixable issues */
 export function fixContent(content: string): string {
   let fixed = content;
@@ -209,7 +226,7 @@ export async function runLint(args: string[]) {
   for (const page of pages) {
     const content = readFileSync(page, 'utf-8');
     const relPath = isSingleFile ? page : relative(target, page);
-    const issues = lintContent(content, relPath);
+    const issues = lintContent(content, relPath, page);
 
     if (issues.length === 0) continue;
     pagesWithIssues++;

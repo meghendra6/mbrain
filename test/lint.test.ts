@@ -1,5 +1,37 @@
-import { describe, test, expect } from 'bun:test';
-import { lintContent, fixContent } from '../src/commands/lint.ts';
+import { afterEach, describe, test, expect } from 'bun:test';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { lintContent, fixContent, runLint } from '../src/commands/lint.ts';
+
+const tempDirs: string[] = [];
+
+function createTempDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-lint-test-'));
+  tempDirs.push(dir);
+  return dir;
+}
+
+function captureConsoleLog(): { lines: string[]; restore: () => void } {
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => {
+    lines.push(args.map(String).join(' '));
+  };
+  return {
+    lines,
+    restore: () => {
+      console.log = original;
+    },
+  };
+}
+
+afterEach(() => {
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 describe('lintContent', () => {
   test('detects LLM preamble "Of course"', () => {
@@ -79,6 +111,56 @@ describe('lintContent', () => {
     const issues = lintContent(content, 'test.md');
     expect(issues).toHaveLength(0);
   });
+
+  test('detects vague durable page slugs', () => {
+    const content = '---\ntitle: Readme\ntype: concept\ncreated: 2026-04-25\n---\n\n# Readme\n\nContent.';
+    const issues = lintContent(content, 'readme.md');
+    expect(issues.some(i => i.rule === 'vague-slug')).toBe(true);
+    expect(issues.find(i => i.rule === 'vague-slug')?.line).toBe(1);
+  });
+
+  test('does not apply durable slug diagnostics to README resolver files', () => {
+    const content = '---\ntitle: Readme\ntype: concept\ncreated: 2026-04-25\n---\n\n# Readme\n\nContent.';
+    const issues = lintContent(content, 'README.md');
+    expect(issues.some(i => i.rule === 'vague-slug')).toBe(false);
+  });
+
+  test('detects global documentation bucket numeric slugs', () => {
+    const content = '---\ntitle: 17\ntype: concept\ncreated: 2026-04-25\n---\n\n# 17\n\nContent.';
+    const issues = lintContent(content, 'docs/reference/17.md');
+    expect(issues.some(i => i.rule === 'global-docs-bucket')).toBe(true);
+    expect(issues.some(i => i.rule === 'numeric-only-slug')).toBe(true);
+  });
+
+  test('detects global documentation bucket paths when linting an absolute file path', () => {
+    const content = '---\ntitle: 17\ntype: concept\ncreated: 2026-04-25\n---\n\n# 17\n\nContent.';
+    const issues = lintContent(content, '/tmp/brain/docs/archive/17.md');
+    expect(issues.some(i => i.rule === 'global-docs-bucket')).toBe(true);
+    expect(issues.some(i => i.rule === 'numeric-only-slug')).toBe(true);
+  });
+
+  test('detects numeric-only slugs outside global documentation bucket paths', () => {
+    const content = '---\ntitle: 123\ntype: concept\ncreated: 2026-04-25\n---\n\n# 123\n\nContent.';
+    const issues = lintContent(content, 'projects/mbrain/docs/123.md');
+    expect(issues.some(i => i.rule === 'numeric-only-slug')).toBe(true);
+    expect(issues.some(i => i.rule === 'global-docs-bucket')).toBe(false);
+  });
+
+  test('accepts project-scoped descriptive doc slugs', () => {
+    const content = [
+      '---',
+      'title: Sync Pipeline',
+      'type: concept',
+      'created: 2026-04-25',
+      '---',
+      '',
+      '# Sync Pipeline',
+      '',
+      'Content.',
+    ].join('\n');
+    const issues = lintContent(content, 'projects/mbrain/docs/manual/06-sync-pipeline.md');
+    expect(issues.filter(i => ['vague-slug', 'global-docs-bucket', 'numeric-only-slug'].includes(i.rule))).toEqual([]);
+  });
 });
 
 describe('fixContent', () => {
@@ -114,5 +196,59 @@ describe('fixContent', () => {
     expect(fixed).not.toContain('Sure');
     expect(fixed).not.toContain('Certainly');
     expect(fixed).toContain('# Title');
+  });
+});
+
+describe('runLint', () => {
+  test('keeps project namespace when linting a project subtree', async () => {
+    const root = createTempDir();
+    const pageDir = join(root, 'projects/mbrain/docs/manual');
+    mkdirSync(pageDir, { recursive: true });
+    writeFileSync(join(pageDir, '06-sync-pipeline.md'), [
+      '---',
+      'title: Sync Pipeline',
+      'type: concept',
+      'created: 2026-04-25',
+      '---',
+      '',
+      '# Sync Pipeline',
+      '',
+      'Content.',
+    ].join('\n'));
+
+    const captured = captureConsoleLog();
+    try {
+      await runLint([join(root, 'projects/mbrain')]);
+    } finally {
+      captured.restore();
+    }
+
+    expect(captured.lines.join('\n')).not.toContain('global-docs-bucket');
+  });
+
+  test('keeps global docs namespace when linting a docs subtree', async () => {
+    const root = createTempDir();
+    const pageDir = join(root, 'docs/archive');
+    mkdirSync(pageDir, { recursive: true });
+    writeFileSync(join(pageDir, 'sync-pipeline.md'), [
+      '---',
+      'title: Sync Pipeline',
+      'type: concept',
+      'created: 2026-04-25',
+      '---',
+      '',
+      '# Sync Pipeline',
+      '',
+      'Content.',
+    ].join('\n'));
+
+    const captured = captureConsoleLog();
+    try {
+      await runLint([join(root, 'docs')]);
+    } finally {
+      captured.restore();
+    }
+
+    expect(captured.lines.join('\n')).toContain('global-docs-bucket');
   });
 });

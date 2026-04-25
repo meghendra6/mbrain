@@ -12,6 +12,14 @@ not the source, not the skill that's running.
 3. Cross-link from related directories
 4. When in doubt: what would you search for to find this page again?
 
+## Namespace Quality Rules
+
+- Do not create durable pages with generic leaf names such as `readme`, `docs`, `note`, `notes`, `document`, or `untitled`.
+- `README.md` is a resolver or overview file, not a durable knowledge identity. If it contains reusable knowledge, promote that knowledge into a specific page such as `projects/mbrain/docs/local-offline-setup`, `systems/mbrain`, or `concepts/brain-agent-loop`.
+- Project-specific documentation knowledge belongs under `projects/<project>/docs/<specific-topic>`.
+- Global documentation buckets are not filing destinations for durable knowledge. Scope project-specific documentation to `projects/<project>/docs/<specific-topic>` or promote reusable knowledge to `concepts/<specific-topic>` or `systems/<system>`.
+- Numeric-only leaf slugs, such as `90`, `06`, or any other digit-only name, are not valid durable identities. Keep numeric prefixes only when followed by meaning, such as `06-sync-pipeline`.
+
 ## Common Misfiling Patterns -- DO NOT DO THESE
 
 | Wrong | Right | Why |
@@ -44,9 +52,10 @@ Not everything deserves a brain page. Before creating a new entity page:
 
 ## Iron Law: Back-Linking (MANDATORY)
 
-Every mention of a person or company with a brain page MUST create a back-link
-FROM that entity's page TO the page mentioning them. This is bidirectional:
-the new page links to the entity, AND the entity's page links back.
+Every mention of a durable entity page (`people/`, `companies/`, `projects/`,
+`systems/`, or `concepts/`) MUST create a back-link FROM that entity's page TO
+the page mentioning it. This is bidirectional: the new page links to the entity,
+AND the entity's page links back.
 
 Format for back-links (append to Timeline or See Also):
 ```
