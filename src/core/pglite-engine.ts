@@ -82,6 +82,7 @@ import {
   validateSlug,
   contentHash,
   applyMemoryRealmUpsertDefaults,
+  hasOwn,
   importContentHash,
   normalizeMemoryMutationEventInput,
   normalizeMemoryRealmInput,
@@ -1601,8 +1602,13 @@ export class PGLiteEngine implements BrainEngine {
 
   async upsertMemoryRealm(input: MemoryRealmInput): Promise<MemoryRealm> {
     const normalized = normalizeMemoryRealmInput(input);
-    const existing = await this.getMemoryRealm(normalized.id);
-    const realm = applyMemoryRealmUpsertDefaults(normalized, existing);
+    const realm = applyMemoryRealmUpsertDefaults(normalized, null);
+    const descriptionSupplied = hasOwn(normalized, 'description');
+    const defaultAccessSupplied = hasOwn(normalized, 'default_access');
+    const retentionPolicySupplied = hasOwn(normalized, 'retention_policy');
+    const exportPolicySupplied = hasOwn(normalized, 'export_policy');
+    const agentInstructionsSupplied = hasOwn(normalized, 'agent_instructions');
+    const archivedAtSupplied = hasOwn(normalized, 'archived_at');
     const { rows } = await this.db.query(
       `INSERT INTO memory_realms (
         id, name, description, scope, default_access, retention_policy,
@@ -1610,13 +1616,13 @@ export class PGLiteEngine implements BrainEngine {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
-        description = EXCLUDED.description,
+        description = CASE WHEN $10 THEN EXCLUDED.description ELSE memory_realms.description END,
         scope = EXCLUDED.scope,
-        default_access = EXCLUDED.default_access,
-        retention_policy = EXCLUDED.retention_policy,
-        export_policy = EXCLUDED.export_policy,
-        agent_instructions = EXCLUDED.agent_instructions,
-        archived_at = EXCLUDED.archived_at,
+        default_access = CASE WHEN $11 THEN EXCLUDED.default_access ELSE memory_realms.default_access END,
+        retention_policy = CASE WHEN $12 THEN EXCLUDED.retention_policy ELSE memory_realms.retention_policy END,
+        export_policy = CASE WHEN $13 THEN EXCLUDED.export_policy ELSE memory_realms.export_policy END,
+        agent_instructions = CASE WHEN $14 THEN EXCLUDED.agent_instructions ELSE memory_realms.agent_instructions END,
+        archived_at = CASE WHEN $15 THEN EXCLUDED.archived_at ELSE memory_realms.archived_at END,
         updated_at = now()
       RETURNING id, name, description, scope, default_access, retention_policy,
                 export_policy, agent_instructions, archived_at, created_at, updated_at`,
@@ -1630,6 +1636,12 @@ export class PGLiteEngine implements BrainEngine {
         realm.export_policy,
         realm.agent_instructions,
         toNullableIso(realm.archived_at),
+        descriptionSupplied,
+        defaultAccessSupplied,
+        retentionPolicySupplied,
+        exportPolicySupplied,
+        agentInstructionsSupplied,
+        archivedAtSupplied,
       ],
     );
     return rowToMemoryRealm(rows[0] as Record<string, unknown>);

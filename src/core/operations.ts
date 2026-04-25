@@ -128,6 +128,7 @@ export class OperationError extends Error {
 export interface ParamDef {
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
   required?: boolean;
+  nullable?: boolean;
   description?: string;
   default?: unknown;
   enum?: string[];

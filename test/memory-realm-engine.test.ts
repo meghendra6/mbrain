@@ -127,6 +127,57 @@ describe('memory realms engine', () => {
     }
   });
 
+  test('SQLite upsert preserves optional fields without reading existing realm through getMemoryRealm', async () => {
+    const harness = await createSqliteHarness('preserve-without-js-read');
+    try {
+      const archivedAt = '2026-04-25T01:00:00.000Z';
+      await harness.engine.upsertMemoryRealm({
+        id: 'realm:no-stale-read',
+        name: 'No Stale Read Realm',
+        description: 'description before concurrent update',
+        scope: 'work',
+        default_access: 'read_write',
+        retention_policy: 'retain-for-review',
+        export_policy: 'restricted',
+        agent_instructions: 'Preserve these instructions atomically.',
+        archived_at: archivedAt,
+      });
+
+      const originalGetMemoryRealm = harness.engine.getMemoryRealm.bind(harness.engine);
+      const getMemoryRealmCalls: string[] = [];
+      harness.engine.getMemoryRealm = async (id: string) => {
+        getMemoryRealmCalls.push(id);
+        throw new Error('getMemoryRealm should not be called during upsertMemoryRealm');
+      };
+
+      let updated: Awaited<ReturnType<SQLiteEngine['upsertMemoryRealm']>>;
+      try {
+        updated = await harness.engine.upsertMemoryRealm({
+          id: 'realm:no-stale-read',
+          name: 'No Stale Read Realm Renamed',
+          scope: 'personal',
+        });
+      } finally {
+        harness.engine.getMemoryRealm = originalGetMemoryRealm;
+      }
+
+      expect(getMemoryRealmCalls).toEqual([]);
+      expect(updated).toMatchObject({
+        id: 'realm:no-stale-read',
+        name: 'No Stale Read Realm Renamed',
+        description: 'description before concurrent update',
+        scope: 'personal',
+        default_access: 'read_write',
+        retention_policy: 'retain-for-review',
+        export_policy: 'restricted',
+        agent_instructions: 'Preserve these instructions atomically.',
+      });
+      expect(updated.archived_at?.toISOString()).toBe(archivedAt);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   test('SQLite engine rejects invalid archived_at strings before storage', async () => {
     const harness = await createSqliteHarness('invalid-archived-at');
     try {
@@ -159,6 +210,14 @@ describe('memory realms engine', () => {
 });
 
 describe('memory realm operations', () => {
+  test('upsert_memory_realm exposes nullable archived_at schema metadata', () => {
+    const upsert = getOperation('upsert_memory_realm');
+    expect(upsert.params.archived_at).toMatchObject({
+      type: 'string',
+      nullable: true,
+    });
+  });
+
   test('upsert_memory_realm respects dry-run and validates enum fields', async () => {
     const harness = await createSqliteHarness('operations');
     try {
@@ -225,6 +284,59 @@ describe('memory realm operations', () => {
           scope: 'mixed',
         },
       ]);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test('upsert_memory_realm dry-run previews existing realm merge and writes no ledger', async () => {
+    const harness = await createSqliteHarness('dry-run-existing-merge');
+    try {
+      const upsert = getOperation('upsert_memory_realm');
+      const archivedAt = '2026-04-25T01:00:00.000Z';
+
+      await harness.engine.upsertMemoryRealm({
+        id: 'realm:dry-run-existing',
+        name: 'Existing Dry Run Realm',
+        description: 'existing dry-run description',
+        scope: 'work',
+        default_access: 'read_write',
+        retention_policy: 'retain-for-review',
+        export_policy: 'restricted',
+        agent_instructions: 'Keep dry-run previews aligned with real updates.',
+        archived_at: archivedAt,
+      });
+
+      const preview = await upsert.handler({
+        engine: harness.engine,
+        config: { engine: 'sqlite' },
+        dryRun: true,
+      } as any, {
+        id: 'realm:dry-run-existing',
+        name: 'Existing Dry Run Realm Renamed',
+        scope: 'personal',
+      });
+
+      expect(preview).toMatchObject({
+        action: 'upsert_memory_realm',
+        dry_run: true,
+        realm: {
+          id: 'realm:dry-run-existing',
+          name: 'Existing Dry Run Realm Renamed',
+          description: 'existing dry-run description',
+          scope: 'personal',
+          default_access: 'read_write',
+          retention_policy: 'retain-for-review',
+          export_policy: 'restricted',
+          agent_instructions: 'Keep dry-run previews aligned with real updates.',
+        },
+      });
+      expect((preview as any).realm.archived_at?.toISOString()).toBe(archivedAt);
+      expect(await harness.engine.listMemoryMutationEvents({
+        operation: 'upsert_memory_realm' as any,
+        target_kind: 'memory_realm' as any,
+        target_id: 'realm:dry-run-existing',
+      })).toEqual([]);
     } finally {
       await harness.cleanup();
     }

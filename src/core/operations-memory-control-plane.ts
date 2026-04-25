@@ -5,9 +5,10 @@ import type {
   MemoryAccessMode,
   MemoryRealmFilters,
   MemoryRealmInput,
+  MemoryRealm,
   MemoryRealmScope,
 } from './types.ts';
-import { parseValidIsoTimestamp } from './utils.ts';
+import { applyMemoryRealmUpsertDefaults, parseValidIsoTimestamp } from './utils.ts';
 
 type OperationErrorCtor = new (
   code: 'invalid_params',
@@ -168,18 +169,11 @@ function realmInput(
   return input;
 }
 
-function realmPreview(input: MemoryRealmInput): Required<MemoryRealmInput> {
-  return {
-    id: input.id,
-    name: input.name,
-    description: input.description ?? '',
-    scope: input.scope,
-    default_access: input.default_access ?? 'read_only',
-    retention_policy: input.retention_policy ?? 'retain',
-    export_policy: input.export_policy ?? 'private',
-    agent_instructions: input.agent_instructions ?? '',
-    archived_at: input.archived_at ?? null,
-  };
+function realmPreview(
+  input: MemoryRealmInput,
+  existing: MemoryRealm | null,
+): Required<MemoryRealmInput> {
+  return applyMemoryRealmUpsertDefaults(input, existing);
 }
 
 function realmFilters(
@@ -209,7 +203,11 @@ export function createMemoryControlPlaneOperations(
       retention_policy: { type: 'string', default: 'retain' },
       export_policy: { type: 'string', default: 'private' },
       agent_instructions: { type: 'string', default: '' },
-      archived_at: { type: 'string', description: 'Optional ISO timestamp. Null reactivates an archived realm.' },
+      archived_at: {
+        type: 'string',
+        nullable: true,
+        description: 'Optional ISO timestamp. Null reactivates an archived realm.',
+      },
       session_id: { type: 'string', description: 'Optional mutation ledger session id. Generated when omitted.' },
       actor: { type: 'string', default: DEFAULT_REALM_UPSERT_ACTOR },
       source_refs: { type: 'array', items: { type: 'string' }, description: 'Optional provenance reference string or string array for the ledger event.' },
@@ -218,10 +216,11 @@ export function createMemoryControlPlaneOperations(
     handler: async (ctx, p) => {
       const input = realmInput(deps, p);
       if (ctx.dryRun) {
+        const existing = await ctx.engine.getMemoryRealm(input.id);
         return {
           action: 'upsert_memory_realm',
           dry_run: true,
-          realm: realmPreview(input),
+          realm: realmPreview(input, existing),
         };
       }
       const sessionId = optionalString(deps, 'session_id', p.session_id) ?? `upsert_memory_realm:${randomUUID()}`;

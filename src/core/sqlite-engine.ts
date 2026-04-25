@@ -85,6 +85,7 @@ import { buildFrontmatterSearchText, expandTechnicalAliases } from './markdown.t
 import {
   contentHash,
   applyMemoryRealmUpsertDefaults,
+  hasOwn,
   importContentHash,
   normalizeMemoryMutationEventInput,
   normalizeMemoryRealmInput,
@@ -1959,8 +1960,13 @@ export class SQLiteEngine implements BrainEngine {
 
   async upsertMemoryRealm(input: MemoryRealmInput): Promise<MemoryRealm> {
     const normalized = normalizeMemoryRealmInput(input);
-    const existing = await this.getMemoryRealm(normalized.id);
-    const realm = applyMemoryRealmUpsertDefaults(normalized, existing);
+    const realm = applyMemoryRealmUpsertDefaults(normalized, null);
+    const descriptionSupplied = hasOwn(normalized, 'description');
+    const defaultAccessSupplied = hasOwn(normalized, 'default_access');
+    const retentionPolicySupplied = hasOwn(normalized, 'retention_policy');
+    const exportPolicySupplied = hasOwn(normalized, 'export_policy');
+    const agentInstructionsSupplied = hasOwn(normalized, 'agent_instructions');
+    const archivedAtSupplied = hasOwn(normalized, 'archived_at');
     const timestamp = nowIso();
     this.database.run(`
       INSERT INTO memory_realms (
@@ -1969,13 +1975,13 @@ export class SQLiteEngine implements BrainEngine {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
-        description = excluded.description,
+        description = CASE WHEN ? THEN excluded.description ELSE memory_realms.description END,
         scope = excluded.scope,
-        default_access = excluded.default_access,
-        retention_policy = excluded.retention_policy,
-        export_policy = excluded.export_policy,
-        agent_instructions = excluded.agent_instructions,
-        archived_at = excluded.archived_at,
+        default_access = CASE WHEN ? THEN excluded.default_access ELSE memory_realms.default_access END,
+        retention_policy = CASE WHEN ? THEN excluded.retention_policy ELSE memory_realms.retention_policy END,
+        export_policy = CASE WHEN ? THEN excluded.export_policy ELSE memory_realms.export_policy END,
+        agent_instructions = CASE WHEN ? THEN excluded.agent_instructions ELSE memory_realms.agent_instructions END,
+        archived_at = CASE WHEN ? THEN excluded.archived_at ELSE memory_realms.archived_at END,
         updated_at = excluded.updated_at
     `, sqliteBindings([
       realm.id,
@@ -1989,6 +1995,12 @@ export class SQLiteEngine implements BrainEngine {
       toNullableIso(realm.archived_at),
       timestamp,
       timestamp,
+      descriptionSupplied,
+      defaultAccessSupplied,
+      retentionPolicySupplied,
+      exportPolicySupplied,
+      agentInstructionsSupplied,
+      archivedAtSupplied,
     ]));
 
     const row = this.database.query(`

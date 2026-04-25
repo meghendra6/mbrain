@@ -377,6 +377,10 @@ export function normalizeMemoryRealmInput(input: MemoryRealmInput): MemoryRealmI
   return normalized;
 }
 
+export function hasOwn(value: object, field: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(value, field);
+}
+
 export function applyMemoryRealmUpsertDefaults(
   input: MemoryRealmInput,
   existing: MemoryRealm | null,
@@ -384,13 +388,25 @@ export function applyMemoryRealmUpsertDefaults(
   return {
     id: input.id,
     name: input.name,
-    description: input.description ?? existing?.description ?? '',
+    description: hasOwn(input, 'description')
+      ? input.description ?? ''
+      : existing?.description ?? '',
     scope: input.scope,
-    default_access: input.default_access ?? existing?.default_access ?? 'read_only',
-    retention_policy: input.retention_policy ?? existing?.retention_policy ?? 'retain',
-    export_policy: input.export_policy ?? existing?.export_policy ?? 'private',
-    agent_instructions: input.agent_instructions ?? existing?.agent_instructions ?? '',
-    archived_at: input.archived_at !== undefined ? input.archived_at : existing?.archived_at ?? null,
+    default_access: hasOwn(input, 'default_access')
+      ? input.default_access ?? 'read_only'
+      : existing?.default_access ?? 'read_only',
+    retention_policy: hasOwn(input, 'retention_policy')
+      ? input.retention_policy ?? 'retain'
+      : existing?.retention_policy ?? 'retain',
+    export_policy: hasOwn(input, 'export_policy')
+      ? input.export_policy ?? 'private'
+      : existing?.export_policy ?? 'private',
+    agent_instructions: hasOwn(input, 'agent_instructions')
+      ? input.agent_instructions ?? ''
+      : existing?.agent_instructions ?? '',
+    archived_at: hasOwn(input, 'archived_at')
+      ? input.archived_at ?? null
+      : existing?.archived_at ?? null,
   };
 }
 
