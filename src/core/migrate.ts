@@ -908,7 +908,7 @@ const MIGRATIONS: Migration[] = [
         session_id TEXT NOT NULL,
         realm_id TEXT NOT NULL,
         actor TEXT NOT NULL,
-        operation TEXT NOT NULL CHECK (
+        operation TEXT NOT NULL CONSTRAINT chk_memory_mutation_events_operation CHECK (
           operation IN (
             'create_memory_session',
             'close_memory_session',

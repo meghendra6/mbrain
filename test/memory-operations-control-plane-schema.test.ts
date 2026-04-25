@@ -280,6 +280,18 @@ describe('memory operations control-plane schema', () => {
       expect(indexNames).toContain(indexName);
     }
 
+    const operationConstraints = await db.query(
+      `SELECT conname
+       FROM pg_constraint
+       WHERE conrelid = 'memory_mutation_events'::regclass
+         AND contype = 'c'
+         AND pg_get_constraintdef(oid) LIKE '%operation%'
+       ORDER BY conname`,
+    );
+    expect(operationConstraints.rows.map((row: { conname: string }) => row.conname)).toEqual([
+      'chk_memory_mutation_events_operation',
+    ]);
+
     await expect(db.query(validInsertSql('pglite-valid'))).resolves.toBeDefined();
     await expect(db.query(invalidInsertSql('operation', 'invented_operation'))).rejects.toThrow();
     await expect(db.query(invalidInsertSql('result', 'approved'))).rejects.toThrow();
