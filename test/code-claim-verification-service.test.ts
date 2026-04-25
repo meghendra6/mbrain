@@ -66,6 +66,141 @@ test('code claim verification marks a missing symbol stale', () => {
   }
 });
 
+test('code claim verification does not accept identifier substrings as symbols', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-code-claim-symbol-substring-'));
+
+  try {
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src/example.ts'), 'export function fooBar() { return true; }\n');
+
+    const [result] = verifyCodeClaims({
+      repo_path: dir,
+      claims: [{ path: 'src/example.ts', symbol: 'foo' }],
+      now: new Date('2026-04-25T00:02:30.000Z'),
+    });
+
+    expect(result?.status).toBe('stale');
+    expect(result?.reason).toBe('symbol_missing');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('code claim verification ignores symbols that only appear in comments or strings', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-code-claim-symbol-comment-string-'));
+
+  try {
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src/example.ts'), [
+      '// MissingSymbol used to exist here',
+      'const message = "MissingSymbol";',
+      'export function otherSymbol() { return message; }',
+      '',
+    ].join('\n'));
+
+    const [result] = verifyCodeClaims({
+      repo_path: dir,
+      claims: [{ path: 'src/example.ts', symbol: 'MissingSymbol' }],
+      now: new Date('2026-04-25T00:02:45.000Z'),
+    });
+
+    expect(result?.status).toBe('stale');
+    expect(result?.reason).toBe('symbol_missing');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('code claim verification ignores symbols that only appear in regex literals', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-code-claim-symbol-regex-'));
+
+  try {
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src/example.ts'), [
+      'const matcher = /MissingSymbol/;',
+      'export function otherSymbol() { return matcher.test("x"); }',
+      '',
+    ].join('\n'));
+
+    const [result] = verifyCodeClaims({
+      repo_path: dir,
+      claims: [{ path: 'src/example.ts', symbol: 'MissingSymbol' }],
+      now: new Date('2026-04-25T00:02:48.000Z'),
+    });
+
+    expect(result?.status).toBe('stale');
+    expect(result?.reason).toBe('symbol_missing');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('code claim verification ignores regex literals after return keywords', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-code-claim-symbol-return-regex-'));
+
+  try {
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src/example.ts'), [
+      'export function makeRegex() {',
+      '  return /MissingSymbol/;',
+      '}',
+      '',
+    ].join('\n'));
+
+    const [result] = verifyCodeClaims({
+      repo_path: dir,
+      claims: [{ path: 'src/example.ts', symbol: 'MissingSymbol' }],
+      now: new Date('2026-04-25T00:02:49.000Z'),
+    });
+
+    expect(result?.status).toBe('stale');
+    expect(result?.reason).toBe('symbol_missing');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('code claim verification does not accept complex symbol substrings', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-code-claim-complex-substring-'));
+
+  try {
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src/example.ts'), [
+      'export function barfoo() { return true; }',
+      'const value = foo.barBaz;',
+      '',
+    ].join('\n'));
+
+    const [functionResult, memberResult] = verifyCodeClaims({
+      repo_path: dir,
+      claims: [
+        { path: 'src/example.ts', symbol: 'foo()' },
+        { path: 'src/example.ts', symbol: 'foo.bar' },
+      ],
+      now: new Date('2026-04-25T00:02:50.000Z'),
+    });
+
+    expect(functionResult?.status).toBe('stale');
+    expect(functionResult?.reason).toBe('symbol_missing');
+    expect(memberResult?.status).toBe('stale');
+    expect(memberResult?.reason).toBe('symbol_missing');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('code claim parser accepts pathless symbol claims as unverifiable inputs', () => {
+  const claim = parseCodeClaimVerificationEntry(
+    'code_claim:{"symbol":"MissingSymbol"}',
+    'trace-symbol-only',
+  );
+
+  expect(claim).toEqual({
+    symbol: 'MissingSymbol',
+    source_trace_id: 'trace-symbol-only',
+  });
+});
+
 test('code claim verification marks a branch mismatch stale', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mbrain-code-claim-branch-mismatch-'));
 

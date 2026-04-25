@@ -84,11 +84,17 @@ function parseJsonCodeClaim(payload: string, sourceTraceId?: string): CodeClaim 
   if (!parsed || typeof parsed !== 'object') return null;
 
   const value = parsed as Record<string, unknown>;
-  if (typeof value.path !== 'string' || value.path.trim().length === 0) return null;
+  const path = typeof value.path === 'string' && value.path.trim().length > 0
+    ? value.path
+    : undefined;
+  const symbol = typeof value.symbol === 'string' && value.symbol.length > 0
+    ? value.symbol
+    : undefined;
+  if (!path && !symbol) return null;
 
   return {
-    path: value.path,
-    ...(typeof value.symbol === 'string' && value.symbol.length > 0 ? { symbol: value.symbol } : {}),
+    ...(path ? { path } : {}),
+    ...(symbol ? { symbol } : {}),
     ...(typeof value.branch_name === 'string' && value.branch_name.length > 0 ? { branch_name: value.branch_name } : {}),
     ...(sourceTraceId ? { source_trace_id: sourceTraceId } : {}),
   };
@@ -100,6 +106,11 @@ function verifyOneClaim(input: {
   claim: CodeClaim;
   checkedAt: string;
 }): CodeClaimVerificationResult {
+  if (!input.claim.path) {
+    const reason = input.claim.symbol ? 'symbol_path_missing' : 'file_missing';
+    return buildResult(input.claim, 'unverifiable', reason, input.checkedAt);
+  }
+
   if (input.claim.branch_name) {
     if (!input.branchName) {
       return buildResult(input.claim, 'unverifiable', 'branch_unknown', input.checkedAt);
@@ -116,12 +127,128 @@ function verifyOneClaim(input: {
 
   if (input.claim.symbol) {
     const content = readFileSync(filePath, 'utf8');
-    if (!content.includes(input.claim.symbol)) {
+    if (!hasVerifiableSymbol(content, input.claim.symbol)) {
       return buildResult(input.claim, 'stale', 'symbol_missing', input.checkedAt);
     }
   }
 
   return buildResult(input.claim, 'current', 'ok', input.checkedAt);
+}
+
+function hasVerifiableSymbol(content: string, symbol: string): boolean {
+  const codeOnly = stripCommentsAndStringLiterals(content);
+  return new RegExp(`(^|[^A-Za-z0-9_$])${escapeRegExp(symbol)}([^A-Za-z0-9_$]|$)`).test(codeOnly);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function stripCommentsAndStringLiterals(content: string): string {
+  let output = '';
+  let index = 0;
+  let previousSignificant = '';
+  let previousToken = '';
+  while (index < content.length) {
+    const char = content[index];
+    const next = content[index + 1];
+
+    if (char === '/' && next === '/') {
+      output += '  ';
+      index += 2;
+      while (index < content.length && content[index] !== '\n') {
+        output += ' ';
+        index += 1;
+      }
+      continue;
+    }
+
+    if (char === '/' && next === '*') {
+      output += '  ';
+      index += 2;
+      while (index < content.length) {
+        if (content[index] === '*' && content[index + 1] === '/') {
+          output += '  ';
+          index += 2;
+          break;
+        }
+        output += content[index] === '\n' ? '\n' : ' ';
+        index += 1;
+      }
+      continue;
+    }
+
+    if (char === '/' && isRegexLiteralStart(previousSignificant)) {
+      output += ' ';
+      index += 1;
+      let inCharacterClass = false;
+      while (index < content.length) {
+        const current = content[index];
+        if (current === '\\') {
+          output += ' ';
+          if (index + 1 < content.length) output += content[index + 1] === '\n' ? '\n' : ' ';
+          index += 2;
+          continue;
+        }
+        if (current === '[') inCharacterClass = true;
+        if (current === ']') inCharacterClass = false;
+        output += current === '\n' ? '\n' : ' ';
+        index += 1;
+        if (current === '/' && !inCharacterClass) {
+          while (/[A-Za-z]/.test(content[index] ?? '')) {
+            output += ' ';
+            index += 1;
+          }
+          break;
+        }
+      }
+      previousSignificant = '/';
+      continue;
+    }
+
+    if (char === '\'' || char === '"' || char === '`') {
+      const quote = char;
+      output += ' ';
+      index += 1;
+      while (index < content.length) {
+        const current = content[index];
+        if (current === '\\') {
+          output += ' ';
+          if (index + 1 < content.length) output += content[index + 1] === '\n' ? '\n' : ' ';
+          index += 2;
+          continue;
+        }
+        output += current === '\n' ? '\n' : ' ';
+        index += 1;
+        if (current === quote) break;
+      }
+      continue;
+    }
+
+    output += char;
+    if (/[A-Za-z0-9_$]/.test(char)) {
+      previousToken += char;
+    } else if (!/\s/.test(char)) {
+      previousToken = '';
+    }
+    if (!/\s/.test(char)) {
+      previousSignificant = isRegexStarterKeyword(previousToken) ? 'return' : char;
+    }
+    index += 1;
+  }
+  return output;
+}
+
+function isRegexLiteralStart(previousSignificant: string): boolean {
+  return previousSignificant === ''
+    || previousSignificant === 'return'
+    || previousSignificant === 'throw'
+    || previousSignificant === 'case'
+    || '([{=,:;!&|?+-*~^<>'.includes(previousSignificant);
+}
+
+function isRegexStarterKeyword(token: string): boolean {
+  return token === 'return' || token === 'throw' || token === 'case';
 }
 
 function buildResult(

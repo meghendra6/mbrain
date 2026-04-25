@@ -69,6 +69,40 @@ describe('S11 — code claim verification gates staleness', () => {
       expect(resume.latest_trace_route).toEqual(['task_resume']);
     });
   });
+
+  test('resume does not repeat stale working-set code paths as present-tense facts', async () => {
+    await withScenarioBrain(async ({ engine, repoPath }) => {
+      mkdirSync(join(repoPath, 'src'), { recursive: true });
+      writeFileSync(join(repoPath, 'src/current.ts'), 'export function currentSymbol() { return true; }\n');
+
+      await seedTaskWithCodeClaimTrace(engine, {
+        repoPath,
+        branchName: 'main',
+        currentSummary: 'Use src/current.ts and remove obsolete src/missing.ts.',
+        activePaths: ['src/current.ts', 'src/missing.ts'],
+        activeSymbols: ['currentSymbol', 'missingSymbol'],
+        verification: ['code_claim:src/current.ts:currentSymbol'],
+      });
+
+      const resume = await buildTaskResumeCard(engine, 'task-code-claims');
+
+      expect(resume.active_paths).toEqual(['src/current.ts']);
+      expect(resume.active_symbols).toEqual(['currentSymbol']);
+      expect(resume.current_summary).not.toContain('src/missing.ts');
+      expect(resume.code_claim_verification).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          status: 'stale',
+          reason: 'file_missing',
+          claim: expect.objectContaining({ path: 'src/missing.ts' }),
+        }),
+        expect.objectContaining({
+          status: 'stale',
+          reason: 'symbol_missing',
+          claim: expect.objectContaining({ path: 'src/current.ts', symbol: 'missingSymbol' }),
+        }),
+      ]));
+    });
+  });
 });
 
 async function withScenarioBrain(
@@ -92,7 +126,14 @@ async function withScenarioBrain(
 
 async function seedTaskWithCodeClaimTrace(
   engine: SQLiteEngine,
-  input: { repoPath: string; branchName: string; verification: string[] },
+  input: {
+    repoPath: string;
+    branchName: string;
+    verification: string[];
+    currentSummary?: string;
+    activePaths?: string[];
+    activeSymbols?: string[];
+  },
 ): Promise<void> {
   await engine.createTaskThread({
     id: 'task-code-claims',
@@ -102,8 +143,20 @@ async function seedTaskWithCodeClaimTrace(
     status: 'active',
     repo_path: input.repoPath,
     branch_name: input.branchName,
-    current_summary: 'Trace contains historical code claim',
+    current_summary: input.currentSummary ?? 'Trace contains historical code claim',
   });
+  if (input.activePaths || input.activeSymbols) {
+    await engine.upsertTaskWorkingSet({
+      task_id: 'task-code-claims',
+      active_paths: input.activePaths ?? [],
+      active_symbols: input.activeSymbols ?? [],
+      blockers: [],
+      open_questions: [],
+      next_steps: [],
+      verification_notes: [],
+      last_verified_at: new Date('2026-04-25T00:00:00.000Z'),
+    });
+  }
   await engine.putRetrievalTrace({
     id: 'trace-code-claim-source',
     task_id: 'task-code-claims',

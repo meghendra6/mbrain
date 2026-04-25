@@ -1098,7 +1098,7 @@ function parseStringListParam(value: unknown, key: string): string[] | undefined
 }
 
 function formatCodeClaimVerificationSummary(results: Array<{
-  claim?: { path?: string; source_trace_id?: string };
+  claim?: { path?: string; symbol?: string; source_trace_id?: string };
   status?: string;
   reason?: string;
 }>): string {
@@ -1106,7 +1106,9 @@ function formatCodeClaimVerificationSummary(results: Array<{
   return results
     .map((result) => [
       result.status ?? 'unknown',
-      result.claim?.path ?? 'unknown',
+      result.claim?.path
+        ?? (result.claim?.symbol ? `symbol:${result.claim.symbol}` : 'unknown'),
+      result.claim?.path && result.claim?.symbol ? result.claim.symbol : undefined,
       result.reason ?? 'unknown',
       result.claim?.source_trace_id,
     ].filter((part) => part !== undefined && part !== '').join(':'))
@@ -1180,13 +1182,15 @@ function parseCodeClaimParamItem(value: unknown, key: string): CodeClaim {
     throw new OperationError('invalid_params', `${key} must be a code claim object.`);
   }
   const claim = value as Record<string, unknown>;
-  if (typeof claim.path !== 'string' || claim.path.trim().length === 0) {
-    throw new OperationError('invalid_params', `${key}.path must be a non-empty string.`);
+  const hasPath = typeof claim.path === 'string' && claim.path.trim().length > 0;
+  const hasSymbol = typeof claim.symbol === 'string' && claim.symbol.length > 0;
+  if (!hasPath && !hasSymbol) {
+    throw new OperationError('invalid_params', `${key} must include a non-empty path or symbol.`);
   }
 
   return {
-    path: claim.path,
-    ...(typeof claim.symbol === 'string' && claim.symbol.length > 0 ? { symbol: claim.symbol } : {}),
+    ...(hasPath ? { path: String(claim.path) } : {}),
+    ...(hasSymbol ? { symbol: String(claim.symbol) } : {}),
     ...(typeof claim.branch_name === 'string' && claim.branch_name.length > 0 ? { branch_name: claim.branch_name } : {}),
     ...(typeof claim.source_trace_id === 'string' && claim.source_trace_id.length > 0 ? { source_trace_id: claim.source_trace_id } : {}),
   };
@@ -3093,9 +3097,10 @@ const reverify_code_claims: Operation = {
     const staleCount = results.filter((result) => result.status === 'stale').length;
     const currentCount = results.filter((result) => result.status === 'current').length;
     const unverifiableCount = results.filter((result) => result.status === 'unverifiable').length;
+    const nonCurrentCount = results.length - currentCount;
     let writtenTrace: RetrievalTrace | null = null;
 
-    if (!ctx.dryRun && trace && staleCount > 0) {
+    if (!ctx.dryRun && trace && nonCurrentCount > 0) {
       writtenTrace = await ctx.engine.putRetrievalTrace({
         id: crypto.randomUUID(),
         task_id: trace.task_id,
@@ -3103,7 +3108,7 @@ const reverify_code_claims: Operation = {
         route: ['code_claim_reverification'],
         source_refs: [`retrieval_trace:${trace.id}`],
         verification: results.map((result) =>
-          `code_claim_result:${result.claim.path}:${result.status}:${result.reason}`),
+          `code_claim_result:${result.claim.path ?? result.claim.symbol ?? 'unknown'}:${result.status}:${result.reason}`),
         write_outcome: 'operational_write',
         outcome: `code claim reverify stale=${staleCount} current=${currentCount} unverifiable=${unverifiableCount}`,
       });

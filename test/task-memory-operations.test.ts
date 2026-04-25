@@ -533,7 +533,7 @@ test('formatResult renders a resume card', () => {
   expect(output).toContain('operations');
   expect(output).toContain('should resume emit trace ids');
   expect(output).toContain('CLI-only task path');
-  expect(output).toContain('Code claims: stale:src/core/operations.ts:symbol_missing:trace-1');
+  expect(output).toContain('Code claims: stale:src/core/operations.ts:operations:symbol_missing:trace-1');
   expect(output).toContain('stale');
 });
 
