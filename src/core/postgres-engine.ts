@@ -78,6 +78,7 @@ import { ensurePageChunks } from './page-chunks.ts';
 import {
   validateSlug,
   contentHash,
+  applyMemoryRealmUpsertDefaults,
   importContentHash,
   normalizeMemoryMutationEventInput,
   normalizeMemoryRealmInput,
@@ -1690,7 +1691,9 @@ export class PostgresEngine implements BrainEngine {
 
   async upsertMemoryRealm(input: MemoryRealmInput): Promise<MemoryRealm> {
     const sql = this.sql;
-    const realm = normalizeMemoryRealmInput(input);
+    const normalized = normalizeMemoryRealmInput(input);
+    const existing = await this.getMemoryRealm(normalized.id);
+    const realm = applyMemoryRealmUpsertDefaults(normalized, existing);
     const rows = await sql`
       INSERT INTO memory_realms (
         id, name, description, scope, default_access, retention_policy,

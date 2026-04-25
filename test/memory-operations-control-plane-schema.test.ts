@@ -71,6 +71,14 @@ function validInsertSql(id: string): string {
   `;
 }
 
+function realmUpsertInsertSql(id: string): string {
+  return validInsertSql(id)
+    .replace("'put_page'", "'upsert_memory_realm'")
+    .replace("'page'", "'memory_realm'")
+    .replace("'concepts/phase-9.md'", "'realm:work'")
+    .replace("'workspace:default'", "'work'");
+}
+
 function sqliteSql(sql: string): string {
   return sql.replaceAll('::jsonb', '').replaceAll('false', '0').replaceAll('true', '1');
 }
@@ -315,6 +323,7 @@ describe('memory operations control-plane schema', () => {
     expect(scopeIndex?.sql).toContain('WHERE scope_id IS NOT NULL');
 
     expect(() => db.query(sqliteSql(validInsertSql('sqlite-valid'))).run()).not.toThrow();
+    expect(() => db.query(sqliteSql(realmUpsertInsertSql('sqlite-realm-upsert-valid'))).run()).not.toThrow();
     expect(() => db.query(sqliteSql(invalidInsertSql('operation', 'invented_operation'))).run()).toThrow();
     expect(() => db.query(sqliteSql(invalidInsertSql('result', 'approved'))).run()).toThrow();
     expect(() => db.query(sqliteSql(invalidInsertSql('target_kind', 'note'))).run()).toThrow();
@@ -377,12 +386,67 @@ describe('memory operations control-plane schema', () => {
     ]);
 
     await expect(db.query(validInsertSql('pglite-valid'))).resolves.toBeDefined();
+    await expect(db.query(realmUpsertInsertSql('pglite-realm-upsert-valid'))).resolves.toBeDefined();
     await expect(db.query(invalidInsertSql('operation', 'invented_operation'))).rejects.toThrow();
     await expect(db.query(invalidInsertSql('result', 'approved'))).rejects.toThrow();
     await expect(db.query(invalidInsertSql('target_kind', 'note'))).rejects.toThrow();
     await expect(db.query(invalidInsertSql('redaction_visibility', 'hidden'))).rejects.toThrow();
     await expect(db.query(invalidInsertSql('dry_run', '2'))).rejects.toThrow();
     await expectPgMutationEventRequiredContract(db);
+
+    await engine.disconnect();
+  }, 10_000);
+
+  test('sqlite upgrades version 29 databases to accept memory realm upsert ledger events', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mbrain-mutation-ledger-sqlite-v29-realm-upsert-'));
+    tempPaths.push(dir);
+
+    const engine = new SQLiteEngine();
+    await engine.connect({ engine: 'sqlite', database_path: join(dir, 'brain.db') });
+    const db = (engine as any).database;
+    db.exec(`
+      CREATE TABLE config (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      INSERT INTO config (key, value) VALUES ('version', '29');
+      ${OLD_V26_SQLITE_MUTATION_EVENT_SQL}
+    `);
+
+    await engine.initSchema();
+
+    const version = db.query(`SELECT value FROM config WHERE key = 'version'`).get() as { value: string };
+    expect(version.value).toBe(String(LATEST_VERSION));
+    expect(() => db.query(sqliteSql(realmUpsertInsertSql('sqlite-v29-realm-upsert-valid'))).run()).not.toThrow();
+    expect(() => db.query(sqliteSql(invalidInsertSql('operation', 'invented_operation'))).run()).toThrow();
+    expect(() => db.query(sqliteSql(invalidInsertSql('target_kind', 'note'))).run()).toThrow();
+
+    await engine.disconnect();
+  });
+
+  test('pglite upgrades version 29 databases to accept memory realm upsert ledger events', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mbrain-mutation-ledger-pglite-v29-realm-upsert-'));
+    tempPaths.push(dir);
+
+    const engine = new PGLiteEngine();
+    await engine.connect({ engine: 'pglite', database_path: dir });
+    const db = (engine as any).db;
+    await db.exec(`
+      CREATE TABLE config (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      INSERT INTO config (key, value) VALUES ('version', '29');
+      ${OLD_V26_POSTGRES_MUTATION_EVENT_SQL}
+    `);
+
+    await engine.initSchema();
+
+    const version = await db.query(`SELECT value FROM config WHERE key = 'version'`);
+    expect(version.rows).toEqual([{ value: String(LATEST_VERSION) }]);
+    await expect(db.query(realmUpsertInsertSql('pglite-v29-realm-upsert-valid'))).resolves.toBeDefined();
+    await expect(db.query(invalidInsertSql('operation', 'invented_operation'))).rejects.toThrow();
+    await expect(db.query(invalidInsertSql('target_kind', 'note'))).rejects.toThrow();
 
     await engine.disconnect();
   }, 10_000);
@@ -577,6 +641,7 @@ describe('memory operations control-plane schema', () => {
         }
 
         await expect(engine.sql.unsafe(validInsertSql('postgres-valid'))).resolves.toBeDefined();
+        await expect(engine.sql.unsafe(realmUpsertInsertSql('postgres-realm-upsert-valid'))).resolves.toBeDefined();
         await expect(engine.sql.unsafe(invalidInsertSql('operation', 'invented_operation'))).rejects.toThrow();
         await expect(engine.sql.unsafe(invalidInsertSql('result', 'approved'))).rejects.toThrow();
         await expect(engine.sql.unsafe(invalidInsertSql('target_kind', 'note'))).rejects.toThrow();

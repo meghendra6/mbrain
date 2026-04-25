@@ -83,6 +83,64 @@ describe('memory realms engine', () => {
       await harness.cleanup();
     }
   });
+
+  test('SQLite update preserves omitted optional fields on archived realms', async () => {
+    const harness = await createSqliteHarness('preserve-archived-update');
+    try {
+      const archivedAt = '2026-04-25T01:00:00.000Z';
+      await harness.engine.upsertMemoryRealm({
+        id: 'realm:archived-preserve',
+        name: 'Archived Preserve Realm',
+        description: 'original description',
+        scope: 'work',
+        default_access: 'read_write',
+        retention_policy: 'retain-for-review',
+        export_policy: 'restricted',
+        agent_instructions: 'Keep this realm archived until review completes.',
+        archived_at: archivedAt,
+      });
+
+      const updated = await harness.engine.upsertMemoryRealm({
+        id: 'realm:archived-preserve',
+        name: 'Archived Preserve Realm Renamed',
+        scope: 'work',
+      });
+
+      expect(updated).toMatchObject({
+        id: 'realm:archived-preserve',
+        name: 'Archived Preserve Realm Renamed',
+        description: 'original description',
+        scope: 'work',
+        default_access: 'read_write',
+        retention_policy: 'retain-for-review',
+        export_policy: 'restricted',
+        agent_instructions: 'Keep this realm archived until review completes.',
+      });
+      expect(updated.archived_at?.toISOString()).toBe(archivedAt);
+      expect((await harness.engine.listMemoryRealms({ scope: 'work' })).map((realm) => realm.id)).toEqual([]);
+      expect((await harness.engine.listMemoryRealms({
+        scope: 'work',
+        include_archived: true,
+      })).map((realm) => realm.id)).toEqual(['realm:archived-preserve']);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test('SQLite engine rejects invalid archived_at strings before storage', async () => {
+    const harness = await createSqliteHarness('invalid-archived-at');
+    try {
+      await expect(harness.engine.upsertMemoryRealm({
+        id: 'realm:bad-archive-date',
+        name: 'Bad Archive Date Realm',
+        scope: 'work',
+        archived_at: 'not-a-date',
+      })).rejects.toThrow(/archived_at|timestamp|date/i);
+      expect(await harness.engine.getMemoryRealm('realm:bad-archive-date')).toBeNull();
+    } finally {
+      await harness.cleanup();
+    }
+  });
 });
 
 describe('memory realm operations', () => {
@@ -152,6 +210,64 @@ describe('memory realm operations', () => {
           scope: 'mixed',
         },
       ]);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test('upsert_memory_realm records an applied ledger event and dry-run records none', async () => {
+    const harness = await createSqliteHarness('operation-ledger');
+    try {
+      const upsert = getOperation('upsert_memory_realm');
+
+      await upsert.handler({
+        engine: harness.engine,
+        config: { engine: 'sqlite' },
+        dryRun: false,
+      } as any, {
+        id: 'realm:ledger',
+        name: 'Ledger Realm',
+        scope: 'work',
+        default_access: 'read_write',
+      });
+
+      const events = await harness.engine.listMemoryMutationEvents({
+        operation: 'upsert_memory_realm' as any,
+        target_kind: 'memory_realm' as any,
+        target_id: 'realm:ledger',
+      });
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        operation: 'upsert_memory_realm',
+        target_kind: 'memory_realm',
+        target_id: 'realm:ledger',
+        realm_id: 'realm:ledger',
+        scope_id: 'work',
+        result: 'applied',
+        dry_run: false,
+        actor: 'mbrain:memory_control_plane',
+      });
+      expect(events[0].source_refs).toEqual(['Source: mbrain upsert_memory_realm operation']);
+      expect(events[0].metadata).toMatchObject({
+        realm_scope: 'work',
+        realm_default_access: 'read_write',
+      });
+
+      await upsert.handler({
+        engine: harness.engine,
+        config: { engine: 'sqlite' },
+        dryRun: true,
+      } as any, {
+        id: 'realm:dry-ledger',
+        name: 'Dry Ledger Realm',
+        scope: 'personal',
+      });
+
+      expect(await harness.engine.listMemoryMutationEvents({
+        operation: 'upsert_memory_realm' as any,
+        target_kind: 'memory_realm' as any,
+        target_id: 'realm:dry-ledger',
+      })).toEqual([]);
     } finally {
       await harness.cleanup();
     }

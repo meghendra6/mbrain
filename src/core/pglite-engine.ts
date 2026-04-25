@@ -81,6 +81,7 @@ import type {
 import {
   validateSlug,
   contentHash,
+  applyMemoryRealmUpsertDefaults,
   importContentHash,
   normalizeMemoryMutationEventInput,
   normalizeMemoryRealmInput,
@@ -1599,7 +1600,9 @@ export class PGLiteEngine implements BrainEngine {
   }
 
   async upsertMemoryRealm(input: MemoryRealmInput): Promise<MemoryRealm> {
-    const realm = normalizeMemoryRealmInput(input);
+    const normalized = normalizeMemoryRealmInput(input);
+    const existing = await this.getMemoryRealm(normalized.id);
+    const realm = applyMemoryRealmUpsertDefaults(normalized, existing);
     const { rows } = await this.db.query(
       `INSERT INTO memory_realms (
         id, name, description, scope, default_access, retention_policy,

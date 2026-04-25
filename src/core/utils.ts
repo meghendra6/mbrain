@@ -339,27 +339,58 @@ export function rowToMemoryRealm(row: Record<string, unknown>): MemoryRealm {
   };
 }
 
-export function normalizeMemoryRealmInput(input: MemoryRealmInput): Required<MemoryRealmInput> {
+export function normalizeMemoryRealmInput(input: MemoryRealmInput): MemoryRealmInput {
   const id = normalizeRequiredMemoryRealmString('id', input.id);
   const name = normalizeRequiredMemoryRealmString('name', input.name);
   if (!['work', 'personal', 'mixed'].includes(input.scope)) {
     throw new Error('memory realm scope must be one of: work, personal, mixed');
   }
-  const defaultAccess = input.default_access ?? 'read_only';
-  if (!['read_only', 'read_write'].includes(defaultAccess)) {
+  if (input.default_access !== undefined && !['read_only', 'read_write'].includes(input.default_access)) {
     throw new Error('memory realm default_access must be one of: read_only, read_write');
   }
 
-  return {
+  const normalized: MemoryRealmInput = {
     id,
     name,
-    description: input.description ?? '',
     scope: input.scope,
-    default_access: defaultAccess,
-    retention_policy: input.retention_policy ?? 'retain',
-    export_policy: input.export_policy ?? 'private',
-    agent_instructions: input.agent_instructions ?? '',
-    archived_at: input.archived_at ?? null,
+  };
+
+  if (input.description !== undefined) {
+    normalized.description = normalizeOptionalMemoryRealmString('description', input.description);
+  }
+  if (input.default_access !== undefined) {
+    normalized.default_access = input.default_access;
+  }
+  if (input.retention_policy !== undefined) {
+    normalized.retention_policy = normalizeOptionalMemoryRealmString('retention_policy', input.retention_policy);
+  }
+  if (input.export_policy !== undefined) {
+    normalized.export_policy = normalizeOptionalMemoryRealmString('export_policy', input.export_policy);
+  }
+  if (input.agent_instructions !== undefined) {
+    normalized.agent_instructions = normalizeOptionalMemoryRealmString('agent_instructions', input.agent_instructions);
+  }
+  if (input.archived_at !== undefined) {
+    normalized.archived_at = normalizeOptionalMemoryRealmTimestamp('archived_at', input.archived_at);
+  }
+
+  return normalized;
+}
+
+export function applyMemoryRealmUpsertDefaults(
+  input: MemoryRealmInput,
+  existing: MemoryRealm | null,
+): Required<MemoryRealmInput> {
+  return {
+    id: input.id,
+    name: input.name,
+    description: input.description ?? existing?.description ?? '',
+    scope: input.scope,
+    default_access: input.default_access ?? existing?.default_access ?? 'read_only',
+    retention_policy: input.retention_policy ?? existing?.retention_policy ?? 'retain',
+    export_policy: input.export_policy ?? existing?.export_policy ?? 'private',
+    agent_instructions: input.agent_instructions ?? existing?.agent_instructions ?? '',
+    archived_at: input.archived_at !== undefined ? input.archived_at : existing?.archived_at ?? null,
   };
 }
 
@@ -368,6 +399,34 @@ function normalizeRequiredMemoryRealmString(field: string, value: unknown): stri
     throw new Error(`memory realm ${field} must be a non-empty string`);
   }
   return value.trim();
+}
+
+function normalizeOptionalMemoryRealmString(field: string, value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new Error(`memory realm ${field} must be a string`);
+  }
+  return value;
+}
+
+function normalizeOptionalMemoryRealmTimestamp(
+  field: string,
+  value: Date | string | null,
+): Date | null {
+  if (value === null) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      throw new Error(`memory realm ${field} must be a valid timestamp`);
+    }
+    return value;
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`memory realm ${field} must be a valid timestamp`);
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`memory realm ${field} must be a valid timestamp`);
+  }
+  return parsed;
 }
 
 function normalizeMemoryMutationSourceRefs(value: unknown): string[] {
