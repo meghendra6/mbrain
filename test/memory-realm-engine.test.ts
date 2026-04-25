@@ -342,6 +342,46 @@ describe('memory realm operations', () => {
     }
   });
 
+  test('upsert_memory_realm dry-run normalizes offset archived_at like a real write', async () => {
+    const harness = await createSqliteHarness('dry-run-offset-archived-at');
+    try {
+      const upsert = getOperation('upsert_memory_realm');
+      const archivedAt = '2026-04-25T01:00:00+02:00';
+      const expectedArchivedAt = '2026-04-24T23:00:00.000Z';
+
+      const preview = await upsert.handler({
+        engine: harness.engine,
+        config: { engine: 'sqlite' },
+        dryRun: true,
+      } as any, {
+        id: 'realm:dry-run-offset-archive-date',
+        name: 'Dry Run Offset Archive Date Realm',
+        scope: 'work',
+        archived_at: archivedAt,
+      });
+
+      expect((preview as any).realm.archived_at).toBeInstanceOf(Date);
+      expect((preview as any).realm.archived_at?.toISOString()).toBe(expectedArchivedAt);
+      expect(await harness.engine.getMemoryRealm('realm:dry-run-offset-archive-date')).toBeNull();
+
+      const written = await upsert.handler({
+        engine: harness.engine,
+        config: { engine: 'sqlite' },
+        dryRun: false,
+      } as any, {
+        id: 'realm:dry-run-offset-archive-date',
+        name: 'Dry Run Offset Archive Date Realm',
+        scope: 'work',
+        archived_at: archivedAt,
+      });
+
+      expect((written as any).archived_at).toBeInstanceOf(Date);
+      expect((written as any).archived_at?.toISOString()).toBe(expectedArchivedAt);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   test('upsert_memory_realm rejects calendar-invalid archived_at strings before storage', async () => {
     const harness = await createSqliteHarness('operation-calendar-invalid-archived-at');
     try {
@@ -397,6 +437,7 @@ describe('memory realm operations', () => {
       });
       expect(events[0].source_refs).toEqual(['Source: mbrain upsert_memory_realm operation']);
       expect(events[0].metadata).toMatchObject({
+        action: 'upsert',
         realm_scope: 'work',
         realm_default_access: 'read_write',
       });

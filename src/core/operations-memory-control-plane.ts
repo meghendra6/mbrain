@@ -112,7 +112,7 @@ function optionalIsoDate(
   deps: { OperationError: OperationErrorCtor },
   field: string,
   value: unknown,
-): Date | string | null | undefined {
+): Date | null | undefined {
   if (value === null) return null;
   if (value == null) return undefined;
   if (value instanceof Date) {
@@ -122,10 +122,11 @@ function optionalIsoDate(
   if (typeof value !== 'string') {
     throw invalidParams(deps, `${field} must be an ISO timestamp`);
   }
-  if (!parseValidIsoTimestamp(value)) {
+  const parsed = parseValidIsoTimestamp(value);
+  if (!parsed) {
     throw invalidParams(deps, `${field} must be a valid ISO timestamp`);
   }
-  return value;
+  return parsed;
 }
 
 function optionalSourceRefs(
@@ -228,7 +229,6 @@ export function createMemoryControlPlaneOperations(
       const sourceRefs = optionalSourceRefs(deps, p.source_refs) ?? DEFAULT_REALM_UPSERT_SOURCE_REFS;
 
       return ctx.engine.transaction(async (engine) => {
-        const existing = await engine.getMemoryRealm(input.id);
         const realm = await engine.upsertMemoryRealm(input);
         await recordMemoryMutationEvent(engine, {
           session_id: sessionId,
@@ -241,7 +241,7 @@ export function createMemoryControlPlaneOperations(
           source_refs: sourceRefs,
           result: 'applied',
           metadata: {
-            action: existing ? 'update' : 'create',
+            action: 'upsert',
             realm_scope: realm.scope,
             realm_default_access: realm.default_access,
           },
