@@ -190,6 +190,17 @@ export class PGLiteEngine implements BrainEngine {
     return rowToPage(rows[0] as Record<string, unknown>);
   }
 
+  async getPageForUpdate(slug: string): Promise<Page | null> {
+    const { rows } = await this.db.query(
+      `SELECT id, slug, type, title, compiled_truth, timeline, frontmatter, content_hash, created_at, updated_at
+       FROM pages WHERE slug = $1
+       FOR UPDATE`,
+      [slug]
+    );
+    if (rows.length === 0) return null;
+    return rowToPage(rows[0] as Record<string, unknown>);
+  }
+
   async putPage(slug: string, page: PageInput): Promise<Page> {
     slug = validateSlug(slug);
     const hash = page.content_hash || contentHash(page.compiled_truth, page.timeline || '');

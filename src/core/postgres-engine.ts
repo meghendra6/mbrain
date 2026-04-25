@@ -246,6 +246,17 @@ export class PostgresEngine implements BrainEngine {
     return rowToPage(rows[0]);
   }
 
+  async getPageForUpdate(slug: string): Promise<Page | null> {
+    const sql = this.sql;
+    const rows = await sql`
+      SELECT id, slug, type, title, compiled_truth, timeline, frontmatter, content_hash, created_at, updated_at
+      FROM pages WHERE slug = ${slug}
+      FOR UPDATE
+    `;
+    if (rows.length === 0) return null;
+    return rowToPage(rows[0]);
+  }
+
   async putPage(slug: string, page: PageInput): Promise<Page> {
     slug = validateSlug(slug);
     const sql = this.sql;

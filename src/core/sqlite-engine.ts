@@ -559,6 +559,10 @@ export class SQLiteEngine implements BrainEngine {
     return row ? rowToPage(row) : null;
   }
 
+  async getPageForUpdate(slug: string): Promise<Page | null> {
+    return this.getPage(slug);
+  }
+
   async putPage(slug: string, page: PageInput): Promise<Page> {
     const normalizedSlug = validateSlug(slug);
     const now = nowIso();

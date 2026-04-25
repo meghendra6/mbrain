@@ -69,6 +69,7 @@ export interface BrainEngine {
 
   // Pages CRUD
   getPage(slug: string): Promise<Page | null>;
+  getPageForUpdate(slug: string): Promise<Page | null>;
   putPage(slug: string, page: PageInput): Promise<Page>;
   deletePage(slug: string): Promise<void>;
   listPages(filters?: PageFilters): Promise<Page[]>;

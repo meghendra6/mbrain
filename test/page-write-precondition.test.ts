@@ -324,6 +324,94 @@ describe('put_page content hash preconditions and mutation ledger', () => {
     });
   });
 
+  test('matching expected_content_hash with unchanged content records an applied ledger event', async () => {
+    await withSqliteEngine(async (ctx) => {
+      const put = getOperation('put_page');
+      const slug = 'concepts/precondition-unchanged';
+      const sessionId = 'put-page-unchanged-session';
+      const content = pageContent(
+        'Precondition Unchanged',
+        'Compiled truth stays the same.',
+        '- 2026-04-25 | Initial unchanged evidence.',
+      );
+
+      await put.handler(ctx, { slug, content });
+      const before = await ctx.engine.getPage(slug);
+      expect(before?.content_hash).toBeTruthy();
+
+      const result = await put.handler(ctx, {
+        slug,
+        content,
+        expected_content_hash: before?.content_hash,
+        session_id: sessionId,
+        source_refs: ['Source: unchanged precondition test'],
+      }) as any;
+
+      expect(result).toMatchObject({ slug, status: 'skipped', chunks: 0 });
+
+      const after = await ctx.engine.getPage(slug);
+      expect(after?.content_hash).toBe(before?.content_hash);
+
+      const events = await ctx.engine.listMemoryMutationEvents({ session_id: sessionId });
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        session_id: sessionId,
+        operation: 'put_page',
+        target_kind: 'page',
+        target_id: slug,
+        result: 'applied',
+        expected_target_snapshot_hash: before?.content_hash,
+        current_target_snapshot_hash: before?.content_hash,
+        source_refs: ['Source: unchanged precondition test'],
+      });
+      expect(events[0].conflict_info).toBeNull();
+      expect(events[0].metadata).toMatchObject({
+        import_status: 'skipped',
+        skipped_reason: 'content_hash_unchanged',
+      });
+    });
+  });
+
+  test('expected_content_hash reads the page through the write-lock path', async () => {
+    await withSqliteEngine(async (ctx) => {
+      const put = getOperation('put_page');
+      const slug = 'concepts/precondition-write-lock-path';
+
+      await put.handler(ctx, {
+        slug,
+        content: pageContent(
+          'Precondition Write Lock Path',
+          'Original compiled truth.',
+          '- 2026-04-25 | Initial evidence.',
+        ),
+      });
+      const before = await ctx.engine.getPage(slug);
+      expect(before?.content_hash).toBeTruthy();
+
+      let getPageForUpdateCalls = 0;
+      const originalGetPage = ctx.engine.getPage.bind(ctx.engine);
+      (ctx.engine as BrainEngine & {
+        getPageForUpdate?: BrainEngine['getPage'];
+      }).getPageForUpdate = async (requestedSlug) => {
+        getPageForUpdateCalls += 1;
+        return originalGetPage(requestedSlug);
+      };
+
+      await put.handler(ctx, {
+        slug,
+        content: pageContent(
+          'Precondition Write Lock Path',
+          'Updated compiled truth.',
+          '- 2026-04-25 | Updated evidence.',
+        ),
+        expected_content_hash: before?.content_hash,
+        session_id: 'put-page-write-lock-path-session',
+      });
+
+      expect(getPageForUpdateCalls).toBe(1);
+    });
+  });
+
   test('string-list source_refs are accepted and normalized for put_page audit', async () => {
     await withSqliteEngine(async (ctx) => {
       const put = getOperation('put_page');

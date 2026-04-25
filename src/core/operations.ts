@@ -1415,7 +1415,9 @@ const put_page: Operation = {
     const audit = putPageAuditContext(p);
     const expectedContentHash = putPageExpectedContentHash(p.expected_content_hash);
     const outcome = await ctx.engine.transaction(async (tx) => {
-      const existing = await tx.getPage(slug);
+      const existing = expectedContentHash !== undefined
+        ? await tx.getPageForUpdate(slug)
+        : await tx.getPage(slug);
       const previousHash = existing?.content_hash ?? null;
 
       if (expectedContentHash !== undefined && !existing) {
@@ -1483,6 +1485,28 @@ const put_page: Operation = {
             ...(audit.metadata ?? {}),
             import_status: result.status,
             error: result.error,
+          },
+        });
+      } else {
+        const finalPage = await tx.getPage(slug);
+        const currentHash = finalPage?.content_hash ?? previousHash;
+        if (!currentHash) {
+          throw new OperationError('storage_error', `put_page import skipped without a current content hash for ${slug}`);
+        }
+        await recordMemoryMutationEvent(tx, {
+          ...audit,
+          operation: 'put_page',
+          target_kind: 'page',
+          target_id: slug,
+          expected_target_snapshot_hash: expectedContentHash ?? previousHash,
+          current_target_snapshot_hash: currentHash,
+          result: 'applied',
+          conflict_info: null,
+          dry_run: false,
+          metadata: {
+            ...(audit.metadata ?? {}),
+            import_status: result.status,
+            skipped_reason: 'content_hash_unchanged',
           },
         });
       }
