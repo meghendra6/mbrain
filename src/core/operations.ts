@@ -1286,15 +1286,47 @@ function putPageExpectedContentHash(value: unknown): string | undefined {
 }
 
 function putPageSourceRefs(value: unknown): string[] {
-  const parsed = parseStringListParam(value, 'source_refs');
-  if (parsed === undefined) {
+  let parsed: string[] | undefined;
+  if (value === undefined) {
     return ['Source: mbrain put_page operation'];
+  } else if (Array.isArray(value)) {
+    parsed = value.map((ref, index) => putPageSourceRef(ref, `source_refs[${index}]`));
+  } else if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('[')) {
+      let rawRefs: unknown;
+      try {
+        rawRefs = JSON.parse(trimmed);
+      } catch {
+        throw new OperationError('invalid_params', 'source_refs must be valid JSON when passed as an array string.');
+      }
+      if (!Array.isArray(rawRefs)) {
+        throw new OperationError('invalid_params', 'source_refs JSON value must be an array.');
+      }
+      parsed = rawRefs.map((ref, index) => putPageSourceRef(ref, `source_refs[${index}]`));
+    } else {
+      parsed = parseStringListParam(value, 'source_refs');
+    }
+  } else {
+    throw new OperationError('invalid_params', 'source_refs must be an array or string list.');
   }
-  const refs = parsed.map((ref) => ref.trim()).filter((ref) => ref.length > 0);
+
+  const refs = parsed?.map((ref) => ref.trim()).filter((ref) => ref.length > 0) ?? [];
   if (refs.length === 0) {
     throw new OperationError('invalid_params', 'source_refs must be a non-empty array of strings');
   }
   return refs;
+}
+
+function putPageSourceRef(value: unknown, key: string): string {
+  if (typeof value !== 'string') {
+    throw new OperationError('invalid_params', `${key} must be a string`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new OperationError('invalid_params', `${key} must be a non-empty string`);
+  }
+  return trimmed;
 }
 
 function putPageMetadata(value: unknown): Record<string, unknown> | undefined {

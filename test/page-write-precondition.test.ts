@@ -505,6 +505,92 @@ describe('put_page content hash preconditions and mutation ledger', () => {
     });
   });
 
+  test('JSON-array string source_refs are accepted and normalized for put_page audit', async () => {
+    await withSqliteEngine(async (ctx) => {
+      const put = getOperation('put_page');
+      const slug = 'concepts/json-string-source-refs';
+      const sessionId = 'put-page-json-string-source-refs-session';
+
+      await put.handler(ctx, {
+        slug,
+        content: pageContent(
+          'JSON String Source Refs',
+          'JSON-array string source refs should be accepted.',
+          '- 2026-04-25 | JSON string source refs test.',
+        ),
+        session_id: sessionId,
+        source_refs: '["Source: JSON string one", " Source: JSON string two "]',
+      });
+
+      const events = await ctx.engine.listMemoryMutationEvents({ session_id: sessionId });
+      expect(events).toHaveLength(1);
+      expect(events[0].source_refs).toEqual([
+        'Source: JSON string one',
+        'Source: JSON string two',
+      ]);
+    });
+  });
+
+  test('non-string array source_refs reject before page mutation or ledger recording', async () => {
+    await withSqliteEngine(async (ctx) => {
+      const put = getOperation('put_page');
+      const slug = 'concepts/non-string-array-source-refs';
+      const sessionId = 'put-page-non-string-array-source-refs-session';
+
+      let error: unknown;
+      try {
+        await put.handler(ctx, {
+          slug,
+          content: pageContent(
+            'Non String Array Source Refs',
+            'This page should not be written.',
+            '- 2026-04-25 | Non-string array source refs test.',
+          ),
+          session_id: sessionId,
+          source_refs: [123],
+        });
+      } catch (caught) {
+        error = caught;
+      }
+
+      expect(error).toBeInstanceOf(OperationError);
+      expect((error as OperationError).code).toBe('invalid_params');
+      expect((error as Error).message).toContain('source_refs');
+      expect(await ctx.engine.getPage(slug)).toBeNull();
+      expect(await ctx.engine.listMemoryMutationEvents({ session_id: sessionId })).toEqual([]);
+    });
+  });
+
+  test('non-string JSON-array string source_refs reject before page mutation or ledger recording', async () => {
+    await withSqliteEngine(async (ctx) => {
+      const put = getOperation('put_page');
+      const slug = 'concepts/non-string-json-source-refs';
+      const sessionId = 'put-page-non-string-json-source-refs-session';
+
+      let error: unknown;
+      try {
+        await put.handler(ctx, {
+          slug,
+          content: pageContent(
+            'Non String JSON Source Refs',
+            'This page should not be written.',
+            '- 2026-04-25 | Non-string JSON source refs test.',
+          ),
+          session_id: sessionId,
+          source_refs: '[123]',
+        });
+      } catch (caught) {
+        error = caught;
+      }
+
+      expect(error).toBeInstanceOf(OperationError);
+      expect((error as OperationError).code).toBe('invalid_params');
+      expect((error as Error).message).toContain('source_refs');
+      expect(await ctx.engine.getPage(slug)).toBeNull();
+      expect(await ctx.engine.listMemoryMutationEvents({ session_id: sessionId })).toEqual([]);
+    });
+  });
+
   test('normal put_page without audit params records an applied ledger event using defaults', async () => {
     await withSqliteEngine(async (ctx) => {
       const put = getOperation('put_page');
