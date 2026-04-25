@@ -31,6 +31,114 @@ describe('extractEntityRefs', () => {
     expect(refs).toHaveLength(3);
   });
 
+  test('extracts project, system, and concept markdown links', () => {
+    const content = [
+      '[MBrain](../projects/mbrain.md)',
+      '[MBrain System](../systems/mbrain.md)',
+      '[Brain Agent Loop](../concepts/brain-agent-loop.md)',
+    ].join('\n');
+    const refs = extractEntityRefs(content, 'notes/test.md');
+    expect(refs.map(ref => `${ref.dir}/${ref.slug}`)).toEqual([
+      'projects/mbrain',
+      'systems/mbrain',
+      'concepts/brain-agent-loop',
+    ]);
+  });
+
+  test('extracts markdown links with titles and angle-bracket destinations', () => {
+    const content = [
+      '[MBrain](../projects/mbrain.md "Project page")',
+      '[Brain Agent Loop](<../concepts/brain-agent-loop.md>)',
+    ].join('\n');
+    const refs = extractEntityRefs(content, 'notes/test.md');
+    expect(refs.map(ref => `${ref.dir}/${ref.slug}`)).toEqual([
+      'projects/mbrain',
+      'concepts/brain-agent-loop',
+    ]);
+  });
+
+  test('ignores image destinations', () => {
+    const content = '![Diagram](../projects/mbrain.md)';
+    expect(extractEntityRefs(content, 'notes/test.md')).toHaveLength(0);
+  });
+
+  test('extracts nested durable entity slugs', () => {
+    const content = [
+      '[Local setup](../projects/mbrain/docs/local-offline-setup.md)',
+      '[[projects/mbrain/docs/manual/06-sync-pipeline|Sync Pipeline]]',
+      '[Precision Lookup](../concepts/retrieval/precision-lookup.md)',
+    ].join('\n');
+    const refs = extractEntityRefs(content, 'notes/test.md');
+    expect(refs.map(ref => `${ref.dir}/${ref.slug}`)).toEqual(expect.arrayContaining([
+      'projects/mbrain/docs/local-offline-setup',
+      'projects/mbrain/docs/manual/06-sync-pipeline',
+      'concepts/retrieval/precision-lookup',
+    ]));
+    expect(refs).toHaveLength(3);
+  });
+
+  test('extracts project-local relative markdown links using the source page path', () => {
+    const content = [
+      '[Local setup](local-offline-setup.md)',
+      '[Sync pipeline](./manual/06-sync-pipeline.md)',
+      '[Project root](../../mbrain.md)',
+    ].join('\n');
+    const refs = extractEntityRefs(content, 'projects/mbrain/docs/index.md');
+    expect(refs.map(ref => `${ref.dir}/${ref.slug}`)).toEqual([
+      'projects/mbrain/docs/local-offline-setup',
+      'projects/mbrain/docs/manual/06-sync-pipeline',
+      'projects/mbrain',
+    ]);
+  });
+
+  test('resolves explicitly relative entity-looking paths against the source page', () => {
+    const content = [
+      '[Local people doc](./people/alice.md)',
+      '[Bare local people doc](people/bob.md)',
+      '[Local system doc](../systems/cache.md)',
+    ].join('\n');
+    const refs = extractEntityRefs(content, 'projects/acme/docs/index.md');
+    expect(refs.map(ref => `${ref.dir}/${ref.slug}`)).toEqual([
+      'projects/acme/docs/people/alice',
+      'projects/acme/docs/people/bob',
+      'projects/acme/systems/cache',
+    ]);
+  });
+
+  test('extracts wikilinks with aliases and anchors', () => {
+    const content = [
+      'See [[projects/mbrain|MBrain]]',
+      'and [[systems/mbrain#sync]]',
+      'plus [[concepts/brain-agent-loop]].',
+    ].join('\n');
+    const refs = extractEntityRefs(content, 'notes/test.md');
+    expect(refs.map(ref => `${ref.dir}/${ref.slug}`)).toEqual([
+      'projects/mbrain',
+      'systems/mbrain',
+      'concepts/brain-agent-loop',
+    ]);
+  });
+
+  test('trims wikilink targets and aliases', () => {
+    const refs = extractEntityRefs('See [[ projects/mbrain | MBrain ]]', 'notes/test.md');
+    expect(refs).toEqual([{ dir: 'projects', slug: 'mbrain', name: 'MBrain' }]);
+  });
+
+  test('ignores generic docs links that are not durable entity roots', () => {
+    const content = '[Guide](../docs/setup.md) and [[docs/reference/90]].';
+    expect(extractEntityRefs(content, 'notes/test.md')).toHaveLength(0);
+  });
+
+  test('ignores docs links that contain entity-root directory names', () => {
+    const content = [
+      '[Project docs](../docs/projects/mbrain.md)',
+      '[[docs/projects/mbrain]]',
+      '[System docs](../docs/systems/mbrain.md)',
+      '[[docs/concepts/brain-agent-loop]]',
+    ].join('\n');
+    expect(extractEntityRefs(content, 'notes/test.md')).toHaveLength(0);
+  });
+
   test('returns empty for no entity links', () => {
     const content = 'Just a plain page with [external](https://example.com) link.';
     expect(extractEntityRefs(content, 'test.md')).toHaveLength(0);
@@ -61,14 +169,24 @@ describe('extractPageTitle', () => {
 });
 
 describe('hasBacklink', () => {
-  test('returns true when source filename is present', () => {
-    const content = '## Timeline\n\n- Referenced in [Meeting](../../meetings/q1-review.md)';
-    expect(hasBacklink(content, 'q1-review.md')).toBe(true);
+  test('returns true when source path is linked from the target page', () => {
+    const content = '## Timeline\n\n- Referenced in [Meeting](../meetings/q1-review.md)';
+    expect(hasBacklink(content, 'meetings/q1-review.md', 'people/jane-doe.md')).toBe(true);
   });
 
-  test('returns false when source filename is absent', () => {
-    const content = '## Timeline\n\n- Some other entry';
-    expect(hasBacklink(content, 'q1-review.md')).toBe(false);
+  test('returns false when only another page with the same basename is linked', () => {
+    const content = '## Timeline\n\n- Referenced in [Meeting](../../meetings/q1-review.md)';
+    expect(hasBacklink(content, 'notes/q1-review.md', 'people/jane-doe.md')).toBe(false);
+  });
+
+  test('returns false when the source basename appears outside a backlink link', () => {
+    const content = '## Timeline\n\n- Discussed q1-review.md in prose only.';
+    expect(hasBacklink(content, 'meetings/q1-review.md', 'people/jane-doe.md')).toBe(false);
+  });
+
+  test('returns false for local relative links whose root-like path differs from the resolved target', () => {
+    const content = '## Timeline\n\n- Referenced in [Local](meetings/q1-review.md)';
+    expect(hasBacklink(content, 'meetings/q1-review.md', 'people/jane-doe.md')).toBe(false);
   });
 });
 

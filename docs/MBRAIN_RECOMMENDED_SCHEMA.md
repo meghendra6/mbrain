@@ -168,6 +168,24 @@ Every entity gets a canonical slug that serves as its stable ID:
 
 The filename IS the identity. All references, cross-links, and .raw/ sidecars use this slug.
 
+Slug quality rules:
+- Do not create durable pages with generic leaf names such as `readme`, `docs`, `note`, `notes`, `document`, or `untitled`.
+- `README.md` is a resolver or overview file, not a durable knowledge identity. If it contains reusable knowledge, promote that knowledge into a specific page such as `projects/mbrain/docs/local-offline-setup`, `systems/mbrain`, or `concepts/brain-agent-loop`.
+- Project-specific documentation knowledge belongs under `projects/<project>/docs/<specific-topic>`.
+- Global documentation buckets are not filing destinations for durable knowledge. Scope project-specific documentation to `projects/<project>/docs/<specific-topic>` or promote reusable knowledge to `concepts/<specific-topic>` or `systems/<system>`.
+- Numeric-only leaf slugs, such as `90`, `06`, or any other digit-only name, are not valid durable identities. Keep numeric prefixes only when followed by meaning, such as `06-sync-pipeline`.
+
+Bad:
+- `readme`
+- `docs/misc/90`
+- `docs/reference/06`
+
+Good:
+- `projects/mbrain/docs/local-offline-setup`
+- `projects/mbrain/docs/90-release-readiness`
+- `projects/mbrain/docs/06-sync-pipeline`
+- `concepts/brain-agent-loop`
+
 ### Aliases
 
 People have many names across sources. The frontmatter `aliases` field captures all known variants:

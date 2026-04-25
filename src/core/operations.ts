@@ -9,6 +9,7 @@ import type { BrainEngine } from './engine.ts';
 import type { MBrainConfig } from './config.ts';
 import { importFromContent } from './import-file.ts';
 import { serializeMarkdown } from './markdown.ts';
+import { findSlugQualityIssues } from './slug-quality.ts';
 import { hybridSearch } from './search/hybrid.ts';
 import { expandQuery } from './search/expansion.ts';
 import {
@@ -1246,19 +1247,30 @@ const get_page: Operation = {
 
 const put_page: Operation = {
   name: 'put_page',
-  description: 'Create or update a knowledge page to record new information about people, companies, concepts, or systems discovered during the conversation. Markdown with YAML frontmatter; content should follow the compiled truth + timeline pattern. Chunks, embeds, and reconciles tags.',
+  description: 'Create or update a knowledge page to record new information about people, companies, concepts, or systems discovered during the conversation. Markdown with YAML frontmatter; content should follow the compiled truth + timeline pattern. Rejects generic, numeric-only, or globally bucketed documentation slugs. Chunks, embeds, and reconciles tags.',
   params: {
     slug: { type: 'string', required: true, description: 'Page slug' },
     content: { type: 'string', required: true, description: 'Full markdown content with YAML frontmatter' },
   },
   mutating: true,
   handler: async (ctx, p) => {
+    assertWritableSlugQuality(p.slug as string);
     if (ctx.dryRun) return { dry_run: true, action: 'put_page', slug: p.slug };
     const result = await importFromContent(ctx.engine, p.slug as string, p.content as string);
     return { slug: result.slug, status: result.status === 'imported' ? 'created_or_updated' : result.status, chunks: result.chunks };
   },
   cliHints: { name: 'put', positional: ['slug'], stdin: 'content' },
 };
+
+function assertWritableSlugQuality(slug: string): void {
+  const issues = findSlugQualityIssues(slug);
+  if (issues.length === 0) return;
+
+  const details = issues
+    .map(issue => `${issue.rule}: ${issue.message} ${issue.suggestion}`)
+    .join(' ');
+  throw new OperationError('invalid_params', `put_page slug quality blocked for "${slug}". ${details}`);
+}
 
 const delete_page: Operation = {
   name: 'delete_page',

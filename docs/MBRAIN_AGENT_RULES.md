@@ -87,6 +87,10 @@ In addition to people/company/deal entities, detect:
 | User asks a cross-system question | Check all relevant concept + system pages |
 | Agent discovers a reusable code pattern | Update or create a concept page with `codemap` |
 
+### Slug Quality
+
+Before writing durable pages, clarify vague page identities. Do not create pages whose durable identity is only a generic name (`readme`, `docs`, `untitled`) or a numeric-only leaf slug (`90`, `06`, `123`, etc.). Do not use a global documentation bucket as the durable home for project-specific knowledge. For project-specific documentation, use `projects/<project>/docs/<specific-topic>`. For reusable knowledge, use the primary home such as `concepts/` or `systems/`, then cross-link from the project.
+
 ### Rules
 
 - Fire on EVERY message (no exceptions unless purely operational)

@@ -11,7 +11,7 @@
  */
 
 import { readFileSync, writeFileSync, readdirSync, statSync, lstatSync, existsSync } from 'fs';
-import { join, relative, basename } from 'path';
+import { join, relative, posix } from 'path';
 
 interface BacklinkGap {
   /** The page that mentions the entity */
@@ -24,19 +24,129 @@ interface BacklinkGap {
   sourceTitle: string;
 }
 
-/** Extract entity references from markdown content (relative links to people/companies) */
+const ENTITY_ROOTS = new Set(['people', 'companies', 'projects', 'systems', 'concepts']);
+
+type EntityRef = { name: string; slug: string; dir: string };
+
+function parseEntityPath(path: string, pagePath: string, rootQualified: boolean = false): { dir: string; slug: string } | null {
+  const markdownPath = normalizeMarkdownDestination(path);
+  const cleanPath = stripFragmentAndQuery(markdownPath);
+
+  if (rootQualified || cleanPath.startsWith('/')) {
+    return parseEntityParts(splitPath(cleanPath.replace(/^\/+/, '')));
+  }
+
+  if (isRelativeMarkdownPath(cleanPath)) {
+    const pageDir = posix.dirname(pagePath.replaceAll('\\', '/'));
+    const resolvedPath = posix.normalize(posix.join(pageDir === '.' ? '' : pageDir, cleanPath));
+    return parseEntityParts(splitPath(resolvedPath));
+  }
+
+  return null;
+}
+
+function parseEntityParts(parts: string[]): { dir: string; slug: string } | null {
+  if (parts.some(part => part === '..' || part === '.')) return null;
+  const dir = parts[0]?.toLowerCase();
+  if (dir === 'docs') return null;
+  if (!dir || !ENTITY_ROOTS.has(dir) || !parts[1]) return null;
+
+  const slugParts = parts.slice(1).map(part => part.toLowerCase());
+  slugParts[slugParts.length - 1] = stripMarkdownExtension(slugParts[slugParts.length - 1]);
+
+  return {
+    dir,
+    slug: slugParts.join('/'),
+  };
+}
+
+function isRelativeMarkdownPath(path: string): boolean {
+  return !path.startsWith('/') && !/^[a-z][a-z0-9+.-]*:/i.test(path);
+}
+
+function normalizeMarkdownDestination(destination: string): string {
+  const trimmed = destination.trim();
+  if (trimmed.startsWith('<')) {
+    const closeIndex = trimmed.indexOf('>');
+    return closeIndex >= 0 ? trimmed.slice(1, closeIndex) : trimmed;
+  }
+
+  const titledPath = trimmed.match(/^(\S+?\.mdx?(?:[#?]\S*)?)(?:\s+["'(].*)$/i);
+  return titledPath ? titledPath[1] : trimmed;
+}
+
+function stripFragmentAndQuery(path: string): string {
+  return path.split('#')[0].split('?')[0];
+}
+
+function splitPath(path: string): string[] {
+  return path.replaceAll('\\', '/').split('/').filter(Boolean);
+}
+
+function stripMarkdownExtension(path: string): string {
+  return path.replace(/\.mdx?$/i, '');
+}
+
+function normalizeBrainPath(path: string): string | null {
+  const normalized = posix.normalize(stripMarkdownExtension(path.replaceAll('\\', '/').replace(/^\.\//, ''))).toLowerCase();
+  if (!normalized || normalized === '.' || normalized.split('/').includes('..')) return null;
+  return normalized;
+}
+
+function resolveMarkdownPath(destination: string, contextPagePath?: string): string[] {
+  const cleanPath = stripFragmentAndQuery(normalizeMarkdownDestination(destination));
+  const candidates = new Set<string>();
+
+  if (cleanPath.startsWith('/')) {
+    const direct = normalizeBrainPath(cleanPath.replace(/^\/+/, ''));
+    if (direct) candidates.add(direct);
+    return [...candidates];
+  }
+
+  if (!isRelativeMarkdownPath(cleanPath)) return [];
+
+  if (contextPagePath) {
+    const contextDir = posix.dirname(contextPagePath.replaceAll('\\', '/'));
+    const resolvedPath = posix.normalize(posix.join(contextDir === '.' ? '' : contextDir, cleanPath));
+    const resolved = normalizeBrainPath(resolvedPath);
+    if (resolved) candidates.add(resolved);
+  } else {
+    const direct = normalizeBrainPath(cleanPath);
+    if (direct) candidates.add(direct);
+  }
+
+  return [...candidates];
+}
+
+/** Extract entity references from markdown content (relative links to durable entity roots) */
 export function extractEntityRefs(content: string, pagePath: string): { name: string; slug: string; dir: string }[] {
-  const refs: { name: string; slug: string; dir: string }[] = [];
-  // Match markdown links to brain pages: [Name](../people/slug.md) or [Name](../../companies/slug.md)
-  const linkPattern = /\[([^\]]+)\]\(([^)]*(?:people|companies)\/([^)]+\.md))\)/g;
+  const refs: EntityRef[] = [];
+  const seen = new Set<string>();
+
+  function addRef(name: string, path: string, rootQualified: boolean = false) {
+    const entity = parseEntityPath(path, pagePath, rootQualified);
+    if (!entity) return;
+    const key = `${entity.dir}/${entity.slug}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    refs.push({ name, slug: entity.slug, dir: entity.dir });
+  }
+
+  const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
   let match;
   while ((match = linkPattern.exec(content)) !== null) {
-    const name = match[1];
-    const fullPath = match[2];
-    const slug = match[3].replace('.md', '');
-    const dir = fullPath.includes('people') ? 'people' : 'companies';
-    refs.push({ name, slug, dir });
+    if (match.index > 0 && content[match.index - 1] === '!') continue;
+    addRef(match[1], match[2]);
   }
+
+  const wikilinkPattern = /\[\[([^\]]+)\]\]/g;
+  while ((match = wikilinkPattern.exec(content)) !== null) {
+    const [rawTarget, rawAlias] = match[1].split('|', 2);
+    const target = rawTarget?.trim() ?? '';
+    const alias = rawAlias?.trim();
+    addRef(alias || target.split('#')[0].split('/').pop()?.trim() || target, target, true);
+  }
+
   return refs;
 }
 
@@ -49,9 +159,26 @@ export function extractPageTitle(content: string): string {
   return 'Untitled';
 }
 
-/** Check if a page already contains a back-link to a given source file */
-export function hasBacklink(targetContent: string, sourceFilename: string): boolean {
-  return targetContent.includes(sourceFilename);
+/** Check if a page already contains a back-link to a given source page */
+export function hasBacklink(targetContent: string, sourcePage: string, targetPage?: string): boolean {
+  const sourcePath = normalizeBrainPath(sourcePage);
+  if (!sourcePath) return false;
+
+  const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
+  let match;
+  while ((match = linkPattern.exec(targetContent)) !== null) {
+    if (match.index > 0 && targetContent[match.index - 1] === '!') continue;
+    if (resolveMarkdownPath(match[2], targetPage).includes(sourcePath)) return true;
+  }
+
+  const wikilinkPattern = /\[\[([^\]]+)\]\]/g;
+  while ((match = wikilinkPattern.exec(targetContent)) !== null) {
+    const target = match[1].split('|', 1)[0]?.trim() ?? '';
+    const normalized = normalizeBrainPath(stripFragmentAndQuery(target));
+    if (normalized === sourcePath) return true;
+  }
+
+  return false;
 }
 
 /** Build a timeline back-link entry */
@@ -91,7 +218,6 @@ export function findBacklinkGaps(brainDir: string): BacklinkGap[] {
   // For each page, check entity references
   for (const page of allPages) {
     const refs = extractEntityRefs(page.content, page.relPath);
-    const sourceFilename = basename(page.relPath);
 
     for (const ref of refs) {
       const targetSlug = `${ref.dir}/${ref.slug}`;
@@ -99,7 +225,7 @@ export function findBacklinkGaps(brainDir: string): BacklinkGap[] {
       if (!target) continue; // target page doesn't exist
 
       // Check if the target already has a back-link to this source page
-      if (!hasBacklink(target.content, sourceFilename)) {
+      if (!hasBacklink(target.content, page.relPath, targetSlug + '.md')) {
         gaps.push({
           sourcePage: page.relPath,
           targetPage: targetSlug + '.md',
