@@ -1,193 +1,256 @@
-# Session Handoff — Sprint 1.0 Execution (Partial: Tasks 1–4)
+# Handoff: Sprint 5 Candidate Status Events
 
-**From:** 2026-04-24 working session (Tasks 1–4 executed)
-**To:** next session (resume at Task 5)
-**Working directory:** `/Users/meghendra/Work/mbrain`
-**Branch:** `scenario-test-suite`
-**Tip commit:** `9caa5a7 feat(engine): insert/select interaction_id on event row methods`
+## Current State
 
----
+- Repository: `/Users/meghendra/Work/mbrain`
+- Active worktree: `/Users/meghendra/Work/mbrain/.worktrees/sprint-5-candidate-status-events`
+- Branch: `sprint-5-candidate-status-events`
+- Base: `origin/master` at `f02e4d8` (`Merge pull request #52 from meghendra6/sprint-final-acceptance-closure`)
+- Open PRs after PR #52 merge: none were present when checked.
 
-## 1. What's already done — do not redo
+## Completed Before This Handoff
 
-### Scenario test suite (PR #37, merged)
-14 scenarios + helpers + `test:scenarios` npm script. Includes engine-level I4 fix (promotion refuses empty `source_refs` on all three engines).
+PR #52 was completed and merged before Sprint 5 began.
 
-### Sprint 1.0 design artifacts (on this branch, committed)
-- `docs/superpowers/specs/2026-04-24-mbrain-sprint-0-tsc-baseline-design.md`
-- `docs/superpowers/specs/2026-04-24-mbrain-sprint-1-0-interaction-identity-design.md` — source spec for this sprint
-- `docs/superpowers/specs/2026-04-24-mbrain-sprint-1-1-loop-observability-design.md`
-- `docs/superpowers/plans/2026-04-24-mbrain-sprint-1-0-interaction-identity-plan.md` — the 6-task plan
-- Legacy `2026-04-24-mbrain-sprint-1-loop-observability-design.md` is marked SUPERSEDED; ignore its body.
-- `docs/mbrain-architecture-guide.html` explains mbrain end-to-end with 8 SVG diagrams.
+- PR: `https://github.com/meghendra6/mbrain/pull/52`
+- Merge commit: `f02e4d8f16e99d3e2cb826dc7b6b5aafcf3ecbe3`
+- Remote branch `sprint-final-acceptance-closure` was deleted.
+- PR #52 local verification before merge:
+  - placeholder scan: no matches, exit 0
+  - `bunx tsc --noEmit --pretty false`: exit 0
+  - `bun run test:scenarios`: `61 pass`, `2 skip`, `0 fail`
+  - `env HOME="$(mktemp -d /tmp/mbrain-final-acceptance-test-home.XXXXXX)" bun test --timeout 60000`: `1219 pass`, `145 skip`, `0 fail`
+  - `bun run build`: exit 0
+  - fresh local SQLite `audit-brain-loop --json`: valid zero-activity `AuditBrainLoopReport`
+  - `git diff --check`: exit 0
+- PR #52 GitHub checks:
+  - `test`: pass
+  - `postgres-jsonb`: pass
+  - `gitleaks`: pass
+  - `Tier 1 (Mechanical)`: pass
+  - `Tier 2 (LLM Skills)`: skipped by workflow condition
+- Merge-before-review rule was satisfied:
+  - final subagent critical review found no blockers and recommended merge.
 
-### Sprint 1.0 tasks executed in this session (Tasks 1–4)
+## Sprint 5 Direction
 
-| # | Commit | Subject | Verified by |
-|---|---|---|---|
-| 1 | `3d485f3` | `feat(types): widen RetrievalTrace.scope to ScopeGateScope` | tsc delta 0; 15/15 trace unit tests green |
-| 2 | `add4c2e` | `feat(selector): persist traces without task_id` | S17 red→green (3/3); selector/trace suites 15/15; `shouldEvaluateScopeGate` narrowly widened for task-less persist path |
-| 3 | `cf372dc` | `feat(schema): migration 21 — interaction_id on event rows` | interaction-schema test 2/2 (SQLite + PGLite); `LATEST_VERSION` → 21; migrations 1–20 untouched |
-| 4 | `9caa5a7` | `feat(engine): insert/select interaction_id on event row methods` | all 3 engines + `utils.ts` row mappers threaded; targeted suites 42/42; zero regressions |
+Next recommended product-extension PR is **Candidate Status Events**.
 
-Each commit passed two-stage review (spec compliance + code quality). Key deviations from the plan's literal SQL (all accepted during review):
+Reasoning:
 
-- Migration 21 (PG/PGLite) uses `ADD COLUMN IF NOT EXISTS` because `test/memory-inbox-schema.test.ts` replays migrations from v15 against an already-migrated schema. Plain `ADD COLUMN` would fail that replay.
-- SQLite case 21 uses a `PRAGMA table_info`-guarded ALTER mirroring case 6 (same codebase precedent), dropping the partial `WHERE interaction_id IS NOT NULL` clause because SQLite indexes allow NULL.
-- `test/memory-inbox-schema.test.ts` had 4 hardcoded `'20'` assertions replaced with `String(LATEST_VERSION)` — mechanical version-bump fix, no logic change.
-- Task 2 narrowly widened `shouldEvaluateScopeGate` to evaluate scope_gate when `persist_trace === true && task_id === undefined`; otherwise S17's "work signals → scope 'work'" case cannot reach the fallback. Task-bearing paths unchanged.
-- Task 4 updated shared row mappers in `src/core/utils.ts` (used by PGLite + Postgres) in addition to the inline copies in `sqlite-engine.ts` — pre-existing duplication, updated both to stay in sync.
+- The completed redesign intentionally left candidate creation/rejection in
+  `audit_brain_loop` as approximate.
+- Current audit counts candidate creation from `memory_candidate_entries.created_at`
+  and rejection from `reviewed_at`.
+- Because candidate lifecycle transitions can happen across multiple agent
+  interactions, adding a single `interaction_id` column to
+  `memory_candidate_entries` would be incorrect.
+- An append-only `memory_candidate_status_events` table is the correct
+  foundation before dashboards, cron audit runners, retention/pruning, or
+  active-only compliance.
 
-### Full-suite test state at Task 4 head
+## Files Changed So Far
 
-`bun test`: **1113 pass / 1 fail / 135 skip / 6 todo**. The single failure is the known pre-existing flake `memory-inbox-engine.test.ts > blank-only` (passes in isolation; also flakes on pre-sprint `3d485f3`). Not caused by Sprint 1.0.
+Only one new design spec exists and is currently untracked:
 
----
+- `docs/superpowers/specs/2026-04-25-mbrain-sprint-5-candidate-status-events-design.md`
 
-## 2. What's next — resume at Task 5
+No implementation code has been changed yet.
 
-Remaining plan tasks:
+Current `git status --short --branch` in the Sprint 5 worktree:
 
-### Task 5 — Services accept optional `interaction_id` (pending)
-
-Files:
-- `src/core/services/canonical-handoff-service.ts`
-- `src/core/services/memory-inbox-supersession-service.ts`
-- `src/core/services/memory-inbox-contradiction-service.ts`
-
-Extend each input interface with `interaction_id?: string | null`; thread through to the engine call. Run the three named service test files. Commit: `feat(services): accept optional interaction_id on write services`.
-
-Full task body in the plan, section "Task 5: Services accept optional `interaction_id`".
-
-### Task 6 — Scenario tests S18, S19, S20 (pending)
-
-Create:
-- `test/scenarios/s18-interaction-id-handoff.test.ts` (handoff roundtrip)
-- `test/scenarios/s19-interaction-id-supersession.test.ts` (cross-engine SQLite + PGLite)
-- `test/scenarios/s20-interaction-id-nullable.test.ts` (null is valid)
-
-Run full `bun test`; expected pass delta ≥ +5 from Task 4 head. Commit: `test(scenarios): S18 S19 S20 interaction_id correlation tests`.
-
-### Post-tasks — push + PR
-
-Already done for the partial checkpoint — scenario-test-suite pushed, new PR opened (link noted in §5). For the final sprint close, amend/extend that PR description to cover Tasks 5 + 6 once landed.
-
-### Expected final state after Tasks 5 + 6
-
-- 2 new commits on `scenario-test-suite` (total Sprint 1.0 = 6 commits).
-- `bun test` green with at least 10 new tests vs pre-sprint (S17 ×3, S18 ×1, S19 ×2, S20 ×2, interaction-schema ×2).
-- PR description updated.
-
-### Do-not-touch boundaries (policy, not preference — unchanged)
-
-- `memory_candidate_entries` schema — spec §3 excludes it (mutable state).
-- `retrieval_traces` schema extensions (`derived_consulted`, `write_outcome`, etc.) — Sprint 1.1.
-- Task-less trace read APIs (`getRetrievalTrace`, interaction/window listing, audit surface) — Sprint 1.1.
-- CI `tsc --noEmit` — Sprint 0.
-- `operations.ts` / CLI / MCP surface — Sprint 1.1 adds the audit op.
-
----
-
-## 3. Context that saves re-derivation time (unchanged)
-
-### Repo conventions you must preserve
-
-- Contract-first: CLI and MCP both generated from `src/core/operations.ts`. Do not add user-visible operations in Sprint 1.0.
-- Forward-only migrations: `src/core/migrate.ts` and `src/core/sqlite-engine.ts` case ladder. Never modify a landed migration; always append. Migration 21 now exists.
-- Scenario test pattern: each `test/scenarios/sNN-*.test.ts` starts with a JSDoc block quoting the invariant it falsifies.
-- Per-test timeout for cold-start engines: `const ENGINE_COLD_START_BUDGET_MS = 30_000;` + pass as third arg to `test(..., async () => {...}, ENGINE_COLD_START_BUDGET_MS)`. Already applied in `test/scenarios/interaction-schema.test.ts`.
-
-### Known pre-existing issues not yours to fix
-
-- `bunx tsc --noEmit` has pre-existing errors (Sprint 0 owns cleanup). Do not bundle tsc fixes into Sprint 1.0.
-- PGLite full-suite flake pattern — use per-test timeout override where needed.
-- `memory-inbox-engine.test.ts > blank-only` is a full-suite-only flake; passes in isolation.
-
-### Files likely to change in Task 5 + 6
-
-```
-src/core/services/canonical-handoff-service.ts          [Task 5]
-src/core/services/memory-inbox-supersession-service.ts  [Task 5]
-src/core/services/memory-inbox-contradiction-service.ts [Task 5]
-test/scenarios/s18-interaction-id-handoff.test.ts       [Task 6 · NEW]
-test/scenarios/s19-interaction-id-supersession.test.ts  [Task 6 · NEW]
-test/scenarios/s20-interaction-id-nullable.test.ts      [Task 6 · NEW]
+```text
+## sprint-5-candidate-status-events...origin/master
+?? docs/superpowers/specs/2026-04-25-mbrain-sprint-5-candidate-status-events-design.md
 ```
 
-If you find yourself editing outside this list, stop and re-read the plan.
+## Baseline Verification Already Run In Sprint 5 Worktree
 
----
-
-## 4. Verification commands
+Run from:
 
 ```bash
-# Confirm starting state for the next session
-git status                          # expect clean working tree
-git rev-parse --abbrev-ref HEAD     # expect scenario-test-suite
-git --no-pager log --oneline -5     # expect tip at 9caa5a7 with Tasks 1–4 above it
-
-# Per-task verification (plan specifies exact commands per step)
-bun test test/scenarios/sNN-*.test.ts
-bun test                            # full suite before each commit
-
-# Final verification for Sprint 1.0 close
-bun run test:scenarios              # all scenarios green
-bun test                            # repo-wide green
+cd /Users/meghendra/Work/mbrain/.worktrees/sprint-5-candidate-status-events
 ```
 
-If `bun test` reports more failures than at Task 4 head (1 pre-existing flake), stop and investigate — do not commit.
+Commands and results:
 
----
+```bash
+bunx tsc --noEmit --pretty false
+```
 
-## 5. Open PRs at this handoff
+Result: exit 0, no output.
 
-| # | Title | State | Branch |
-|---|---|---|---|
-| 37 | test: scenario-based test suite grounded in redesign contract | merged | `scenario-test-suite` |
-| (new) | feat: sprint 1.0 — agent-turn identity foundation (partial: tasks 1–4) | open | `scenario-test-suite` |
+```bash
+bun run test:scenarios
+```
 
-The new PR is the checkpoint for Sprint 1.0 execution through Task 4. It will be extended (amended description or subsequent commits) when Tasks 5 + 6 land.
+Result:
 
----
+```text
+61 pass
+2 skip
+0 fail
+210 expect() calls
+Ran 63 tests across 21 files.
+```
 
-## 6. If things go wrong
+## Design Spec Summary
 
-- **Migration regression on a rerun path**: the PG migration uses `ADD COLUMN IF NOT EXISTS`; if a new test exercises a different replay pattern, honor that idempotency.
-- **`persistSelectedRouteTrace` tests break**: Task 2 intentionally changed the "throw on missing task" behavior. If a pre-existing test asserted the old throw-on-missing, update that single test and note the reason.
-- **Cross-engine parity fails for supersession**: the trigger logic (Postgres/PGLite plpgsql vs SQLite hand-coded) was cross-verified in PR #36. If it regresses, start with `test/memory-inbox-schema.test.ts` which exercises all three engines.
-- **Row-mapper drift between `utils.ts` and `sqlite-engine.ts`**: both must stay in sync because sqlite has inline copies. Any future event-row field should update BOTH locations.
+Spec path:
 
----
+```text
+docs/superpowers/specs/2026-04-25-mbrain-sprint-5-candidate-status-events-design.md
+```
 
-## 7. Stop-hook note (unchanged)
+Core design:
 
-The project's Stop hook enforces an mbrain-write reflex. For Sprint 1.0 execution sessions, the answer is normally **MBRAIN-PASS** — implementation artifacts are captured in the PR and docs, not as world-knowledge entries. If something new and reusable surfaced, record it. Otherwise respond `MBRAIN-PASS: <reason>` and continue.
+- Add migration 25 with append-only `memory_candidate_status_events`.
+- Record each lifecycle transition as its own event row:
+  - `created`
+  - `advanced`
+  - `promoted`
+  - `rejected`
+  - `superseded`
+- Include:
+  - `candidate_id`
+  - `scope_id`
+  - `from_status`
+  - `to_status`
+  - `event_kind`
+  - optional `interaction_id`
+  - `reviewed_at`
+  - `review_reason`
+  - `created_at`
+- Do not add `interaction_id` to `memory_candidate_entries`.
+- Keep `interaction_id` as loose string identity, not FK to `retrieval_traces`.
+- Backfill only a single `created` event for existing candidate rows; do not
+  invent historical advance/promote/reject/supersede events.
+- Record events in service-level lifecycle flows, not raw engine status update
+  calls.
+- Update `audit_brain_loop` to include precise
+  `candidate_status_events` counts while preserving old `approximate` report
+  shape for backward compatibility.
 
----
+Explicit non-goals:
 
-## 8. Bootstrapping prompt for the next session
+- No dashboard.
+- No scheduled audit/cron runner.
+- No pruning, TTL, retention, or archival policy.
+- No active-only task compliance.
+- No AST-aware code verification.
+- No full historical reconstruction from old mutable candidate rows.
 
-Copy the block below into the new session as the first message.
+## Important Review State
 
-> I'm resuming Sprint 1.0 execution for mbrain. Tasks 1–4 landed on `scenario-test-suite` (tip `9caa5a7`). Read `HANDOFF.md` at the repo root first, then read the plan at `docs/superpowers/plans/2026-04-24-mbrain-sprint-1-0-interaction-identity-plan.md`. The spec is `docs/superpowers/specs/2026-04-24-mbrain-sprint-1-0-interaction-identity-design.md`.
->
-> Remaining work: Task 5 (services accept optional `interaction_id` — 3 service files) and Task 6 (scenario tests S18 / S19 / S20). Execute them in order using `superpowers:subagent-driven-development` (fresh subagent per task, two-stage review — spec compliance then code quality). If that sub-skill is unavailable, fall back to `superpowers:executing-plans` with checkpoints.
->
-> After Task 6, either amend the existing checkpoint PR's description or push follow-up commits to update it. The PR is already open on `scenario-test-suite`.
->
-> Constraints (full detail in HANDOFF.md §2):
->
-> - Do NOT add `interaction_id` to `memory_candidate_entries` (mutable state — policy).
-> - Do NOT extend `retrieval_traces` with `derived_consulted` / `write_outcome` / etc. — Sprint 1.1.
-> - Do NOT add `bunx tsc --noEmit` to CI — Sprint 0.
-> - Do NOT add CLI or MCP operations — Sprint 1.1.
->
-> Before Task 5, verify starting state:
->
-> ```bash
-> git status                          # expect clean
-> git rev-parse --abbrev-ref HEAD     # expect scenario-test-suite
-> git --no-pager log --oneline -5     # expect tip at 9caa5a7
-> ```
->
-> If any mismatch, stop and flag it.
+A subagent critical design review was started:
+
+- Agent id: `019dc328-f91d-7023-b1c4-dc1bf273bb01`
+- Nickname: `McClintock`
+- Task: review the new Sprint 5 design spec.
+- Status: the user interrupted the turn before it completed.
+- The agent was then closed; notification showed `shutdown`.
+- Result: **no completed review findings are available**.
+
+The next session should re-run a fresh critical subagent review before turning
+the design into an implementation plan.
+
+## Next Steps For New Session
+
+1. Resume in the Sprint 5 worktree:
+
+```bash
+cd /Users/meghendra/Work/mbrain/.worktrees/sprint-5-candidate-status-events
+```
+
+2. Re-read the design spec:
+
+```bash
+sed -n '1,320p' docs/superpowers/specs/2026-04-25-mbrain-sprint-5-candidate-status-events-design.md
+```
+
+3. Run quick local checks:
+
+```bash
+rg -n "TBD|TODO|implement later|fill in|placeholder" docs/superpowers/specs/2026-04-25-mbrain-sprint-5-candidate-status-events-design.md
+git diff --check
+git status --short --branch
+```
+
+4. Spawn a fresh subagent to critically review the design spec.
+
+Review prompt recommendation:
+
+```text
+Review docs/superpowers/specs/2026-04-25-mbrain-sprint-5-candidate-status-events-design.md.
+Do not edit files. Critically assess whether the design is technically sound
+for the existing mbrain codebase. Focus on migration safety, engine parity,
+service-level event recording vs raw engine triggers, audit/filter semantics,
+backward-compatible report shape, and scope control. Return severity-ordered
+findings with file/line references. If no blockers, state that explicitly.
+```
+
+5. Evaluate review findings:
+
+- Treat review as hypotheses, not commands.
+- Fix valid design issues in the spec.
+- If changes are made, rerun placeholder scan and `git diff --check`.
+
+6. Commit the approved design spec before implementation planning:
+
+```bash
+git add docs/superpowers/specs/2026-04-25-mbrain-sprint-5-candidate-status-events-design.md HANDOFF.md
+git diff --cached --check
+git commit -m "docs: design candidate status event log"
+```
+
+7. Use `superpowers:writing-plans` to create:
+
+```text
+docs/superpowers/plans/2026-04-25-mbrain-sprint-5-candidate-status-events-plan.md
+```
+
+8. Only after the plan exists, begin implementation with TDD:
+
+- migration/schema tests first
+- engine event API tests
+- service transition event tests
+- audit precise-count tests
+- scenario S21
+- operation/CLI read-only list tests
+
+## Likely Implementation Files
+
+Expected code areas:
+
+- `src/core/types.ts`
+- `src/core/engine.ts`
+- `src/core/migrate.ts`
+- `src/core/sqlite-engine.ts`
+- `src/core/pglite-engine.ts`
+- `src/core/postgres-engine.ts`
+- `src/core/services/memory-inbox-service.ts`
+- `src/core/services/memory-inbox-promotion-service.ts`
+- `src/core/services/memory-inbox-supersession-service.ts`
+- `src/core/services/memory-inbox-contradiction-service.ts`
+- `src/core/services/brain-loop-audit-service.ts`
+- operation registry/domain files for memory inbox operations
+- `test/memory-inbox-schema.test.ts`
+- `test/memory-inbox-service.test.ts`
+- `test/memory-inbox-operations.test.ts`
+- `test/brain-loop-audit-service.test.ts`
+- new `test/scenarios/s21-candidate-status-events-audit.test.ts`
+- `test/scenarios/README.md`
+- `docs/MBRAIN_VERIFY.md`
+
+## Merge Rule Reminder
+
+Before merging any PR:
+
+- Run a critical subagent review.
+- Verify each review finding against the codebase.
+- Fix all valid findings.
+- Run local verification.
+- Wait for GitHub checks.
+- Run one final pre-merge subagent review if any code changed after the last
+  review.
+- Merge only after checks and review are clean.

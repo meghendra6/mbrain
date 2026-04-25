@@ -441,6 +441,166 @@ test('auditBrainLoop counts linked write rows by interaction_id', async () => {
   }
 });
 
+test('auditBrainLoop reports precise candidate status-event counts by interaction id', async () => {
+  const harness = await createSqliteEngine();
+  const traceId = 'trace-candidate-status-events-audit';
+  const since = new Date(Date.now() - 60 * 60 * 1000);
+  const until = new Date(Date.now() + 60 * 60 * 1000);
+
+  try {
+    await harness.engine.putRetrievalTrace({
+      id: traceId,
+      task_id: null,
+      scope: 'work',
+      route: [],
+      source_refs: [],
+      verification: [],
+      selected_intent: 'precision_lookup',
+      outcome: 'candidate status-event audit trace',
+    });
+
+    await harness.engine.createMemoryCandidateStatusEvent({
+      id: 'audit-status-event-created',
+      candidate_id: 'audit-status-event-candidate',
+      scope_id: 'workspace:default',
+      from_status: null,
+      to_status: 'captured',
+      event_kind: 'created',
+      interaction_id: traceId,
+      created_at: new Date(),
+    });
+    await harness.engine.createMemoryCandidateStatusEvent({
+      id: 'audit-status-event-advanced',
+      candidate_id: 'audit-status-event-candidate',
+      scope_id: 'workspace:default',
+      from_status: 'captured',
+      to_status: 'candidate',
+      event_kind: 'advanced',
+      interaction_id: traceId,
+      created_at: new Date(),
+    });
+
+    const report = await auditBrainLoop(harness.engine, { since, until, scope: 'work' });
+
+    expect(report.candidate_status_events.created_count).toBe(1);
+    expect(report.candidate_status_events.advanced_count).toBe(1);
+    expect(report.candidate_status_events.linked_event_count).toBe(2);
+    expect(report.candidate_status_events.unlinked_event_count).toBe(0);
+    expect(report.candidate_status_events.traces_with_candidate_events).toBe(1);
+    expect(report.linked_writes.traces_with_any_linked_write).toBe(1);
+    expect(report.linked_writes.traces_without_linked_write).toBe(0);
+    expect(report.approximate.candidate_creation_same_window).toBe(0);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test('auditBrainLoop counts candidate-event trace ids only when the trace is in the audit window', async () => {
+  const since = new Date('2026-04-25T10:00:00.000Z');
+  const until = new Date('2026-04-25T11:00:00.000Z');
+  const engine = {
+    listRetrievalTracesByWindow: async () => [],
+    listCanonicalHandoffEntriesByInteractionIds: async () => [],
+    listMemoryCandidateSupersessionEntriesByInteractionIds: async () => [],
+    listMemoryCandidateContradictionEntriesByInteractionIds: async () => [],
+    listMemoryCandidateStatusEvents: async () => [{
+      id: 'audit-status-event-outside-trace',
+      candidate_id: 'candidate-outside-trace',
+      scope_id: 'workspace:default',
+      from_status: null,
+      to_status: 'captured',
+      event_kind: 'created',
+      interaction_id: 'trace-outside-window',
+      reviewed_at: null,
+      review_reason: null,
+      created_at: new Date('2026-04-25T10:30:00.000Z'),
+    }],
+    listMemoryCandidateStatusEventsByInteractionIds: async () => [],
+    listMemoryCandidateEntries: async () => [],
+    listTaskThreads: async () => [],
+  } as unknown as BrainEngine;
+
+  const report = await auditBrainLoop(engine, { since, until });
+
+  expect(report.total_traces).toBe(0);
+  expect(report.candidate_status_events.linked_event_count).toBe(1);
+  expect(report.candidate_status_events.traces_with_candidate_events).toBe(0);
+  expect(report.linked_writes.traces_with_any_linked_write).toBe(0);
+});
+
+test('auditBrainLoop keeps approximate counters compatible for raw candidate rows', async () => {
+  const harness = await createSqliteEngine();
+  const since = new Date(Date.now() - 60 * 60 * 1000);
+  const until = new Date(Date.now() + 60 * 60 * 1000);
+
+  try {
+    await createCandidate(harness.engine, 'candidate-raw-compatibility', {
+      status: 'staged_for_review',
+    });
+    await harness.engine.updateMemoryCandidateEntryStatus('candidate-raw-compatibility', {
+      status: 'rejected',
+      reviewed_at: new Date(),
+      review_reason: 'Raw compatibility count.',
+    });
+
+    const report = await auditBrainLoop(harness.engine, { since, until });
+
+    expect(report.approximate.candidate_creation_same_window).toBe(1);
+    expect(report.approximate.candidate_rejection_same_window).toBe(1);
+    expect(report.candidate_status_events.created_count).toBe(0);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test('auditBrainLoop counts unfiltered status events without double-counting represented candidate rows', async () => {
+  const harness = await createSqliteEngine();
+  const since = new Date(Date.now() - 60 * 60 * 1000);
+  const until = new Date(Date.now() + 60 * 60 * 1000);
+
+  try {
+    await createCandidate(harness.engine, 'candidate-status-event-compatibility', {
+      status: 'staged_for_review',
+    });
+    await harness.engine.createMemoryCandidateStatusEvent({
+      id: 'audit-status-event-compat-created',
+      candidate_id: 'candidate-status-event-compatibility',
+      scope_id: 'workspace:default',
+      from_status: null,
+      to_status: 'staged_for_review',
+      event_kind: 'created',
+      interaction_id: null,
+      created_at: new Date(),
+    });
+    await harness.engine.createMemoryCandidateStatusEvent({
+      id: 'audit-status-event-compat-rejected',
+      candidate_id: 'candidate-status-event-compatibility',
+      scope_id: 'workspace:default',
+      from_status: 'staged_for_review',
+      to_status: 'rejected',
+      event_kind: 'rejected',
+      interaction_id: null,
+      created_at: new Date(),
+    });
+    await harness.engine.updateMemoryCandidateEntryStatus('candidate-status-event-compatibility', {
+      status: 'rejected',
+      reviewed_at: new Date(),
+      review_reason: 'Status event should prevent raw fallback double count.',
+    });
+
+    const report = await auditBrainLoop(harness.engine, { since, until });
+
+    expect(report.candidate_status_events.created_count).toBe(1);
+    expect(report.candidate_status_events.rejected_count).toBe(1);
+    expect(report.candidate_status_events.unlinked_event_count).toBe(2);
+    expect(report.approximate.candidate_creation_same_window).toBe(1);
+    expect(report.approximate.candidate_rejection_same_window).toBe(1);
+    expect(report.approximate.note).toContain('candidate_status_events are precise');
+  } finally {
+    await harness.cleanup();
+  }
+});
+
 test('auditBrainLoop chunks linked-write lookups across large trace windows', async () => {
   const traces = Array.from({ length: 1001 }, (_, index) => makeTrace(`trace-large-${index}`));
   const lookupSizes: number[] = [];
@@ -471,6 +631,8 @@ test('auditBrainLoop chunks linked-write lookups across large trace windows', as
       }
       return [];
     },
+    listMemoryCandidateStatusEvents: async () => [],
+    listMemoryCandidateStatusEventsByInteractionIds: async () => [],
     listMemoryCandidateEntries: async () => [],
     listTaskThreads: async () => [],
   } as unknown as BrainEngine;
@@ -495,6 +657,8 @@ test('auditBrainLoop scans approximate candidates through window filters', async
     listCanonicalHandoffEntriesByInteractionIds: async () => [],
     listMemoryCandidateSupersessionEntriesByInteractionIds: async () => [],
     listMemoryCandidateContradictionEntriesByInteractionIds: async () => [],
+    listMemoryCandidateStatusEvents: async () => [],
+    listMemoryCandidateStatusEventsByInteractionIds: async () => [],
     listMemoryCandidateEntries: async (filters: Record<string, unknown>) => {
       candidateFilters.push(filters);
       return [];

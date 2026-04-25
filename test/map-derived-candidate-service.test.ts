@@ -53,6 +53,15 @@ test('map-derived candidate service captures ready-map reads as inferred map-ana
     expect(result.candidates.every((entry) => entry.target_object_type === 'curated_note')).toBe(true);
     expect(result.candidates.every((entry) => entry.source_refs.some((ref) => ref.includes(`map_id=${built.id}`)))).toBe(true);
     expect(result.candidates.every((entry) => entry.source_refs.some((ref) => ref.includes('path=')))).toBe(true);
+    const createdEvents = await engine.listMemoryCandidateStatusEvents({
+      scope_id: 'workspace:default',
+      event_kind: 'created',
+      limit: 100,
+    });
+    expect(createdEvents.map((event) => event.candidate_id).sort()).toEqual(
+      result.candidates.map((entry) => entry.id).sort(),
+    );
+    expect(createdEvents.every((event) => event.interaction_id === null)).toBe(true);
 
     const after = await engine.getContextMapEntry(built.id);
     expect(after).toEqual(before);

@@ -18,6 +18,9 @@ import type {
   MemoryCandidateEntryInput,
   MemoryCandidateFilters,
   MemoryCandidatePromotionPatch,
+  MemoryCandidateStatusEvent,
+  MemoryCandidateStatusEventFilters,
+  MemoryCandidateStatusEventInput,
   MemoryCandidateSupersessionEntry,
   MemoryCandidateSupersessionInput,
   MemoryCandidateStatusPatch,
@@ -148,6 +151,9 @@ export interface BrainEngine {
   createMemoryCandidateEntry(input: MemoryCandidateEntryInput): Promise<MemoryCandidateEntry>;
   getMemoryCandidateEntry(id: string): Promise<MemoryCandidateEntry | null>;
   listMemoryCandidateEntries(filters?: MemoryCandidateFilters): Promise<MemoryCandidateEntry[]>;
+  createMemoryCandidateStatusEvent(input: MemoryCandidateStatusEventInput): Promise<MemoryCandidateStatusEvent>;
+  listMemoryCandidateStatusEvents(filters?: MemoryCandidateStatusEventFilters): Promise<MemoryCandidateStatusEvent[]>;
+  listMemoryCandidateStatusEventsByInteractionIds(interactionIds: string[]): Promise<MemoryCandidateStatusEvent[]>;
   updateMemoryCandidateEntryStatus(id: string, patch: MemoryCandidateStatusPatch): Promise<MemoryCandidateEntry | null>;
   promoteMemoryCandidateEntry(id: string, patch?: MemoryCandidatePromotionPatch): Promise<MemoryCandidateEntry | null>;
   supersedeMemoryCandidateEntry(input: MemoryCandidateSupersessionInput): Promise<MemoryCandidateSupersessionEntry | null>;

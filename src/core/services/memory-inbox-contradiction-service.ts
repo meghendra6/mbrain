@@ -84,6 +84,7 @@ export async function resolveMemoryCandidateContradiction(
           id: candidate.id,
           reviewed_at: reviewedAt,
           review_reason: reviewReason ?? 'Rejected during contradiction review.',
+          interaction_id: input.interaction_id ?? null,
         });
         const contradictionEntry = await tx.createMemoryCandidateContradictionEntry({
           id: contradictionId,

@@ -2,6 +2,7 @@ import type { Operation } from './operations.ts';
 import type { BrainEngine } from './engine.ts';
 import {
   advanceMemoryCandidateStatus,
+  createMemoryCandidateEntryWithStatusEvent,
   MemoryInboxServiceError,
   preflightPromoteMemoryCandidate,
   rejectMemoryCandidateEntry,
@@ -27,6 +28,7 @@ type MemoryCandidateListFilters = NonNullable<Parameters<BrainEngine['listMemory
 
 const MEMORY_CANDIDATE_EARLY_STATUS_VALUES = ['captured', 'candidate', 'staged_for_review'] as const;
 const MEMORY_CANDIDATE_STATUS_VALUES = ['captured', 'candidate', 'staged_for_review', 'rejected', 'promoted', 'superseded'] as const;
+const MEMORY_CANDIDATE_STATUS_EVENT_KIND_VALUES = ['created', 'advanced', 'promoted', 'rejected', 'superseded'] as const;
 const MEMORY_CANDIDATE_ADVANCE_STATUS_VALUES = ['candidate', 'staged_for_review'] as const;
 const MEMORY_CANDIDATE_TYPE_VALUES = ['fact', 'relationship', 'note_update', 'procedure', 'profile_update', 'open_question', 'rationale'] as const;
 const MEMORY_CANDIDATE_GENERATED_BY_VALUES = ['agent', 'map_analysis', 'dream_cycle', 'manual', 'import'] as const;
@@ -160,6 +162,20 @@ function normalizeOptionalTargetObjectId(
   return value.trim();
 }
 
+function normalizeOptionalNonEmptyString(
+  deps: { OperationError: OperationErrorCtor },
+  field: string,
+  value: unknown,
+): string | null {
+  if (value == null) {
+    return null;
+  }
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw invalidParams(deps, `${field} must be a non-empty string`);
+  }
+  return value.trim();
+}
+
 function normalizeOptionalIsoTimestamp(
   deps: { OperationError: OperationErrorCtor },
   field: string,
@@ -269,6 +285,40 @@ export function createMemoryInboxOperations(
     cliHints: { name: 'list-memory-candidates', aliases: { n: 'limit' } },
   };
 
+  const list_memory_candidate_status_events: Operation = {
+    name: 'list_memory_candidate_status_events',
+    description: 'List append-only memory-candidate lifecycle status events.',
+    params: {
+      candidate_id: { type: 'string', description: 'Optional candidate id filter' },
+      scope_id: { type: 'string', description: 'Optional candidate storage scope id filter (default omitted)' },
+      event_kind: {
+        type: 'string',
+        description: 'Optional status-event kind filter',
+        enum: [...MEMORY_CANDIDATE_STATUS_EVENT_KIND_VALUES],
+      },
+      to_status: {
+        type: 'string',
+        description: 'Optional resulting candidate status filter',
+        enum: [...MEMORY_CANDIDATE_STATUS_VALUES],
+      },
+      interaction_id: { type: 'string', description: 'Optional retrieval trace id filter' },
+      limit: { type: 'number', description: `Max results (default 20, cap ${MAX_MEMORY_CANDIDATE_LIMIT})` },
+      offset: { type: 'number', description: 'Offset for pagination (default 0)' },
+    },
+    handler: async (ctx, p) => {
+      return ctx.engine.listMemoryCandidateStatusEvents({
+        candidate_id: normalizeOptionalNonEmptyString(deps, 'candidate_id', p.candidate_id) ?? undefined,
+        scope_id: normalizeOptionalNonEmptyString(deps, 'scope_id', p.scope_id) ?? undefined,
+        event_kind: optionalEnumValue(deps, 'event_kind', p.event_kind, MEMORY_CANDIDATE_STATUS_EVENT_KIND_VALUES),
+        to_status: optionalEnumValue(deps, 'to_status', p.to_status, MEMORY_CANDIDATE_STATUS_VALUES),
+        interaction_id: normalizeOptionalNonEmptyString(deps, 'interaction_id', p.interaction_id) ?? undefined,
+        limit: normalizeLimit(deps, p.limit),
+        offset: normalizeOffset(deps, p.offset),
+      });
+    },
+    cliHints: { name: 'list-memory-candidate-status-events', aliases: { n: 'limit' } },
+  };
+
   const create_memory_candidate_entry: Operation = {
     name: 'create_memory_candidate_entry',
     description: 'Create one canonical memory-inbox candidate in captured state by default.',
@@ -319,12 +369,14 @@ export function createMemoryInboxOperations(
       target_object_id: { type: 'string', description: 'Optional target object id' },
       reviewed_at: { type: 'string', description: 'Optional ISO timestamp for review metadata' },
       review_reason: { type: 'string', description: 'Optional review reason or audit note' },
+      interaction_id: { type: 'string', description: 'Optional retrieval trace id for lifecycle event attribution' },
     },
     mutating: true,
     handler: async (ctx, p) => {
       const id = typeof p.id === 'string' ? p.id : crypto.randomUUID();
       const scopeId = String(p.scope_id ?? deps.defaultScopeId);
       const status = optionalEnumValue(deps, 'status', p.status, MEMORY_CANDIDATE_EARLY_STATUS_VALUES) ?? 'captured';
+      const interactionId = normalizeOptionalNonEmptyString(deps, 'interaction_id', p.interaction_id);
       if (ctx.dryRun) {
         return {
           dry_run: true,
@@ -336,7 +388,7 @@ export function createMemoryInboxOperations(
         };
       }
 
-      return ctx.engine.createMemoryCandidateEntry({
+      return createMemoryCandidateEntryWithStatusEvent(ctx.engine, {
         id,
         scope_id: scopeId,
         candidate_type: requireEnumValue(deps, 'candidate_type', p.candidate_type, MEMORY_CANDIDATE_TYPE_VALUES),
@@ -353,6 +405,7 @@ export function createMemoryInboxOperations(
         target_object_id: normalizeOptionalTargetObjectId(deps, p.target_object_id),
         reviewed_at: normalizeOptionalIsoTimestamp(deps, 'reviewed_at', p.reviewed_at) ?? null,
         review_reason: typeof p.review_reason === 'string' ? p.review_reason : null,
+        interaction_id: interactionId,
       });
     },
     cliHints: { name: 'create-memory-candidate' },
@@ -588,9 +641,11 @@ export function createMemoryInboxOperations(
       },
       reviewed_at: { type: 'string', description: 'Optional ISO timestamp for review metadata' },
       review_reason: { type: 'string', description: 'Optional review reason or audit note' },
+      interaction_id: { type: 'string', description: 'Optional retrieval trace id for lifecycle event attribution' },
     },
     mutating: true,
     handler: async (ctx, p) => {
+      const interactionId = normalizeOptionalNonEmptyString(deps, 'interaction_id', p.interaction_id);
       if (ctx.dryRun) {
         return {
           dry_run: true,
@@ -606,6 +661,7 @@ export function createMemoryInboxOperations(
           next_status: requireEnumValue(deps, 'next_status', p.next_status, MEMORY_CANDIDATE_ADVANCE_STATUS_VALUES),
           reviewed_at: p.reviewed_at === null ? null : (typeof p.reviewed_at === 'string' ? p.reviewed_at : undefined),
           review_reason: typeof p.review_reason === 'string' ? p.review_reason : undefined,
+          interaction_id: interactionId,
         });
       } catch (error) {
         if (error instanceof MemoryInboxServiceError) {
@@ -627,12 +683,14 @@ export function createMemoryInboxOperations(
       id: { type: 'string', required: true, description: 'Memory candidate id' },
       reviewed_at: { type: 'string', description: 'Optional ISO timestamp for rejection metadata' },
       review_reason: { type: 'string', required: true, description: 'Explicit rejection reason for auditability' },
+      interaction_id: { type: 'string', description: 'Optional retrieval trace id for lifecycle event attribution' },
     },
     mutating: true,
     handler: async (ctx, p) => {
       const reviewReason = typeof p.review_reason === 'string'
         ? p.review_reason
         : (() => { throw invalidParams(deps, 'review_reason must be a string'); })();
+      const interactionId = normalizeOptionalNonEmptyString(deps, 'interaction_id', p.interaction_id);
 
       if (ctx.dryRun) {
         return {
@@ -648,6 +706,7 @@ export function createMemoryInboxOperations(
           id: String(p.id),
           reviewed_at: p.reviewed_at === null ? null : (typeof p.reviewed_at === 'string' ? p.reviewed_at : undefined),
           review_reason: reviewReason,
+          interaction_id: interactionId,
         });
       } catch (error) {
         if (error instanceof MemoryInboxServiceError) {
@@ -696,6 +755,7 @@ export function createMemoryInboxOperations(
       id: { type: 'string', required: true, description: 'Memory candidate id' },
       reviewed_at: { type: 'string', description: 'Optional ISO timestamp for promotion metadata' },
       review_reason: { type: 'string', description: 'Optional promotion reason for auditability' },
+      interaction_id: { type: 'string', description: 'Optional retrieval trace id for lifecycle event attribution' },
     },
     mutating: true,
     handler: async (ctx, p) => {
@@ -708,6 +768,7 @@ export function createMemoryInboxOperations(
       if (p.review_reason != null && typeof p.review_reason !== 'string') {
         throw invalidParams(deps, 'review_reason must be a string or null');
       }
+      const interactionId = normalizeOptionalNonEmptyString(deps, 'interaction_id', p.interaction_id);
       if (ctx.dryRun) {
         return {
           dry_run: true,
@@ -722,6 +783,7 @@ export function createMemoryInboxOperations(
           id: p.id,
           reviewed_at: p.reviewed_at === null ? null : (typeof p.reviewed_at === 'string' ? p.reviewed_at : undefined),
           review_reason: typeof p.review_reason === 'string' ? p.review_reason : undefined,
+          interaction_id: interactionId,
         });
       } catch (error) {
         if (error instanceof MemoryInboxServiceError) {
@@ -744,6 +806,7 @@ export function createMemoryInboxOperations(
       replacement_candidate_id: { type: 'string', required: true, description: 'Promoted replacement candidate id' },
       reviewed_at: { type: 'string', description: 'Optional ISO timestamp for supersession metadata' },
       review_reason: { type: 'string', description: 'Optional supersession reason for auditability' },
+      interaction_id: { type: 'string', description: 'Optional retrieval trace id for lifecycle event attribution' },
     },
     mutating: true,
     handler: async (ctx, p) => {
@@ -756,6 +819,7 @@ export function createMemoryInboxOperations(
       if (p.review_reason != null && typeof p.review_reason !== 'string') {
         throw invalidParams(deps, 'review_reason must be a string or null');
       }
+      const interactionId = normalizeOptionalNonEmptyString(deps, 'interaction_id', p.interaction_id);
       if (ctx.dryRun) {
         return {
           dry_run: true,
@@ -772,6 +836,7 @@ export function createMemoryInboxOperations(
           replacement_candidate_id: p.replacement_candidate_id,
           reviewed_at: normalizeOptionalIsoTimestamp(deps, 'reviewed_at', p.reviewed_at),
           review_reason: typeof p.review_reason === 'string' ? p.review_reason : undefined,
+          interaction_id: interactionId,
         });
       } catch (error) {
         if (error instanceof MemoryInboxServiceError) {
@@ -800,6 +865,7 @@ export function createMemoryInboxOperations(
       },
       reviewed_at: { type: 'string', description: 'Optional ISO timestamp for contradiction review metadata' },
       review_reason: { type: 'string', description: 'Optional contradiction review reason' },
+      interaction_id: { type: 'string', description: 'Optional retrieval trace id for lifecycle event attribution' },
     },
     mutating: true,
     handler: async (ctx, p) => {
@@ -818,6 +884,7 @@ export function createMemoryInboxOperations(
       if (p.review_reason != null && typeof p.review_reason !== 'string') {
         throw invalidParams(deps, 'review_reason must be a string or null');
       }
+      const interactionId = normalizeOptionalNonEmptyString(deps, 'interaction_id', p.interaction_id);
       if (ctx.dryRun) {
         return {
           dry_run: true,
@@ -835,6 +902,7 @@ export function createMemoryInboxOperations(
           outcome,
           reviewed_at: normalizeOptionalIsoTimestamp(deps, 'reviewed_at', p.reviewed_at),
           review_reason: typeof p.review_reason === 'string' ? p.review_reason : undefined,
+          interaction_id: interactionId,
         });
       } catch (error) {
         if (error instanceof MemoryInboxServiceError) {
@@ -886,6 +954,7 @@ export function createMemoryInboxOperations(
   return [
     get_memory_candidate_entry,
     list_memory_candidate_entries,
+    list_memory_candidate_status_events,
     create_memory_candidate_entry,
     rank_memory_candidate_entries,
     capture_map_derived_candidates,

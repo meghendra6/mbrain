@@ -1,6 +1,7 @@
 import type { BrainEngine } from '../engine.ts';
 import type { MemoryCandidateEntry } from '../types.ts';
 import { getStructuralContextMapReport } from './context-map-report-service.ts';
+import { createMemoryCandidateEntryWithStatusEvent } from './memory-inbox-service.ts';
 
 const READY_MAP_CONFIDENCE = 0.65;
 const STALE_MAP_CONFIDENCE = 0.35;
@@ -41,7 +42,7 @@ export async function captureMapDerivedCandidates(
   const mapStatus = normalizeMapStatus(reportStatus);
 
   for (const [index, read] of reads.entries()) {
-    const candidate = await engine.createMemoryCandidateEntry({
+    const candidate = await createMemoryCandidateEntryWithStatusEvent(engine, {
       id: crypto.randomUUID(),
       scope_id: reportResult.report.scope_id,
       candidate_type: 'note_update',

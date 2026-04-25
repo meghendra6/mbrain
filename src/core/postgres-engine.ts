@@ -2,6 +2,7 @@ import postgres from 'postgres';
 import type { BrainEngine } from './engine.ts';
 import {
   assertMemoryCandidateCreateStatus,
+  assertMemoryCandidateStatusEventInput,
   isAllowedMemoryCandidateStatusUpdate,
 } from './memory-inbox-status.ts';
 import { runMigrations } from './migrate.ts';
@@ -26,6 +27,9 @@ import type {
   MemoryCandidateEntryInput,
   MemoryCandidateFilters,
   MemoryCandidatePromotionPatch,
+  MemoryCandidateStatusEvent,
+  MemoryCandidateStatusEventFilters,
+  MemoryCandidateStatusEventInput,
   MemoryCandidateSupersessionEntry,
   MemoryCandidateSupersessionInput,
   MemoryCandidateStatusPatch,
@@ -75,6 +79,7 @@ import {
   rowToContextMapEntry,
   rowToMemoryCandidateEntry,
   rowToMemoryCandidateContradictionEntry,
+  rowToMemoryCandidateStatusEvent,
   rowToMemoryCandidateSupersessionEntry,
   rowToCanonicalHandoffEntry,
   rowToNoteManifestEntry,
@@ -89,12 +94,23 @@ import {
   rowToTaskWorkingSet,
 } from './utils.ts';
 
+type PostgresConnection = ReturnType<typeof postgres>;
+type PostgresNestedConnection = PostgresConnection & {
+  begin?: unknown;
+  savepoint?: unknown;
+};
+
 const INTERACTION_ID_LOOKUP_BATCH_SIZE = 500;
 
 type PostgresParam = string | number | boolean | null | Date | Uint8Array | string[];
 
 function jsonParam(value: unknown): postgres.JSONValue {
   return value as postgres.JSONValue;
+}
+
+function toNullableIso(value: Date | string | null | undefined): string | null {
+  if (value == null) return null;
+  return value instanceof Date ? value.toISOString() : String(value);
 }
 
 export class PostgresEngine implements BrainEngine {
@@ -175,14 +191,43 @@ export class PostgresEngine implements BrainEngine {
   }
 
   async transaction<T>(fn: (engine: BrainEngine) => Promise<T>): Promise<T> {
-    const conn = this.sql;
-    return conn.begin<Promise<T>>(async (tx) => {
-      // Create a scoped engine with tx as its connection, no shared state mutation
+    const conn = this.sql as PostgresNestedConnection;
+    const runInConnection = (tx: unknown) => {
       const txEngine = Object.create(this) as PostgresEngine;
-      Object.defineProperty(txEngine, 'sql', { get: () => tx });
-      Object.defineProperty(txEngine, '_sql', { value: tx as unknown as ReturnType<typeof postgres>, writable: false });
+      const txConn = tx as PostgresConnection;
+      Object.defineProperty(txEngine, 'sql', { get: () => txConn });
+      Object.defineProperty(txEngine, '_sql', { value: txConn, writable: false });
       return fn(txEngine);
-    });
+    };
+
+    if (typeof conn.begin === 'function') {
+      const begin = conn.begin as <Result>(
+        callback: (tx: unknown) => Promise<Result>,
+      ) => Promise<Result>;
+      return begin((tx) => runInConnection(tx));
+    }
+    if (typeof conn.savepoint === 'function') {
+      const savepointFn = conn.savepoint as <Result>(
+        callback: (tx: unknown) => Promise<Result>,
+      ) => Promise<Result>;
+      return savepointFn((tx) => runInConnection(tx));
+    }
+
+    const savepoint = `mbrain_nested_${crypto.randomUUID().replace(/-/g, '')}`;
+    await conn.unsafe(`SAVEPOINT ${savepoint}`);
+    try {
+      const result = await fn(this);
+      await conn.unsafe(`RELEASE SAVEPOINT ${savepoint}`);
+      return result;
+    } catch (error) {
+      try {
+        await conn.unsafe(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+        await conn.unsafe(`RELEASE SAVEPOINT ${savepoint}`);
+      } catch {
+        // Best effort nested rollback.
+      }
+      throw error;
+    }
   }
 
   // Pages CRUD
@@ -1412,6 +1457,110 @@ export class PostgresEngine implements BrainEngine {
     return (rows as Record<string, unknown>[]).map(rowToMemoryCandidateEntry);
   }
 
+  async createMemoryCandidateStatusEvent(
+    input: MemoryCandidateStatusEventInput,
+  ): Promise<MemoryCandidateStatusEvent> {
+    assertMemoryCandidateStatusEventInput(input);
+    const sql = this.sql;
+    const createdAt = toNullableIso(input.created_at) ?? new Date().toISOString();
+    const rows = await sql`
+      INSERT INTO memory_candidate_status_events (
+        id, candidate_id, scope_id, from_status, to_status, event_kind,
+        interaction_id, reviewed_at, review_reason, created_at
+      ) VALUES (
+        ${input.id},
+        ${input.candidate_id},
+        ${input.scope_id},
+        ${input.from_status ?? null},
+        ${input.to_status},
+        ${input.event_kind},
+        ${input.interaction_id ?? null},
+        ${toNullableIso(input.reviewed_at)},
+        ${input.review_reason ?? null},
+        ${createdAt}
+      )
+      RETURNING id, candidate_id, scope_id, from_status, to_status, event_kind,
+                interaction_id, reviewed_at, review_reason, created_at
+    `;
+    return rowToMemoryCandidateStatusEvent(rows[0] as Record<string, unknown>);
+  }
+
+  async listMemoryCandidateStatusEvents(
+    filters?: MemoryCandidateStatusEventFilters,
+  ): Promise<MemoryCandidateStatusEvent[]> {
+    const sql = this.sql;
+    const limit = filters?.limit ?? 100;
+    const offset = filters?.offset ?? 0;
+    const params: PostgresParam[] = [];
+    const clauses: string[] = [];
+
+    if (filters?.candidate_id) {
+      params.push(filters.candidate_id);
+      clauses.push(`candidate_id = $${params.length}`);
+    }
+    if (filters?.scope_id) {
+      params.push(filters.scope_id);
+      clauses.push(`scope_id = $${params.length}`);
+    }
+    if (filters?.event_kind) {
+      params.push(filters.event_kind);
+      clauses.push(`event_kind = $${params.length}`);
+    }
+    if (filters?.to_status) {
+      params.push(filters.to_status);
+      clauses.push(`to_status = $${params.length}`);
+    }
+    if (filters?.interaction_id !== undefined) {
+      params.push(filters.interaction_id);
+      clauses.push(`interaction_id = $${params.length}`);
+    }
+    if (filters?.created_since !== undefined) {
+      params.push(filters.created_since.toISOString());
+      clauses.push(`created_at >= $${params.length}`);
+    }
+    if (filters?.created_until !== undefined) {
+      params.push(filters.created_until.toISOString());
+      clauses.push(`created_at < $${params.length}`);
+    }
+
+    params.push(limit);
+    params.push(offset);
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = await sql.unsafe(
+      `SELECT id, candidate_id, scope_id, from_status, to_status, event_kind,
+              interaction_id, reviewed_at, review_reason, created_at
+       FROM memory_candidate_status_events
+       ${whereClause}
+       ORDER BY created_at DESC, id DESC
+       LIMIT $${params.length - 1}
+       OFFSET $${params.length}`,
+      params,
+    );
+    return (rows as Record<string, unknown>[]).map(rowToMemoryCandidateStatusEvent);
+  }
+
+  async listMemoryCandidateStatusEventsByInteractionIds(
+    interactionIds: string[],
+  ): Promise<MemoryCandidateStatusEvent[]> {
+    const uniqueInteractionIds = [...new Set(interactionIds)];
+    if (uniqueInteractionIds.length === 0) return [];
+    const sql = this.sql;
+    const entries: MemoryCandidateStatusEvent[] = [];
+    for (const chunk of chunkInteractionIds(uniqueInteractionIds)) {
+      const placeholders = chunk.map((_, index) => `$${index + 1}`).join(', ');
+      const rows = await sql.unsafe(
+        `SELECT id, candidate_id, scope_id, from_status, to_status, event_kind,
+                interaction_id, reviewed_at, review_reason, created_at
+         FROM memory_candidate_status_events
+         WHERE interaction_id IN (${placeholders})
+         ORDER BY created_at DESC, id DESC`,
+        chunk,
+      );
+      entries.push(...(rows as Record<string, unknown>[]).map(rowToMemoryCandidateStatusEvent));
+    }
+    return sortByCreatedAtDescIdDesc(entries);
+  }
+
   async updateMemoryCandidateEntryStatus(id: string, patch: MemoryCandidateStatusPatch): Promise<MemoryCandidateEntry | null> {
     const sql = this.sql;
     const current = await this.getMemoryCandidateEntry(id);
@@ -2231,6 +2380,13 @@ function sortByCreatedAtDescIdAsc<T extends { created_at: Date; id: string }>(en
   return entries.sort((a, b) => {
     const createdDelta = b.created_at.getTime() - a.created_at.getTime();
     return createdDelta !== 0 ? createdDelta : a.id.localeCompare(b.id);
+  });
+}
+
+function sortByCreatedAtDescIdDesc<T extends { created_at: Date; id: string }>(entries: T[]): T[] {
+  return entries.sort((a, b) => {
+    const createdDelta = b.created_at.getTime() - a.created_at.getTime();
+    return createdDelta !== 0 ? createdDelta : b.id.localeCompare(a.id);
   });
 }
 

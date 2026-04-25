@@ -1299,6 +1299,8 @@ Expected:
 
 Run these gates from a clean branch based on latest `origin/master`:
 
+- Sprint 5 candidate status events: `bun test test/scenarios/s21-candidate-status-events-audit.test.ts`
+
 ```bash
 if rg -n "test\\.todo|todo\\(" test/scenarios; then
   echo "Scenario placeholders remain"

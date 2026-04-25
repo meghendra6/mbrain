@@ -41,12 +41,13 @@ for the full spec (14 scenarios + invariant catalog + rollout plan).
 | S18 | `s18-interaction-id-handoff.test.ts` | L6, G1 | ✅ green |
 | S19 | `s19-interaction-id-supersession.test.ts` | L6, L5 | ✅ green on SQLite + PGLite, Postgres when `DATABASE_URL` is set |
 | S20 | `s20-interaction-id-nullable.test.ts` | L6 | ✅ green |
+| S21 | `s21-candidate-status-events-audit.test.ts` | L6, G1 | ✅ green |
 
 Legend:
 - ✅ green = passes on current code
 
 The redesign scenario suite currently has zero placeholder tests. It covers the
-original S1-S14 redesign contracts plus S15-S20 loop-observability and
+original S1-S14 redesign contracts plus S15-S21 loop-observability and
 interaction-identity contracts. Run this as part of final acceptance:
 
 ```sh

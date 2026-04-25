@@ -1,6 +1,7 @@
 import type {
   MemoryCandidateCreateStatus,
   MemoryCandidateStatus,
+  MemoryCandidateStatusEventInput,
   MemoryCandidateStatusPatch,
 } from './types.ts';
 
@@ -44,6 +45,58 @@ export function isAllowedMemoryCandidateStatusUpdate(
   }
 }
 
+export function assertMemoryCandidateStatusEventInput(
+  input: MemoryCandidateStatusEventInput,
+): void {
+  switch (input.event_kind) {
+    case 'created':
+      if ((input.from_status ?? null) !== null || !isMemoryCandidateCreateStatus(input.to_status)) {
+        throw invalidMemoryCandidateStatusEvent(input);
+      }
+      return;
+    case 'advanced':
+      if (
+        !(
+          (input.from_status === 'captured' && input.to_status === 'candidate')
+          || (input.from_status === 'candidate' && input.to_status === 'staged_for_review')
+        )
+      ) {
+        throw invalidMemoryCandidateStatusEvent(input);
+      }
+      return;
+    case 'promoted':
+      if (input.from_status !== 'staged_for_review' || input.to_status !== 'promoted') {
+        throw invalidMemoryCandidateStatusEvent(input);
+      }
+      return;
+    case 'rejected':
+      if (input.from_status !== 'staged_for_review' || input.to_status !== 'rejected') {
+        throw invalidMemoryCandidateStatusEvent(input);
+      }
+      return;
+    case 'superseded':
+      if (
+        (input.from_status !== 'staged_for_review' && input.from_status !== 'promoted')
+        || input.to_status !== 'superseded'
+      ) {
+        throw invalidMemoryCandidateStatusEvent(input);
+      }
+      return;
+    default:
+      return assertNeverMemoryCandidateStatusEventKind(input.event_kind);
+  }
+}
+
 function assertNeverMemoryCandidateStatus(status: never): never {
   throw new Error(`Unhandled memory candidate status: ${status}`);
+}
+
+function assertNeverMemoryCandidateStatusEventKind(kind: never): never {
+  throw new Error(`Unhandled memory candidate status event kind: ${kind}`);
+}
+
+function invalidMemoryCandidateStatusEvent(input: MemoryCandidateStatusEventInput): Error {
+  return new Error(
+    `Invalid memory candidate status event: ${input.event_kind} ${input.from_status ?? 'null'} -> ${input.to_status}.`,
+  );
 }

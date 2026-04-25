@@ -98,6 +98,45 @@ test('memory inbox contradiction service forwards interaction_id to supersession
     expect(capturedContradictionInput).toMatchObject({
       interaction_id: 'interaction-789',
     });
+    expect(await engine.listMemoryCandidateStatusEvents({
+      candidate_id: 'challenged-interaction',
+      event_kind: 'superseded',
+      interaction_id: 'interaction-789',
+      limit: 10,
+    })).toHaveLength(1);
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('memory inbox contradiction service records rejected status events with contradiction interaction ids', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-contradiction-service-rejected-event-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    await seedPromotedCandidate(engine, 'challenged-rejected-event');
+    await seedStagedCandidate(engine, 'challenger-rejected-event');
+
+    const result = await resolveMemoryCandidateContradiction(engine, {
+      candidate_id: 'challenger-rejected-event',
+      challenged_candidate_id: 'challenged-rejected-event',
+      outcome: 'rejected',
+      interaction_id: 'interaction-rejected-event',
+      review_reason: 'Rejected branch should preserve contradiction interaction context.',
+    });
+
+    expect(result.contradiction_entry.interaction_id).toBe('interaction-rejected-event');
+    expect(await engine.listMemoryCandidateStatusEvents({
+      candidate_id: 'challenger-rejected-event',
+      event_kind: 'rejected',
+      interaction_id: 'interaction-rejected-event',
+      limit: 10,
+    })).toHaveLength(1);
   } finally {
     await engine.disconnect();
     rmSync(dir, { recursive: true, force: true });

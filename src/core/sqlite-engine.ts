@@ -1,10 +1,12 @@
 import { Database } from 'bun:sqlite';
+import { AsyncLocalStorage } from 'async_hooks';
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 import type { BrainEngine } from './engine.ts';
 import {
   assertMemoryCandidateCreateStatus,
+  assertMemoryCandidateStatusEventInput,
   isAllowedMemoryCandidateStatusUpdate,
 } from './memory-inbox-status.ts';
 import { LATEST_VERSION } from './migrate.ts';
@@ -34,6 +36,9 @@ import type {
   MemoryCandidateEntryInput,
   MemoryCandidateFilters,
   MemoryCandidatePromotionPatch,
+  MemoryCandidateStatusEvent,
+  MemoryCandidateStatusEventFilters,
+  MemoryCandidateStatusEventInput,
   MemoryCandidateSupersessionEntry,
   MemoryCandidateSupersessionInput,
   MemoryCandidateStatusPatch,
@@ -76,12 +81,17 @@ import {
   importContentHash,
   rowToCanonicalHandoffEntry,
   rowToMemoryCandidateContradictionEntry,
+  rowToMemoryCandidateStatusEvent,
   rowToMemoryCandidateSupersessionEntry,
 } from './utils.ts';
 
 const DEFAULT_EMBEDDING_MODEL = 'nomic-embed-text';
 const BASELINE_VERSION = 1;
 const INTERACTION_ID_LOOKUP_BATCH_SIZE = 500;
+
+interface SQLiteTransactionContext {
+  depth: number;
+}
 
 const SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -390,7 +400,8 @@ CREATE TABLE IF NOT EXISTS config (
 
 export class SQLiteEngine implements BrainEngine {
   private db: Database | null = null;
-  private transactionDepth = 0;
+  private transactionQueue: Promise<void> = Promise.resolve();
+  private readonly transactionContext = new AsyncLocalStorage<SQLiteTransactionContext>();
 
   private get database(): Database {
     if (!this.db) throw new Error('SQLite engine is not connected');
@@ -422,7 +433,7 @@ export class SQLiteEngine implements BrainEngine {
     if (this.db) {
       this.db.close();
       this.db = null;
-      this.transactionDepth = 0;
+      this.transactionQueue = Promise.resolve();
     }
   }
 
@@ -460,10 +471,47 @@ export class SQLiteEngine implements BrainEngine {
   }
 
   async transaction<T>(fn: (engine: BrainEngine) => Promise<T>): Promise<T> {
+    const context = this.transactionContext.getStore();
+    if (context) {
+      return this.runTransactionInContext(fn, context);
+    }
+
+    return this.runWithTransactionLock(() => this.transactionContext.run(
+      { depth: 0 },
+      () => {
+        const newContext = this.transactionContext.getStore();
+        if (!newContext) {
+          throw new Error('SQLite transaction context was not initialized');
+        }
+        return this.runTransactionInContext(fn, newContext);
+      },
+    ));
+  }
+
+  private async runWithTransactionLock<T>(fn: () => Promise<T>): Promise<T> {
+    const previous = this.transactionQueue;
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.transactionQueue = previous.then(() => current);
+
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
+  private async runTransactionInContext<T>(
+    fn: (engine: BrainEngine) => Promise<T>,
+    context: SQLiteTransactionContext,
+  ): Promise<T> {
     const db = this.database;
-    const depth = this.transactionDepth;
+    const depth = context.depth;
     const savepoint = `mbrain_sp_${depth}`;
-    this.transactionDepth += 1;
+    context.depth += 1;
 
     try {
       if (depth === 0) {
@@ -493,7 +541,7 @@ export class SQLiteEngine implements BrainEngine {
       }
       throw error;
     } finally {
-      this.transactionDepth -= 1;
+      context.depth -= 1;
     }
   }
 
@@ -1666,6 +1714,111 @@ export class SQLiteEngine implements BrainEngine {
       OFFSET ?
     `).all(...sqliteBindings(params)) as Record<string, unknown>[];
     return rows.map(rowToMemoryCandidateEntry);
+  }
+
+  async createMemoryCandidateStatusEvent(
+    input: MemoryCandidateStatusEventInput,
+  ): Promise<MemoryCandidateStatusEvent> {
+    assertMemoryCandidateStatusEventInput(input);
+    const createdAt = toNullableIso(input.created_at) ?? nowIso();
+    this.database.run(`
+      INSERT INTO memory_candidate_status_events (
+        id, candidate_id, scope_id, from_status, to_status, event_kind,
+        interaction_id, reviewed_at, review_reason, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      input.id,
+      input.candidate_id,
+      input.scope_id,
+      input.from_status ?? null,
+      input.to_status,
+      input.event_kind,
+      input.interaction_id ?? null,
+      toNullableIso(input.reviewed_at),
+      input.review_reason ?? null,
+      createdAt,
+    ]);
+
+    const row = this.database.query(`
+      SELECT id, candidate_id, scope_id, from_status, to_status, event_kind,
+             interaction_id, reviewed_at, review_reason, created_at
+      FROM memory_candidate_status_events
+      WHERE id = ?
+    `).get(input.id) as Record<string, unknown> | null;
+    if (!row) throw new Error(`Memory candidate status event not found after create: ${input.id}`);
+    return rowToMemoryCandidateStatusEvent(row);
+  }
+
+  async listMemoryCandidateStatusEvents(
+    filters?: MemoryCandidateStatusEventFilters,
+  ): Promise<MemoryCandidateStatusEvent[]> {
+    const limit = filters?.limit ?? 100;
+    const offset = filters?.offset ?? 0;
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+
+    if (filters?.candidate_id) {
+      clauses.push('candidate_id = ?');
+      params.push(filters.candidate_id);
+    }
+    if (filters?.scope_id) {
+      clauses.push('scope_id = ?');
+      params.push(filters.scope_id);
+    }
+    if (filters?.event_kind) {
+      clauses.push('event_kind = ?');
+      params.push(filters.event_kind);
+    }
+    if (filters?.to_status) {
+      clauses.push('to_status = ?');
+      params.push(filters.to_status);
+    }
+    if (filters?.interaction_id !== undefined) {
+      clauses.push('interaction_id = ?');
+      params.push(filters.interaction_id);
+    }
+    if (filters?.created_since !== undefined) {
+      clauses.push('created_at >= ?');
+      params.push(filters.created_since.toISOString());
+    }
+    if (filters?.created_until !== undefined) {
+      clauses.push('created_at < ?');
+      params.push(filters.created_until.toISOString());
+    }
+
+    params.push(limit);
+    params.push(offset);
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = this.database.query(`
+      SELECT id, candidate_id, scope_id, from_status, to_status, event_kind,
+             interaction_id, reviewed_at, review_reason, created_at
+      FROM memory_candidate_status_events
+      ${whereClause}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?
+      OFFSET ?
+    `).all(...sqliteBindings(params)) as Record<string, unknown>[];
+    return rows.map(rowToMemoryCandidateStatusEvent);
+  }
+
+  async listMemoryCandidateStatusEventsByInteractionIds(
+    interactionIds: string[],
+  ): Promise<MemoryCandidateStatusEvent[]> {
+    const uniqueInteractionIds = [...new Set(interactionIds)];
+    if (uniqueInteractionIds.length === 0) return [];
+    const entries: MemoryCandidateStatusEvent[] = [];
+    for (const chunk of chunkInteractionIds(uniqueInteractionIds)) {
+      const placeholders = chunk.map(() => '?').join(', ');
+      const rows = this.database.query(`
+        SELECT id, candidate_id, scope_id, from_status, to_status, event_kind,
+               interaction_id, reviewed_at, review_reason, created_at
+        FROM memory_candidate_status_events
+        WHERE interaction_id IN (${placeholders})
+        ORDER BY created_at DESC, id DESC
+      `).all(...chunk) as Record<string, unknown>[];
+      entries.push(...rows.map(rowToMemoryCandidateStatusEvent));
+    }
+    return sortByCreatedAtDescIdDesc(entries);
   }
 
   async updateMemoryCandidateEntryStatus(id: string, patch: MemoryCandidateStatusPatch): Promise<MemoryCandidateEntry | null> {
@@ -2990,6 +3143,9 @@ export class SQLiteEngine implements BrainEngine {
         case 24:
           this.ensureBrainLoopAuditIndexes();
           break;
+        case 25:
+          this.ensureMemoryCandidateStatusEventSchema();
+          break;
         default:
           throw new Error(`SQLite migration ${version} is not implemented`);
       }
@@ -2997,6 +3153,64 @@ export class SQLiteEngine implements BrainEngine {
       await this.setConfig('version', String(version));
       });
     }
+  }
+
+  private ensureMemoryCandidateStatusEventSchema(): void {
+    this.database.exec(`
+      CREATE TABLE IF NOT EXISTS memory_candidate_status_events (
+        id TEXT PRIMARY KEY,
+        candidate_id TEXT NOT NULL,
+        scope_id TEXT NOT NULL,
+        from_status TEXT CHECK (
+          from_status IS NULL
+          OR from_status IN ('captured', 'candidate', 'staged_for_review', 'promoted', 'rejected', 'superseded')
+        ),
+        to_status TEXT NOT NULL CHECK (
+          to_status IN ('captured', 'candidate', 'staged_for_review', 'promoted', 'rejected', 'superseded')
+        ),
+        event_kind TEXT NOT NULL CHECK (
+          event_kind IN ('created', 'advanced', 'promoted', 'rejected', 'superseded')
+        ),
+        interaction_id TEXT,
+        reviewed_at TEXT,
+        review_reason TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_memory_candidate_status_events_candidate_created
+        ON memory_candidate_status_events(candidate_id, created_at DESC, id DESC);
+      DROP INDEX IF EXISTS idx_memory_candidate_status_events_interaction;
+      CREATE INDEX IF NOT EXISTS idx_memory_candidate_status_events_interaction
+        ON memory_candidate_status_events(interaction_id)
+        WHERE interaction_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_memory_candidate_status_events_scope_created
+        ON memory_candidate_status_events(scope_id, created_at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_memory_candidate_status_events_kind_created
+        ON memory_candidate_status_events(event_kind, created_at DESC, id DESC);
+    `);
+
+    if (!this.sqliteTableExists('memory_candidate_entries')) {
+      return;
+    }
+
+    this.database.exec(`
+      INSERT OR IGNORE INTO memory_candidate_status_events (
+        id, candidate_id, scope_id, from_status, to_status, event_kind,
+        interaction_id, reviewed_at, review_reason, created_at
+      )
+      SELECT
+        'candidate-status-created:' || id,
+        id,
+        scope_id,
+        NULL,
+        status,
+        'created',
+        NULL,
+        reviewed_at,
+        review_reason,
+        created_at
+      FROM memory_candidate_entries
+      WHERE status IN ('captured', 'candidate', 'staged_for_review');
+    `);
   }
 
   private ensureBrainLoopAuditIndexes(): void {
@@ -3485,6 +3699,13 @@ function sortByCreatedAtDescIdAsc<T extends { created_at: Date; id: string }>(en
   return entries.sort((a, b) => {
     const createdDelta = b.created_at.getTime() - a.created_at.getTime();
     return createdDelta !== 0 ? createdDelta : a.id.localeCompare(b.id);
+  });
+}
+
+function sortByCreatedAtDescIdDesc<T extends { created_at: Date; id: string }>(entries: T[]): T[] {
+  return entries.sort((a, b) => {
+    const createdDelta = b.created_at.getTime() - a.created_at.getTime();
+    return createdDelta !== 0 ? createdDelta : b.id.localeCompare(a.id);
   });
 }
 

@@ -6,6 +6,7 @@ import { SQLiteEngine } from '../src/core/sqlite-engine.ts';
 import type { MemoryCandidateCreateStatus, MemoryCandidateEntryInput } from '../src/core/types.ts';
 import {
   advanceMemoryCandidateStatus,
+  createMemoryCandidateEntryWithStatusEvent,
   MemoryInboxServiceError,
   preflightPromoteMemoryCandidate,
   rejectMemoryCandidateEntry,
@@ -59,6 +60,66 @@ async function seedPromotedCandidate(
     review_reason: `Promoted ${id} for supersession testing.`,
   });
 }
+
+test('memory inbox service records created and transition events with interaction ids', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-status-events-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    await createMemoryCandidateEntryWithStatusEvent(engine, {
+      id: 'candidate-status-events-service',
+      scope_id: 'workspace:default',
+      candidate_type: 'fact',
+      proposed_content: 'Service should record candidate status events.',
+      source_refs: ['User, direct message, 2026-04-25 9:00 AM KST'],
+      generated_by: 'manual',
+      extraction_kind: 'manual',
+      confidence_score: 0.9,
+      importance_score: 0.7,
+      recurrence_score: 0.1,
+      sensitivity: 'work',
+      status: 'captured',
+      target_object_type: 'curated_note',
+      target_object_id: 'concepts/status-events',
+      interaction_id: 'trace-service-status-events',
+    });
+    await advanceMemoryCandidateStatus(engine, {
+      id: 'candidate-status-events-service',
+      next_status: 'candidate',
+      interaction_id: 'trace-service-status-events',
+    });
+    await advanceMemoryCandidateStatus(engine, {
+      id: 'candidate-status-events-service',
+      next_status: 'staged_for_review',
+      interaction_id: 'trace-service-status-events',
+      review_reason: 'Ready for review.',
+    });
+    await rejectMemoryCandidateEntry(engine, {
+      id: 'candidate-status-events-service',
+      interaction_id: 'trace-service-status-events',
+      review_reason: 'Rejected for service status-event test.',
+    });
+
+    const events = await engine.listMemoryCandidateStatusEvents({
+      candidate_id: 'candidate-status-events-service',
+      limit: 10,
+    });
+    expect(events.map((event) => event.event_kind).sort()).toEqual([
+      'advanced',
+      'advanced',
+      'created',
+      'rejected',
+    ]);
+    expect(events.every((event) => event.interaction_id === 'trace-service-status-events')).toBe(true);
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('memory inbox service advances captured candidate to candidate', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-service-candidate-'));
@@ -137,6 +198,12 @@ test('memory inbox supersession service forwards interaction_id to the engine ca
     expect(capturedInput).toMatchObject({
       interaction_id: 'interaction-456',
     });
+    expect(await engine.listMemoryCandidateStatusEvents({
+      candidate_id: 'superseded-interaction',
+      event_kind: 'superseded',
+      interaction_id: 'interaction-456',
+      limit: 10,
+    })).toHaveLength(1);
   } finally {
     await engine.disconnect();
     rmSync(dir, { recursive: true, force: true });
@@ -588,6 +655,11 @@ test('memory inbox promotion service promotes staged candidates that pass prefli
     expect(promoted.status).toBe('promoted');
     expect(promoted.review_reason).toBe('Promoted after passing promotion preflight.');
     expect(promoted.reviewed_at).not.toBeNull();
+    expect(await engine.listMemoryCandidateStatusEvents({
+      candidate_id: 'candidate-18',
+      event_kind: 'promoted',
+      limit: 10,
+    })).toHaveLength(1);
   } finally {
     await engine.disconnect();
     rmSync(dir, { recursive: true, force: true });
@@ -713,6 +785,11 @@ test('memory inbox supersession service supersedes promoted candidates with an e
     expect(result.superseded_candidate.status).toBe('superseded');
     expect(result.replacement_candidate.id).toBe('candidate-new');
     expect(result.supersession_entry.superseded_candidate_id).toBe('candidate-old');
+    expect(await engine.listMemoryCandidateStatusEvents({
+      candidate_id: 'candidate-old',
+      event_kind: 'superseded',
+      limit: 10,
+    })).toHaveLength(1);
   } finally {
     await engine.disconnect();
     rmSync(dir, { recursive: true, force: true });

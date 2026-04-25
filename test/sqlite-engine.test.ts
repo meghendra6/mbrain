@@ -11,6 +11,16 @@ import { importContentHash } from '../src/core/utils.ts';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 let tempDir = '';
 let dbPath = '';
 let engine: SQLiteEngine;
@@ -45,6 +55,81 @@ afterEach(async () => {
 });
 
 describe('SQLiteEngine', () => {
+  test('keeps nested transaction savepoint rollback inside the outer transaction', async () => {
+    await engine.transaction(async (outer) => {
+      await outer.putPage('people/outer-committed.md', {
+        type: 'person',
+        title: 'Outer Committed',
+        compiled_truth: 'Outer transaction should commit.',
+        timeline: '',
+        frontmatter: {},
+      });
+
+      await expect(outer.transaction(async (nested) => {
+        await nested.putPage('people/nested-rolled-back.md', {
+          type: 'person',
+          title: 'Nested Rolled Back',
+          compiled_truth: 'Nested transaction should roll back.',
+          timeline: '',
+          frontmatter: {},
+        });
+        throw new Error('rollback nested transaction');
+      })).rejects.toThrow('rollback nested transaction');
+
+      await outer.transaction(async (nested) => {
+        await nested.putPage('people/nested-committed.md', {
+          type: 'person',
+          title: 'Nested Committed',
+          compiled_truth: 'Nested transaction should commit with the outer transaction.',
+          timeline: '',
+          frontmatter: {},
+        });
+      });
+    });
+
+    expect((await engine.getPage('people/outer-committed.md'))?.title).toBe('Outer Committed');
+    expect(await engine.getPage('people/nested-rolled-back.md')).toBeNull();
+    expect((await engine.getPage('people/nested-committed.md'))?.title).toBe('Nested Committed');
+  });
+
+  test('serializes overlapping top-level transactions so rollback does not erase a committed peer', async () => {
+    const firstStarted = deferred();
+    const releaseFirst = deferred();
+
+    const first = engine.transaction(async (tx) => {
+      await tx.putPage('people/rolled-back.md', {
+        type: 'person',
+        title: 'Rolled Back',
+        compiled_truth: 'This write should roll back.',
+        timeline: '',
+        frontmatter: {},
+      });
+      firstStarted.resolve();
+      await releaseFirst.promise;
+      throw new Error('rollback first transaction');
+    });
+
+    await firstStarted.promise;
+
+    const second = engine.transaction(async (tx) => {
+      await tx.putPage('people/committed-peer.md', {
+        type: 'person',
+        title: 'Committed Peer',
+        compiled_truth: 'This write must survive the peer rollback.',
+        timeline: '',
+        frontmatter: {},
+      });
+      return 'committed';
+    });
+
+    releaseFirst.resolve();
+
+    await expect(first).rejects.toThrow('rollback first transaction');
+    await expect(second).resolves.toBe('committed');
+    expect(await engine.getPage('people/rolled-back.md')).toBeNull();
+    expect((await engine.getPage('people/committed-peer.md'))?.title).toBe('Committed Peer');
+  });
+
   test('supports page CRUD, chunks, config, slug resolution, and slug updates', async () => {
     const page = await putPage('People/Alice.md', {
       title: 'Alice Example',

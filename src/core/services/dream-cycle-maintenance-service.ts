@@ -8,7 +8,10 @@ import type {
 } from '../types.ts';
 import { assessHistoricalValidity } from './historical-validity-service.ts';
 import { buildMemoryCandidateReviewBacklog } from './memory-candidate-dedup-service.ts';
-import { MemoryInboxServiceError } from './memory-inbox-service.ts';
+import {
+  createMemoryCandidateEntryWithStatusEvent,
+  MemoryInboxServiceError,
+} from './memory-inbox-service.ts';
 
 type DreamCycleSuggestionType = 'recap' | 'stale_claim_challenge' | 'duplicate_merge';
 type DreamCycleSuggestionStatus = 'created' | 'dry_run';
@@ -93,7 +96,10 @@ export async function runDreamCycleMaintenance(
   if (writeCandidates && drafts.length > 0) {
     await engine.transaction(async (tx) => {
       for (const draft of drafts) {
-        const candidateId = (await tx.createMemoryCandidateEntry(toCandidateInput(scopeId, draft, now))).id;
+        const candidateId = (await createMemoryCandidateEntryWithStatusEvent(
+          tx,
+          toCandidateInput(scopeId, draft, now),
+        )).id;
 
         suggestions.push(toSuggestion(draft, candidateId, 'created'));
       }

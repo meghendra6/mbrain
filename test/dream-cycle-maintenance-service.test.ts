@@ -36,6 +36,15 @@ test('dream-cycle maintenance creates only governed dream-cycle candidates', asy
       expect(stored?.status).toBe('candidate');
       expect(stored?.scope_id).toBe('workspace:default');
     }
+    const createdEvents = await harness.engine.listMemoryCandidateStatusEvents({
+      scope_id: 'workspace:default',
+      event_kind: 'created',
+      limit: 100,
+    });
+    expect(createdEvents.map((event) => event.candidate_id).sort()).toEqual(
+      result.suggestions.map((suggestion) => suggestion.candidate_id ?? '').sort(),
+    );
+    expect(createdEvents.every((event) => event.interaction_id === null)).toBe(true);
   } finally {
     await harness.cleanup();
   }

@@ -1,10 +1,12 @@
 import type { BrainEngine } from '../engine.ts';
 import type {
   MemoryCandidateEntry,
+  MemoryCandidateEntryInput,
   MemoryCandidatePromotionPreflightInput,
   MemoryCandidatePromotionPreflightReason,
   MemoryCandidatePromotionPreflightResult,
   MemoryCandidateStatus,
+  MemoryCandidateStatusEventKind,
   MemoryCandidateTargetObjectType,
 } from '../types.ts';
 
@@ -36,12 +38,37 @@ export interface AdvanceMemoryCandidateStatusInput {
   next_status: MemoryCandidateAdvanceTargetStatus;
   reviewed_at?: Date | string | null;
   review_reason?: string | null;
+  interaction_id?: string | null;
 }
 
 export interface RejectMemoryCandidateEntryInput {
   id: string;
   reviewed_at?: Date | string | null;
   review_reason: string;
+  interaction_id?: string | null;
+}
+
+export async function createMemoryCandidateEntryWithStatusEvent(
+  engine: BrainEngine,
+  input: MemoryCandidateEntryInput & { interaction_id?: string | null },
+): Promise<MemoryCandidateEntry> {
+  return engine.transaction(async (txBase) => {
+    const tx = txBase as BrainEngine;
+    const created = await tx.createMemoryCandidateEntry(input);
+    await tx.createMemoryCandidateStatusEvent({
+      id: crypto.randomUUID(),
+      candidate_id: created.id,
+      scope_id: created.scope_id,
+      from_status: null,
+      to_status: created.status,
+      event_kind: 'created',
+      interaction_id: input.interaction_id ?? null,
+      reviewed_at: created.reviewed_at,
+      review_reason: created.review_reason,
+      created_at: created.created_at,
+    });
+    return created;
+  });
 }
 
 export async function preflightPromoteMemoryCandidate(
@@ -101,70 +128,110 @@ export async function advanceMemoryCandidateStatus(
   engine: BrainEngine,
   input: AdvanceMemoryCandidateStatusInput,
 ): Promise<MemoryCandidateEntry> {
-  const entry = await engine.getMemoryCandidateEntry(input.id);
-  if (!entry) {
-    throw new MemoryInboxServiceError(
-      'memory_candidate_not_found',
-      `Memory candidate not found: ${input.id}`,
-    );
-  }
+  return engine.transaction(async (txBase) => {
+    const tx = txBase as BrainEngine;
+    const entry = await tx.getMemoryCandidateEntry(input.id);
+    if (!entry) {
+      throw new MemoryInboxServiceError(
+        'memory_candidate_not_found',
+        `Memory candidate not found: ${input.id}`,
+      );
+    }
 
-  const allowedNext = getAllowedAdvanceTargetStatus(entry.status);
-  if (allowedNext !== input.next_status) {
-    throw new MemoryInboxServiceError(
-      'invalid_status_transition',
-      `Cannot advance memory candidate from ${entry.status} to ${input.next_status}.`,
-    );
-  }
+    const allowedNext = getAllowedAdvanceTargetStatus(entry.status);
+    if (allowedNext !== input.next_status) {
+      throw new MemoryInboxServiceError(
+        'invalid_status_transition',
+        `Cannot advance memory candidate from ${entry.status} to ${input.next_status}.`,
+      );
+    }
 
-  const advanced = await engine.updateMemoryCandidateEntryStatus(entry.id, {
-    status: input.next_status,
-    reviewed_at: normalizeMemoryInboxReviewedAt(
-      input.reviewed_at,
-      input.next_status === 'staged_for_review' ? new Date() : null,
-    ),
-    review_reason: input.review_reason ?? null,
+    const advanced = await tx.updateMemoryCandidateEntryStatus(entry.id, {
+      status: input.next_status,
+      reviewed_at: normalizeMemoryInboxReviewedAt(
+        input.reviewed_at,
+        input.next_status === 'staged_for_review' ? new Date() : null,
+      ),
+      review_reason: input.review_reason ?? null,
+    });
+    if (!advanced) {
+      throw new MemoryInboxServiceError(
+        'invalid_status_transition',
+        `Cannot advance memory candidate ${entry.id}; current state changed before advance completed.`,
+      );
+    }
+    await recordMemoryCandidateStatusEvent(tx, {
+      candidate: advanced,
+      from_status: entry.status,
+      event_kind: 'advanced',
+      interaction_id: input.interaction_id ?? null,
+    });
+    return advanced;
   });
-  if (!advanced) {
-    throw new MemoryInboxServiceError(
-      'invalid_status_transition',
-      `Cannot advance memory candidate ${entry.id}; current state changed before advance completed.`,
-    );
-  }
-  return advanced;
 }
 
 export async function rejectMemoryCandidateEntry(
   engine: BrainEngine,
   input: RejectMemoryCandidateEntryInput,
 ): Promise<MemoryCandidateEntry> {
-  const entry = await engine.getMemoryCandidateEntry(input.id);
-  if (!entry) {
-    throw new MemoryInboxServiceError(
-      'memory_candidate_not_found',
-      `Memory candidate not found: ${input.id}`,
-    );
-  }
+  return engine.transaction(async (txBase) => {
+    const tx = txBase as BrainEngine;
+    const entry = await tx.getMemoryCandidateEntry(input.id);
+    if (!entry) {
+      throw new MemoryInboxServiceError(
+        'memory_candidate_not_found',
+        `Memory candidate not found: ${input.id}`,
+      );
+    }
 
-  if (entry.status !== 'staged_for_review') {
-    throw new MemoryInboxServiceError(
-      'invalid_status_transition',
-      `Cannot reject memory candidate from ${entry.status}; only staged_for_review candidates may be rejected.`,
-    );
-  }
+    if (entry.status !== 'staged_for_review') {
+      throw new MemoryInboxServiceError(
+        'invalid_status_transition',
+        `Cannot reject memory candidate from ${entry.status}; only staged_for_review candidates may be rejected.`,
+      );
+    }
 
-  const rejected = await engine.updateMemoryCandidateEntryStatus(entry.id, {
-    status: 'rejected',
-    reviewed_at: normalizeMemoryInboxReviewedAt(input.reviewed_at, new Date()),
-    review_reason: input.review_reason,
+    const rejected = await tx.updateMemoryCandidateEntryStatus(entry.id, {
+      status: 'rejected',
+      reviewed_at: normalizeMemoryInboxReviewedAt(input.reviewed_at, new Date()),
+      review_reason: input.review_reason,
+    });
+    if (!rejected) {
+      throw new MemoryInboxServiceError(
+        'invalid_status_transition',
+        `Cannot reject memory candidate ${entry.id}; current state changed before rejection completed.`,
+      );
+    }
+    await recordMemoryCandidateStatusEvent(tx, {
+      candidate: rejected,
+      from_status: entry.status,
+      event_kind: 'rejected',
+      interaction_id: input.interaction_id ?? null,
+    });
+    return rejected;
   });
-  if (!rejected) {
-    throw new MemoryInboxServiceError(
-      'invalid_status_transition',
-      `Cannot reject memory candidate ${entry.id}; current state changed before rejection completed.`,
-    );
-  }
-  return rejected;
+}
+
+export async function recordMemoryCandidateStatusEvent(
+  engine: BrainEngine,
+  input: {
+    candidate: MemoryCandidateEntry;
+    from_status: MemoryCandidateStatus | null;
+    event_kind: Exclude<MemoryCandidateStatusEventKind, 'created'>;
+    interaction_id?: string | null;
+  },
+): Promise<void> {
+  await engine.createMemoryCandidateStatusEvent({
+    id: crypto.randomUUID(),
+    candidate_id: input.candidate.id,
+    scope_id: input.candidate.scope_id,
+    from_status: input.from_status,
+    to_status: input.candidate.status,
+    event_kind: input.event_kind,
+    interaction_id: input.interaction_id ?? null,
+    reviewed_at: input.candidate.reviewed_at,
+    review_reason: input.candidate.review_reason,
+  });
 }
 
 export function normalizeMemoryInboxReviewedAt(

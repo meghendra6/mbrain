@@ -7,6 +7,15 @@ import { operations } from '../src/core/operations.ts';
 import { OperationError } from '../src/core/operations.ts';
 import { SQLiteEngine } from '../src/core/sqlite-engine.ts';
 
+function compareEventSummaries(
+  left: { event_kind: string; interaction_id: string | null },
+  right: { event_kind: string; interaction_id: string | null },
+) {
+  const leftKey = `${left.event_kind}:${left.interaction_id ?? ''}`;
+  const rightKey = `${right.event_kind}:${right.interaction_id ?? ''}`;
+  return leftKey.localeCompare(rightKey);
+}
+
 test('memory inbox operations can be built from a dedicated domain module', () => {
   const built = createMemoryInboxOperations({
     defaultScopeId: 'workspace:default',
@@ -16,6 +25,7 @@ test('memory inbox operations can be built from a dedicated domain module', () =
   expect(built.map((operation) => operation.name)).toEqual([
     'get_memory_candidate_entry',
     'list_memory_candidate_entries',
+    'list_memory_candidate_status_events',
     'create_memory_candidate_entry',
     'rank_memory_candidate_entries',
     'capture_map_derived_candidates',
@@ -37,6 +47,7 @@ test('memory inbox operations are registered with CLI hints', () => {
   const create = operations.find((operation) => operation.name === 'create_memory_candidate_entry');
   const get = operations.find((operation) => operation.name === 'get_memory_candidate_entry');
   const list = operations.find((operation) => operation.name === 'list_memory_candidate_entries');
+  const listStatusEvents = operations.find((operation) => operation.name === 'list_memory_candidate_status_events');
   const rank = operations.find((operation) => operation.name === 'rank_memory_candidate_entries');
   const captureMapDerived = operations.find((operation) => operation.name === 'capture_map_derived_candidates');
   const reviewBacklog = operations.find((operation) => operation.name === 'list_memory_candidate_review_backlog');
@@ -54,6 +65,7 @@ test('memory inbox operations are registered with CLI hints', () => {
   expect(create?.cliHints?.name).toBe('create-memory-candidate');
   expect(get?.cliHints?.name).toBe('get-memory-candidate');
   expect(list?.cliHints?.name).toBe('list-memory-candidates');
+  expect(listStatusEvents?.cliHints?.name).toBe('list-memory-candidate-status-events');
   expect(rank?.cliHints?.name).toBe('rank-memory-candidates');
   expect(captureMapDerived?.cliHints?.name).toBe('capture-map-derived-candidates');
   expect(reviewBacklog?.cliHints?.name).toBe('list-memory-candidate-review-backlog');
@@ -69,7 +81,129 @@ test('memory inbox operations are registered with CLI hints', () => {
   expect(dreamCycle?.cliHints?.name).toBe('run-dream-cycle-maintenance');
   expect(create?.params.status?.enum).toEqual(['captured', 'candidate', 'staged_for_review']);
   expect(list?.params.status?.enum).toEqual(['captured', 'candidate', 'staged_for_review', 'rejected', 'promoted', 'superseded']);
+  expect(listStatusEvents?.params.interaction_id?.type).toBe('string');
+  expect(create?.params.interaction_id?.type).toBe('string');
+  expect(advance?.params.interaction_id?.type).toBe('string');
+  expect(reject?.params.interaction_id?.type).toBe('string');
+  expect(promote?.params.interaction_id?.type).toBe('string');
+  expect(supersede?.params.interaction_id?.type).toBe('string');
+  expect(contradiction?.params.interaction_id?.type).toBe('string');
   expect(advance?.params.next_status?.description).toContain('depends on the current stored status');
+});
+
+test('memory inbox operations create and list candidate status events by interaction id', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-op-status-events-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+  const create = operations.find((operation) => operation.name === 'create_memory_candidate_entry');
+  const listStatusEvents = operations.find((operation) => operation.name === 'list_memory_candidate_status_events');
+
+  if (!create || !listStatusEvents) {
+    throw new Error('memory inbox create/status event list operations are missing');
+  }
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    const ctx = {
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    };
+
+    await create.handler(ctx, {
+      id: 'candidate-op-status-events',
+      candidate_type: 'fact',
+      proposed_content: 'Operation-created candidate should get a status event.',
+      source_ref: 'User, direct message, 2026-04-25 9:30 AM KST',
+      interaction_id: 'trace-op-status-events',
+    });
+
+    const events = await listStatusEvents.handler(ctx, {
+      candidate_id: 'candidate-op-status-events',
+      interaction_id: 'trace-op-status-events',
+      limit: 10,
+    });
+    expect((events as any[]).map((event) => event.event_kind)).toEqual(['created']);
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('memory inbox lifecycle operations reject blank interaction ids', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-op-blank-interaction-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+  const create = operations.find((operation) => operation.name === 'create_memory_candidate_entry');
+  const listStatusEvents = operations.find((operation) => operation.name === 'list_memory_candidate_status_events');
+  const advance = operations.find((operation) => operation.name === 'advance_memory_candidate_status');
+  const reject = operations.find((operation) => operation.name === 'reject_memory_candidate_entry');
+  const promote = operations.find((operation) => operation.name === 'promote_memory_candidate_entry');
+  const supersede = operations.find((operation) => operation.name === 'supersede_memory_candidate_entry');
+  const contradiction = operations.find((operation) => operation.name === 'resolve_memory_candidate_contradiction');
+
+  if (!create || !listStatusEvents || !advance || !reject || !promote || !supersede || !contradiction) {
+    throw new Error('memory inbox lifecycle operations are missing');
+  }
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    const ctx = {
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    };
+
+    await expect(create.handler(ctx, {
+      id: 'candidate-blank-create-interaction',
+      candidate_type: 'fact',
+      proposed_content: 'Blank interaction ids should be rejected.',
+      interaction_id: '   ',
+    })).rejects.toMatchObject({ code: 'invalid_params' });
+
+    await expect(listStatusEvents.handler(ctx, {
+      interaction_id: '   ',
+    })).rejects.toMatchObject({ code: 'invalid_params' });
+
+    await expect(advance.handler(ctx, {
+      id: 'missing-candidate',
+      next_status: 'candidate',
+      interaction_id: '   ',
+    })).rejects.toMatchObject({ code: 'invalid_params' });
+
+    await expect(reject.handler(ctx, {
+      id: 'missing-candidate',
+      review_reason: 'Reject blank interaction ids before service calls.',
+      interaction_id: '   ',
+    })).rejects.toMatchObject({ code: 'invalid_params' });
+
+    await expect(promote.handler(ctx, {
+      id: 'missing-candidate',
+      interaction_id: '   ',
+    })).rejects.toMatchObject({ code: 'invalid_params' });
+
+    await expect(supersede.handler(ctx, {
+      superseded_candidate_id: 'missing-old',
+      replacement_candidate_id: 'missing-new',
+      interaction_id: '   ',
+    })).rejects.toMatchObject({ code: 'invalid_params' });
+
+    await expect(contradiction.handler(ctx, {
+      candidate_id: 'missing-candidate',
+      challenged_candidate_id: 'missing-challenged-candidate',
+      outcome: 'rejected',
+      interaction_id: '   ',
+    })).rejects.toMatchObject({ code: 'invalid_params' });
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('memory inbox operations expose dry-run, direct get, filtered list, and bounded advance behavior', async () => {
@@ -79,11 +213,12 @@ test('memory inbox operations expose dry-run, direct get, filtered list, and bou
   const create = operations.find((operation) => operation.name === 'create_memory_candidate_entry');
   const get = operations.find((operation) => operation.name === 'get_memory_candidate_entry');
   const list = operations.find((operation) => operation.name === 'list_memory_candidate_entries');
+  const listStatusEvents = operations.find((operation) => operation.name === 'list_memory_candidate_status_events');
   const advance = operations.find((operation) => operation.name === 'advance_memory_candidate_status');
   const reject = operations.find((operation) => operation.name === 'reject_memory_candidate_entry');
   const preflight = operations.find((operation) => operation.name === 'preflight_promote_memory_candidate');
 
-  if (!create || !get || !list || !advance || !reject || !preflight) {
+  if (!create || !get || !list || !listStatusEvents || !advance || !reject || !preflight) {
     throw new Error('memory inbox operations are missing');
   }
 
@@ -160,6 +295,7 @@ test('memory inbox operations expose dry-run, direct get, filtered list, and bou
     }, {
       id: 'candidate-1',
       next_status: 'candidate',
+      interaction_id: ' trace-op-advance ',
     });
 
     expect((advanced as any).id).toBe('candidate-1');
@@ -174,6 +310,7 @@ test('memory inbox operations expose dry-run, direct get, filtered list, and bou
       id: 'candidate-1',
       next_status: 'staged_for_review',
       review_reason: 'Prepared for explicit decision.',
+      interaction_id: 'trace-op-advance',
     });
 
     expect((staged as any).status).toBe('staged_for_review');
@@ -186,10 +323,32 @@ test('memory inbox operations expose dry-run, direct get, filtered list, and bou
     }, {
       id: 'candidate-1',
       review_reason: 'Insufficient provenance for durable memory.',
+      interaction_id: 'trace-op-reject',
     });
 
     expect((rejected as any).id).toBe('candidate-1');
     expect((rejected as any).status).toBe('rejected');
+
+    const lifecycleEvents = await listStatusEvents.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      candidate_id: 'candidate-1',
+      limit: 10,
+    });
+
+    const lifecycleEventSummaries = (lifecycleEvents as any[]).map((event) => ({
+      event_kind: event.event_kind,
+      interaction_id: event.interaction_id,
+    })).sort(compareEventSummaries);
+    expect(lifecycleEventSummaries).toEqual([
+      { event_kind: 'advanced', interaction_id: 'trace-op-advance' },
+      { event_kind: 'advanced', interaction_id: 'trace-op-advance' },
+      { event_kind: 'created', interaction_id: null },
+      { event_kind: 'rejected', interaction_id: 'trace-op-reject' },
+    ]);
 
     const preflightResult = await preflight.handler({
       engine,
@@ -304,8 +463,9 @@ test('memory inbox promotion operation promotes staged candidates and rejects bl
   const create = operations.find((operation) => operation.name === 'create_memory_candidate_entry');
   const advance = operations.find((operation) => operation.name === 'advance_memory_candidate_status');
   const promote = operations.find((operation) => operation.name === 'promote_memory_candidate_entry');
+  const listStatusEvents = operations.find((operation) => operation.name === 'list_memory_candidate_status_events');
 
-  if (!create || !advance || !promote) {
+  if (!create || !advance || !promote || !listStatusEvents) {
     throw new Error('memory inbox create/advance/promote operations are missing');
   }
 
@@ -345,10 +505,24 @@ test('memory inbox promotion operation promotes staged candidates and rejects bl
     }, {
       id: 'candidate-promote',
       review_reason: 'Promoted after passing preflight.',
+      interaction_id: ' trace-op-promote ',
     });
 
     expect((promoted as any).status).toBe('promoted');
     expect((promoted as any).review_reason).toBe('Promoted after passing preflight.');
+
+    const promotedEvents = await listStatusEvents.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      candidate_id: 'candidate-promote',
+      event_kind: 'promoted',
+      interaction_id: 'trace-op-promote',
+    });
+
+    expect((promotedEvents as any[]).map((event) => event.to_status)).toEqual(['promoted']);
 
     await create.handler({
       engine,
@@ -422,8 +596,9 @@ test('memory inbox supersession operation records explicit old/new links', async
   const advance = operations.find((operation) => operation.name === 'advance_memory_candidate_status');
   const promote = operations.find((operation) => operation.name === 'promote_memory_candidate_entry');
   const supersede = operations.find((operation) => operation.name === 'supersede_memory_candidate_entry');
+  const listStatusEvents = operations.find((operation) => operation.name === 'list_memory_candidate_status_events');
 
-  if (!create || !advance || !promote || !supersede) {
+  if (!create || !advance || !promote || !supersede || !listStatusEvents) {
     throw new Error('memory inbox supersession operation is missing');
   }
 
@@ -463,10 +638,24 @@ test('memory inbox supersession operation records explicit old/new links', async
       superseded_candidate_id: 'candidate-old',
       replacement_candidate_id: 'candidate-new',
       review_reason: 'Newer promoted candidate replaced the older one.',
+      interaction_id: ' trace-op-supersede ',
     });
 
     expect((result as any).superseded_candidate.status).toBe('superseded');
     expect((result as any).supersession_entry.replacement_candidate_id).toBe('candidate-new');
+
+    const supersededEvents = await listStatusEvents.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      candidate_id: 'candidate-old',
+      event_kind: 'superseded',
+      interaction_id: 'trace-op-supersede',
+    });
+
+    expect((supersededEvents as any[]).map((event) => event.to_status)).toEqual(['superseded']);
 
     await expect(supersede.handler({
       engine,
@@ -530,6 +719,73 @@ test('memory inbox supersession operation records explicit old/new links', async
     })).rejects.toMatchObject({
       code: 'invalid_params',
     });
+  } finally {
+    await engine.disconnect();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('memory inbox contradiction operation forwards interaction ids to lifecycle status events', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mbrain-memory-inbox-op-contradiction-'));
+  const databasePath = join(dir, 'brain.db');
+  const engine = new SQLiteEngine();
+  const create = operations.find((operation) => operation.name === 'create_memory_candidate_entry');
+  const advance = operations.find((operation) => operation.name === 'advance_memory_candidate_status');
+  const contradiction = operations.find((operation) => operation.name === 'resolve_memory_candidate_contradiction');
+  const listStatusEvents = operations.find((operation) => operation.name === 'list_memory_candidate_status_events');
+
+  if (!create || !advance || !contradiction || !listStatusEvents) {
+    throw new Error('memory inbox contradiction operation is missing');
+  }
+
+  try {
+    await engine.connect({ engine: 'sqlite', database_path: databasePath });
+    await engine.initSchema();
+
+    for (const id of ['candidate-contradiction-new', 'candidate-contradiction-old']) {
+      await create.handler({ engine, config: {} as any, logger: console, dryRun: false }, {
+        id,
+        candidate_type: 'fact',
+        proposed_content: `Candidate ${id} participates in contradiction review.`,
+        source_ref: 'User, direct message, 2026-04-25 10:00 AM KST',
+      });
+      await advance.handler({ engine, config: {} as any, logger: console, dryRun: false }, {
+        id,
+        next_status: 'candidate',
+      });
+      await advance.handler({ engine, config: {} as any, logger: console, dryRun: false }, {
+        id,
+        next_status: 'staged_for_review',
+      });
+    }
+
+    const result = await contradiction.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      candidate_id: 'candidate-contradiction-new',
+      challenged_candidate_id: 'candidate-contradiction-old',
+      outcome: 'rejected',
+      review_reason: 'The challenger lost contradiction review.',
+      interaction_id: ' trace-op-contradiction ',
+    });
+
+    expect((result as any).candidate.status).toBe('rejected');
+
+    const events = await listStatusEvents.handler({
+      engine,
+      config: {} as any,
+      logger: console,
+      dryRun: false,
+    }, {
+      candidate_id: 'candidate-contradiction-new',
+      event_kind: 'rejected',
+      interaction_id: 'trace-op-contradiction',
+    });
+
+    expect((events as any[]).map((event) => event.to_status)).toEqual(['rejected']);
   } finally {
     await engine.disconnect();
     rmSync(dir, { recursive: true, force: true });
