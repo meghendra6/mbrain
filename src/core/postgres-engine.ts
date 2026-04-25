@@ -1824,19 +1824,20 @@ export class PostgresEngine implements BrainEngine {
 
   async attachMemoryRealmToSession(input: MemorySessionAttachmentInput): Promise<MemorySessionAttachment> {
     const attachment = normalizeMemorySessionAttachmentInput(input);
-    const session = await this.getMemorySession(attachment.session_id);
-    if (!session) throw new Error(`Memory session not found: ${attachment.session_id}`);
-    if (session.status !== 'active') {
-      throw new Error(`Memory session is closed: ${attachment.session_id}`);
-    }
     const rows = await this.sql`
       INSERT INTO memory_session_attachments (
         session_id, realm_id, access, instructions
-      ) VALUES (
+      )
+      SELECT
         ${attachment.session_id},
         ${attachment.realm_id},
         ${attachment.access},
         ${attachment.instructions}
+      WHERE EXISTS (
+        SELECT 1
+        FROM memory_sessions
+        WHERE id = ${attachment.session_id}
+          AND status = 'active'
       )
       ON CONFLICT (session_id, realm_id) DO UPDATE SET
         access = EXCLUDED.access,
@@ -1844,6 +1845,14 @@ export class PostgresEngine implements BrainEngine {
         attached_at = now()
       RETURNING session_id, realm_id, access, instructions, attached_at
     `;
+    if (rows.length === 0) {
+      const session = await this.getMemorySession(attachment.session_id);
+      if (!session) throw new Error(`Memory session not found: ${attachment.session_id}`);
+      if (session.status !== 'active') {
+        throw new Error(`Memory session is closed: ${attachment.session_id}`);
+      }
+      throw new Error(`Memory session attachment was not applied: ${attachment.session_id}:${attachment.realm_id}`);
+    }
     return rowToMemorySessionAttachment(rows[0] as Record<string, unknown>);
   }
 

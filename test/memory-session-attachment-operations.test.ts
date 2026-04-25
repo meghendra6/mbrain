@@ -243,6 +243,13 @@ describe('memory session attachment operations', () => {
         },
       });
 
+      await expect(attachRealm.handler(harness.ctx(true), {
+        session_id: 'session-dry-existing',
+        realm_id: 'realm:dry-run',
+        access: 'read_only',
+        source_refs: [],
+      })).rejects.toThrow('source_refs must contain at least one provenance reference');
+
       expect(await listAttachments.handler(harness.ctx(), {
         session_id: 'session-dry-existing',
       })).toEqual([]);
@@ -381,6 +388,48 @@ describe('memory session attachment operations', () => {
         operation: 'close_memory_session' as any,
         target_id: 'session-idempotent',
       })).toHaveLength(1);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test('direct engine attach does not insert when session closes before the insert statement', async () => {
+    const harness = await createSqliteHarness('direct-attach-race');
+    try {
+      await harness.engine.upsertMemoryRealm({
+        id: 'realm:direct-attach-race',
+        name: 'Direct Attach Race Realm',
+        scope: 'work',
+      });
+      await harness.engine.createMemorySession({
+        id: 'session-direct-attach-race',
+      });
+
+      const db = (harness.engine as any).database;
+      const originalRun = db.run.bind(db);
+      let injectedClose = false;
+      db.run = (sql: string, ...args: unknown[]) => {
+        if (!injectedClose && sql.includes('INSERT INTO memory_session_attachments')) {
+          injectedClose = true;
+          originalRun(`
+            UPDATE memory_sessions
+            SET status = 'closed',
+                closed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE id = 'session-direct-attach-race'
+          `);
+        }
+        return originalRun(sql, ...args);
+      };
+
+      await expect(harness.engine.attachMemoryRealmToSession({
+        session_id: 'session-direct-attach-race',
+        realm_id: 'realm:direct-attach-race',
+        access: 'read_only',
+      })).rejects.toThrow('Memory session is closed: session-direct-attach-race');
+
+      expect(await harness.engine.listMemorySessionAttachments({
+        session_id: 'session-direct-attach-race',
+      })).toEqual([]);
     } finally {
       await harness.cleanup();
     }

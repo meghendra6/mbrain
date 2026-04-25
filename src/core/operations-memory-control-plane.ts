@@ -332,6 +332,7 @@ export function createMemoryControlPlaneOperations(
     mutating: true,
     handler: async (ctx, p) => {
       const input = realmInput(deps, p);
+      const sourceRefs = optionalSourceRefs(deps, p.source_refs) ?? DEFAULT_REALM_UPSERT_SOURCE_REFS;
       if (ctx.dryRun) {
         const existing = await ctx.engine.getMemoryRealm(input.id);
         return {
@@ -342,7 +343,6 @@ export function createMemoryControlPlaneOperations(
       }
       const sessionId = optionalString(deps, 'session_id', p.session_id) ?? `upsert_memory_realm:${randomUUID()}`;
       const actor = optionalString(deps, 'actor', p.actor) ?? DEFAULT_REALM_UPSERT_ACTOR;
-      const sourceRefs = optionalSourceRefs(deps, p.source_refs) ?? DEFAULT_REALM_UPSERT_SOURCE_REFS;
 
       return ctx.engine.transaction(async (engine) => {
         const realm = await engine.upsertMemoryRealm(input);
@@ -405,6 +405,7 @@ export function createMemoryControlPlaneOperations(
     mutating: true,
     handler: async (ctx, p) => {
       const input = memorySessionInput(deps, p);
+      const sourceRefs = optionalSourceRefs(deps, p.source_refs) ?? DEFAULT_SESSION_CREATE_SOURCE_REFS;
       if (ctx.dryRun) {
         await ensureMemorySessionDoesNotExist(deps, ctx.engine, input.id);
         return {
@@ -413,7 +414,6 @@ export function createMemoryControlPlaneOperations(
           session: memorySessionPreview(input),
         };
       }
-      const sourceRefs = optionalSourceRefs(deps, p.source_refs) ?? DEFAULT_SESSION_CREATE_SOURCE_REFS;
       return ctx.engine.transaction(async (engine) => {
         await ensureMemorySessionDoesNotExist(deps, engine, input.id);
         const session = await engine.createMemorySession(input);
@@ -448,6 +448,7 @@ export function createMemoryControlPlaneOperations(
     mutating: true,
     handler: async (ctx, p) => {
       const id = requiredString(deps, 'id', p.id);
+      const sourceRefs = optionalSourceRefs(deps, p.source_refs) ?? DEFAULT_SESSION_CLOSE_SOURCE_REFS;
       const existing = await ctx.engine.getMemorySession(id);
       if (!existing) return null;
       if (ctx.dryRun) {
@@ -461,7 +462,6 @@ export function createMemoryControlPlaneOperations(
           },
         };
       }
-      const sourceRefs = optionalSourceRefs(deps, p.source_refs) ?? DEFAULT_SESSION_CLOSE_SOURCE_REFS;
       return ctx.engine.transaction(async (engine) => {
         const current = await engine.getMemorySession(id);
         if (!current) return null;
@@ -502,6 +502,7 @@ export function createMemoryControlPlaneOperations(
     mutating: true,
     handler: async (ctx, p) => {
       const input = memorySessionAttachmentInput(deps, p);
+      const sourceRefs = optionalSourceRefs(deps, p.source_refs) ?? DEFAULT_SESSION_ATTACH_SOURCE_REFS;
       if (ctx.dryRun) {
         await requireMemorySessionAttachmentTargets(deps, ctx.engine, input);
         return {
@@ -510,7 +511,6 @@ export function createMemoryControlPlaneOperations(
           attachment: memorySessionAttachmentPreview(input),
         };
       }
-      const sourceRefs = optionalSourceRefs(deps, p.source_refs) ?? DEFAULT_SESSION_ATTACH_SOURCE_REFS;
       return ctx.engine.transaction(async (engine) => {
         const { session, realm } = await requireMemorySessionAttachmentTargets(deps, engine, input);
         const attachment = await engine.attachMemoryRealmToSession(input);

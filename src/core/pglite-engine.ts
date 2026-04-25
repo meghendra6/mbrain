@@ -1740,15 +1740,16 @@ export class PGLiteEngine implements BrainEngine {
 
   async attachMemoryRealmToSession(input: MemorySessionAttachmentInput): Promise<MemorySessionAttachment> {
     const attachment = normalizeMemorySessionAttachmentInput(input);
-    const session = await this.getMemorySession(attachment.session_id);
-    if (!session) throw new Error(`Memory session not found: ${attachment.session_id}`);
-    if (session.status !== 'active') {
-      throw new Error(`Memory session is closed: ${attachment.session_id}`);
-    }
     const { rows } = await this.db.query(
       `INSERT INTO memory_session_attachments (
         session_id, realm_id, access, instructions
-      ) VALUES ($1, $2, $3, $4)
+      )
+      SELECT $1, $2, $3, $4
+      WHERE EXISTS (
+        SELECT 1
+        FROM memory_sessions
+        WHERE id = $1 AND status = 'active'
+      )
       ON CONFLICT (session_id, realm_id) DO UPDATE SET
         access = EXCLUDED.access,
         instructions = EXCLUDED.instructions,
@@ -1761,6 +1762,14 @@ export class PGLiteEngine implements BrainEngine {
         attachment.instructions,
       ],
     );
+    if (rows.length === 0) {
+      const session = await this.getMemorySession(attachment.session_id);
+      if (!session) throw new Error(`Memory session not found: ${attachment.session_id}`);
+      if (session.status !== 'active') {
+        throw new Error(`Memory session is closed: ${attachment.session_id}`);
+      }
+      throw new Error(`Memory session attachment was not applied: ${attachment.session_id}:${attachment.realm_id}`);
+    }
     return rowToMemorySessionAttachment(rows[0] as Record<string, unknown>);
   }
 

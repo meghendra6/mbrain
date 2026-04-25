@@ -2125,16 +2125,17 @@ export class SQLiteEngine implements BrainEngine {
 
   async attachMemoryRealmToSession(input: MemorySessionAttachmentInput): Promise<MemorySessionAttachment> {
     const attachment = normalizeMemorySessionAttachmentInput(input);
-    const session = await this.getMemorySession(attachment.session_id);
-    if (!session) throw new Error(`Memory session not found: ${attachment.session_id}`);
-    if (session.status !== 'active') {
-      throw new Error(`Memory session is closed: ${attachment.session_id}`);
-    }
     const timestamp = nowIso();
-    this.database.run(`
+    const result = this.database.run(`
       INSERT INTO memory_session_attachments (
         session_id, realm_id, access, instructions, attached_at
-      ) VALUES (?, ?, ?, ?, ?)
+      )
+      SELECT ?, ?, ?, ?, ?
+      WHERE EXISTS (
+        SELECT 1
+        FROM memory_sessions
+        WHERE id = ? AND status = 'active'
+      )
       ON CONFLICT(session_id, realm_id) DO UPDATE SET
         access = excluded.access,
         instructions = excluded.instructions,
@@ -2145,7 +2146,16 @@ export class SQLiteEngine implements BrainEngine {
       attachment.access,
       attachment.instructions,
       timestamp,
+      attachment.session_id,
     ]));
+    if (result.changes === 0) {
+      const session = await this.getMemorySession(attachment.session_id);
+      if (!session) throw new Error(`Memory session not found: ${attachment.session_id}`);
+      if (session.status !== 'active') {
+        throw new Error(`Memory session is closed: ${attachment.session_id}`);
+      }
+      throw new Error(`Memory session attachment was not applied: ${attachment.session_id}:${attachment.realm_id}`);
+    }
 
     const rows = await this.listMemorySessionAttachments({
       session_id: attachment.session_id,
