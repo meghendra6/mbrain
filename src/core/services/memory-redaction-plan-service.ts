@@ -1,13 +1,24 @@
 import { createHash, randomUUID } from 'crypto';
 import type { BrainEngine } from '../engine.ts';
+import { buildPageChunks } from '../import-file.ts';
 import type {
+  MemoryCandidateEntry,
   MemoryRedactionPlan,
   MemoryRedactionPlanInput,
   MemoryRedactionPlanItem,
   Page,
+  PageInput,
+  PersonalEpisodeEntry,
+  ProfileMemoryEntry,
+  RetrievalTrace,
 } from '../types.ts';
-import { contentHash } from '../utils.ts';
+import { importContentHash } from '../utils.ts';
 import { recordMemoryMutationEvent } from './memory-mutation-ledger-service.ts';
+import {
+  buildNoteManifestEntry,
+  DEFAULT_NOTE_MANIFEST_SCOPE_ID,
+} from './note-manifest-service.ts';
+import { buildNoteSectionEntries } from './note-section-service.ts';
 import { hashCanonicalJson } from './target-snapshot-hash-service.ts';
 
 export interface CreateMemoryRedactionPlanServiceInput {
@@ -35,8 +46,23 @@ const DEFAULT_CREATE_SOURCE_REFS = ['Source: mbrain create_memory_redaction_plan
 const DEFAULT_APPLY_SOURCE_REFS = ['Source: mbrain apply_memory_redaction_plan operation'];
 const DEFAULT_ACTOR = 'mbrain:redaction_plan_service';
 const PAGE_TEXT_FIELDS = ['compiled_truth', 'timeline'] as const;
+const PAGE_VERSION_TEXT_FIELDS = ['compiled_truth', 'frontmatter'] as const;
 
 type PageTextField = typeof PAGE_TEXT_FIELDS[number];
+
+interface PageApplyResult {
+  originalPage: Page;
+  nextPage: Pick<PageInput, 'type' | 'title' | 'compiled_truth' | 'timeline' | 'frontmatter'>;
+  beforeContentHash: string;
+  afterContentHash: string;
+  tags: string[];
+  itemResults: Array<{
+    id: string;
+    field_path: string;
+    before_hash: string;
+    after_hash: string;
+  }>;
+}
 
 export async function createMemoryRedactionPlan(
   engine: BrainEngine,
@@ -47,7 +73,7 @@ export async function createMemoryRedactionPlan(
 
   return engine.transaction(async (tx) => {
     const plan = await tx.createMemoryRedactionPlan(planInput);
-    const items = await createPagePlanItems(tx, plan);
+    const items = await createPlanItems(tx, plan);
     await recordMemoryMutationEvent(tx, {
       session_id: plan.id,
       realm_id: plan.scope_id,
@@ -126,28 +152,25 @@ export async function applyMemoryRedactionPlan(
     assertSupportedApplyItems(items);
     const plannedItems = items.filter((item) => item.status === 'planned');
     const itemsByPage = groupPageItems(plannedItems);
-    const appliedItemIds: string[] = [];
     const pageIds = [...itemsByPage.keys()].sort();
+    const pageResults: PageApplyResult[] = [];
 
     for (const pageId of pageIds) {
       const page = await tx.getPageForUpdate(pageId);
       if (!page) {
         throw new Error(`memory redaction page target not found: ${pageId}`);
       }
-      const next = applyPageItems(page, plan, itemsByPage.get(pageId) ?? []);
-      await tx.putPage(page.slug, {
-        type: page.type,
-        title: page.title,
-        compiled_truth: next.compiled_truth,
-        timeline: next.timeline,
-        frontmatter: page.frontmatter,
-        content_hash: contentHash(next.compiled_truth, next.timeline),
-      });
-      for (const itemResult of next.itemResults) {
+      pageResults.push(await planPageApplyResult(tx, page, plan, itemsByPage.get(pageId) ?? []));
+    }
+
+    const actor = input.actor ?? plan.requested_by ?? DEFAULT_ACTOR;
+    for (const pageResult of pageResults) {
+      const storedPage = await writeRedactedPage(tx, pageResult);
+      const appliedItemIds: string[] = [];
+      for (const itemResult of pageResult.itemResults) {
         const updatedItem = await tx.updateMemoryRedactionPlanItemStatus(itemResult.id, {
           status: 'applied',
           expected_current_status: 'planned',
-          before_hash: itemResult.before_hash,
           after_hash: itemResult.after_hash,
           updated_at: new Date(),
         });
@@ -156,6 +179,34 @@ export async function applyMemoryRedactionPlan(
         }
         appliedItemIds.push(updatedItem.id);
       }
+      await recordMemoryMutationEvent(tx, {
+        session_id: plan.id,
+        realm_id: plan.scope_id,
+        actor,
+        operation: 'execute_redaction_plan',
+        target_kind: 'page',
+        target_id: storedPage.slug,
+        scope_id: plan.scope_id,
+        source_refs: sourceRefs,
+        expected_target_snapshot_hash: pageResult.beforeContentHash,
+        current_target_snapshot_hash: pageResult.afterContentHash,
+        result: 'redacted',
+        metadata: {
+          plan_id: plan.id,
+          query: plan.query,
+          replacement_text: plan.replacement_text,
+          page_slug: storedPage.slug,
+          item_count: pageResult.itemResults.length,
+          item_ids: appliedItemIds,
+          item_results: pageResult.itemResults.map((item) => ({
+            item_id: item.id,
+            field_path: item.field_path,
+            before_hash: item.before_hash,
+            after_hash: item.after_hash,
+          })),
+        },
+        redaction_visibility: 'partially_redacted',
+      });
     }
 
     const appliedAt = new Date();
@@ -168,34 +219,6 @@ export async function applyMemoryRedactionPlan(
       throw new Error(`memory redaction plan was not marked applied: ${plan.id}`);
     }
 
-    await recordMemoryMutationEvent(tx, {
-      session_id: plan.id,
-      realm_id: plan.scope_id,
-      actor: input.actor ?? plan.requested_by ?? DEFAULT_ACTOR,
-      operation: 'execute_redaction_plan',
-      target_kind: 'ledger_event',
-      target_id: plan.id,
-      scope_id: plan.scope_id,
-      source_refs: sourceRefs,
-      expected_target_snapshot_hash: hashCanonicalJson(redactionPlanSnapshot(plan, items)),
-      current_target_snapshot_hash: hashCanonicalJson(redactionPlanSnapshot(applied, await tx.listMemoryRedactionPlanItems({
-        plan_id: plan.id,
-        limit: 10_000,
-      }))),
-      result: 'redacted',
-      applied_at: appliedAt,
-      metadata: {
-        plan_id: plan.id,
-        query: plan.query,
-        replacement_text: plan.replacement_text,
-        applied_item_count: appliedItemIds.length,
-        page_count: pageIds.length,
-        item_ids: appliedItemIds,
-        page_ids: pageIds,
-      },
-      redaction_visibility: 'partially_redacted',
-    });
-
     return applied;
   });
 }
@@ -206,11 +229,15 @@ function redactionPlanInput(input: CreateMemoryRedactionPlanServiceInput): Memor
   if (input.replacement_text !== undefined && typeof input.replacement_text !== 'string') {
     throw new Error('memory redaction replacement_text must be a string');
   }
+  const replacementText = input.replacement_text ?? DEFAULT_REPLACEMENT_TEXT;
+  if (replacementText.includes(query)) {
+    throw new Error('memory redaction replacement_text must not contain the query');
+  }
   return {
     id: input.id ? requiredString('id', input.id) : `redaction-plan:${randomUUID()}`,
     scope_id: scopeId,
     query,
-    replacement_text: input.replacement_text ?? DEFAULT_REPLACEMENT_TEXT,
+    replacement_text: replacementText,
     status: 'draft',
     requested_by: input.requested_by ?? null,
     review_reason: null,
@@ -231,7 +258,7 @@ async function requireDraftPlan(engine: BrainEngine, id: string): Promise<Memory
   return plan;
 }
 
-async function createPagePlanItems(
+async function createPlanItems(
   engine: BrainEngine,
   plan: MemoryRedactionPlan,
 ): Promise<MemoryRedactionPlanItem[]> {
@@ -241,16 +268,137 @@ async function createPagePlanItems(
     for (const field of PAGE_TEXT_FIELDS) {
       const text = page[field] ?? '';
       if (!text.includes(plan.query)) continue;
-      items.push(await engine.createMemoryRedactionPlanItem({
-        id: redactionItemId(plan.id, page.slug, field),
-        plan_id: plan.id,
+      items.push(await createPlanItem(engine, plan, {
         target_object_type: 'page',
         target_object_id: page.slug,
         field_path: field,
-        before_hash: hashText(text),
-        after_hash: null,
+        text,
         status: 'planned',
-        preview_text: previewText(text, plan.query),
+      }));
+    }
+
+    const versions = await engine.getVersions(page.slug);
+    for (const version of versions.sort((left, right) => left.id - right.id)) {
+      for (const field of PAGE_VERSION_TEXT_FIELDS) {
+        const text = field === 'compiled_truth'
+          ? version.compiled_truth
+          : JSON.stringify(version.frontmatter ?? {});
+        if (!text.includes(plan.query)) continue;
+        items.push(await createPlanItem(engine, plan, {
+          target_object_type: 'page_version',
+          target_object_id: String(version.id),
+          field_path: field,
+          text,
+          status: 'unsupported',
+        }));
+      }
+    }
+  }
+  items.push(...await createProfileMemoryUnsupportedItems(engine, plan));
+  items.push(...await createPersonalEpisodeUnsupportedItems(engine, plan));
+  items.push(...await createMemoryCandidateUnsupportedItems(engine, plan));
+  items.push(...await createRetrievalTraceUnsupportedItems(engine, plan));
+  return items;
+}
+
+async function createPlanItem(
+  engine: BrainEngine,
+  plan: MemoryRedactionPlan,
+  input: {
+    target_object_type: MemoryRedactionPlanItem['target_object_type'];
+    target_object_id: string;
+    field_path: string;
+    text: string;
+    status: MemoryRedactionPlanItem['status'];
+  },
+): Promise<MemoryRedactionPlanItem> {
+  return engine.createMemoryRedactionPlanItem({
+    id: redactionItemId(plan.id, input.target_object_type, input.target_object_id, input.field_path),
+    plan_id: plan.id,
+    target_object_type: input.target_object_type,
+    target_object_id: input.target_object_id,
+    field_path: input.field_path,
+    before_hash: hashText(input.text),
+    after_hash: null,
+    status: input.status,
+    preview_text: previewText(input.text, plan.query),
+  });
+}
+
+async function createProfileMemoryUnsupportedItems(
+  engine: BrainEngine,
+  plan: MemoryRedactionPlan,
+): Promise<MemoryRedactionPlanItem[]> {
+  const items: MemoryRedactionPlanItem[] = [];
+  for (const entry of (await listAllProfileMemoryEntries(engine, plan.scope_id)).sort(byId)) {
+    for (const field of profileMemoryTextFields(entry)) {
+      if (!field.text.includes(plan.query)) continue;
+      items.push(await createPlanItem(engine, plan, {
+        target_object_type: 'profile_memory',
+        target_object_id: entry.id,
+        field_path: field.path,
+        text: field.text,
+        status: 'unsupported',
+      }));
+    }
+  }
+  return items;
+}
+
+async function createPersonalEpisodeUnsupportedItems(
+  engine: BrainEngine,
+  plan: MemoryRedactionPlan,
+): Promise<MemoryRedactionPlanItem[]> {
+  const items: MemoryRedactionPlanItem[] = [];
+  for (const entry of (await listAllPersonalEpisodeEntries(engine, plan.scope_id)).sort(byId)) {
+    for (const field of personalEpisodeTextFields(entry)) {
+      if (!field.text.includes(plan.query)) continue;
+      items.push(await createPlanItem(engine, plan, {
+        target_object_type: 'personal_episode',
+        target_object_id: entry.id,
+        field_path: field.path,
+        text: field.text,
+        status: 'unsupported',
+      }));
+    }
+  }
+  return items;
+}
+
+async function createMemoryCandidateUnsupportedItems(
+  engine: BrainEngine,
+  plan: MemoryRedactionPlan,
+): Promise<MemoryRedactionPlanItem[]> {
+  const items: MemoryRedactionPlanItem[] = [];
+  for (const entry of (await listAllMemoryCandidateEntries(engine, plan.scope_id)).sort(byId)) {
+    for (const field of memoryCandidateTextFields(entry)) {
+      if (!field.text.includes(plan.query)) continue;
+      items.push(await createPlanItem(engine, plan, {
+        target_object_type: 'memory_candidate',
+        target_object_id: entry.id,
+        field_path: field.path,
+        text: field.text,
+        status: 'unsupported',
+      }));
+    }
+  }
+  return items;
+}
+
+async function createRetrievalTraceUnsupportedItems(
+  engine: BrainEngine,
+  plan: MemoryRedactionPlan,
+): Promise<MemoryRedactionPlanItem[]> {
+  const items: MemoryRedactionPlanItem[] = [];
+  for (const entry of (await listAllRetrievalTraces(engine)).sort(byId)) {
+    for (const field of retrievalTraceTextFields(entry)) {
+      if (!field.text.includes(plan.query)) continue;
+      items.push(await createPlanItem(engine, plan, {
+        target_object_type: 'retrieval_trace',
+        target_object_id: entry.id,
+        field_path: field.path,
+        text: field.text,
+        status: 'unsupported',
       }));
     }
   }
@@ -263,6 +411,53 @@ async function listAllPages(engine: BrainEngine): Promise<Page[]> {
     const batch = await engine.listPages({ limit: 500, offset });
     pages.push(...batch);
     if (batch.length < 500) return pages;
+  }
+}
+
+async function listAllProfileMemoryEntries(
+  engine: BrainEngine,
+  scopeId: string,
+): Promise<ProfileMemoryEntry[]> {
+  const entries: ProfileMemoryEntry[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const batch = await engine.listProfileMemoryEntries({ scope_id: scopeId, limit: 500, offset });
+    entries.push(...batch);
+    if (batch.length < 500) return entries;
+  }
+}
+
+async function listAllPersonalEpisodeEntries(
+  engine: BrainEngine,
+  scopeId: string,
+): Promise<PersonalEpisodeEntry[]> {
+  const entries: PersonalEpisodeEntry[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const batch = await engine.listPersonalEpisodeEntries({ scope_id: scopeId, limit: 500, offset });
+    entries.push(...batch);
+    if (batch.length < 500) return entries;
+  }
+}
+
+async function listAllMemoryCandidateEntries(
+  engine: BrainEngine,
+  scopeId: string,
+): Promise<MemoryCandidateEntry[]> {
+  const entries: MemoryCandidateEntry[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const batch = await engine.listMemoryCandidateEntries({ scope_id: scopeId, limit: 500, offset });
+    entries.push(...batch);
+    if (batch.length < 500) return entries;
+  }
+}
+
+async function listAllRetrievalTraces(engine: BrainEngine): Promise<RetrievalTrace[]> {
+  const traces: RetrievalTrace[] = [];
+  const since = new Date(0);
+  const until = new Date('9999-12-31T23:59:59.999Z');
+  for (let offset = 0; ; offset += 500) {
+    const batch = await engine.listRetrievalTracesByWindow({ since, until, limit: 500, offset });
+    traces.push(...batch);
+    if (batch.length < 500) return traces;
   }
 }
 
@@ -298,6 +493,60 @@ function groupPageItems(items: MemoryRedactionPlanItem[]): Map<string, MemoryRed
   return grouped;
 }
 
+async function planPageApplyResult(
+  engine: BrainEngine,
+  page: Page,
+  plan: MemoryRedactionPlan,
+  items: MemoryRedactionPlanItem[],
+): Promise<PageApplyResult> {
+  assertPageItemCas(page, items);
+  const tags = await engine.getTags(page.slug);
+  const next = applyPageItems(page, plan, items);
+  const beforeContentHash = page.content_hash ?? importContentHash({
+    title: page.title,
+    type: page.type,
+    compiled_truth: page.compiled_truth,
+    timeline: page.timeline,
+    frontmatter: page.frontmatter,
+    tags,
+  });
+  const afterContentHash = importContentHash({
+    title: page.title,
+    type: page.type,
+    compiled_truth: next.compiled_truth,
+    timeline: next.timeline,
+    frontmatter: page.frontmatter,
+    tags,
+  });
+  return {
+    originalPage: page,
+    nextPage: {
+      type: page.type,
+      title: page.title,
+      compiled_truth: next.compiled_truth,
+      timeline: next.timeline,
+      frontmatter: page.frontmatter,
+    },
+    beforeContentHash,
+    afterContentHash,
+    tags,
+    itemResults: next.itemResults,
+  };
+}
+
+function assertPageItemCas(page: Page, items: MemoryRedactionPlanItem[]): void {
+  for (const item of items) {
+    const field = item.field_path as PageTextField;
+    const currentText = pageTextField(page, field);
+    if (!item.before_hash) {
+      throw new Error(`memory redaction plan item is missing before_hash: ${item.id}`);
+    }
+    if (hashText(currentText) !== item.before_hash) {
+      throw new Error(`memory redaction plan item target changed since review: ${item.id}`);
+    }
+  }
+}
+
 function applyPageItems(
   page: Page,
   plan: MemoryRedactionPlan,
@@ -305,11 +554,11 @@ function applyPageItems(
 ): {
   compiled_truth: string;
   timeline: string;
-  itemResults: Array<{ id: string; before_hash: string; after_hash: string }>;
+  itemResults: Array<{ id: string; field_path: string; before_hash: string; after_hash: string }>;
 } {
   let compiledTruth = page.compiled_truth;
   let timeline = page.timeline;
-  const itemResults: Array<{ id: string; before_hash: string; after_hash: string }> = [];
+  const itemResults: Array<{ id: string; field_path: string; before_hash: string; after_hash: string }> = [];
 
   for (const item of items) {
     const field = item.field_path as PageTextField;
@@ -322,7 +571,8 @@ function applyPageItems(
     }
     itemResults.push({
       id: item.id,
-      before_hash: hashText(beforeText),
+      field_path: field,
+      before_hash: item.before_hash ?? hashText(beforeText),
       after_hash: hashText(afterText),
     });
   }
@@ -332,6 +582,69 @@ function applyPageItems(
     timeline,
     itemResults,
   };
+}
+
+async function writeRedactedPage(engine: BrainEngine, result: PageApplyResult): Promise<Page> {
+  const storedPage = await engine.putPage(result.originalPage.slug, {
+    ...result.nextPage,
+    content_hash: result.afterContentHash,
+  });
+
+  const newTags = new Set(result.tags);
+  for (const old of await engine.getTags(storedPage.slug)) {
+    if (!newTags.has(old)) await engine.removeTag(storedPage.slug, old);
+  }
+  for (const tag of result.tags) {
+    await engine.addTag(storedPage.slug, tag);
+  }
+
+  await engine.deleteChunks(storedPage.slug);
+  await engine.upsertChunks(
+    storedPage.slug,
+    buildPageChunks(storedPage.compiled_truth, storedPage.timeline, storedPage.frontmatter),
+  );
+
+  const existingManifest = await engine.getNoteManifestEntry(
+    DEFAULT_NOTE_MANIFEST_SCOPE_ID,
+    storedPage.slug,
+  );
+  const manifest = await engine.upsertNoteManifestEntry(buildNoteManifestEntry({
+    scope_id: existingManifest?.scope_id ?? DEFAULT_NOTE_MANIFEST_SCOPE_ID,
+    page_id: storedPage.id,
+    slug: storedPage.slug,
+    path: existingManifest?.path ?? `${storedPage.slug}.md`,
+    tags: result.tags,
+    content_hash: result.afterContentHash,
+    page: {
+      type: storedPage.type,
+      title: storedPage.title,
+      compiled_truth: storedPage.compiled_truth,
+      timeline: storedPage.timeline,
+      frontmatter: storedPage.frontmatter,
+      content_hash: storedPage.content_hash,
+    },
+  }));
+  await engine.replaceNoteSectionEntries(
+    manifest.scope_id,
+    manifest.slug,
+    buildNoteSectionEntries({
+      scope_id: manifest.scope_id,
+      page_id: storedPage.id,
+      page_slug: storedPage.slug,
+      page_path: manifest.path,
+      page: {
+        type: storedPage.type,
+        title: storedPage.title,
+        compiled_truth: storedPage.compiled_truth,
+        timeline: storedPage.timeline,
+        frontmatter: storedPage.frontmatter,
+        content_hash: storedPage.content_hash,
+      },
+      manifest,
+    }),
+  );
+
+  return storedPage;
 }
 
 function redactionPlanSnapshot(
@@ -353,8 +666,52 @@ function redactionPlanSnapshot(
   };
 }
 
-function redactionItemId(planId: string, pageSlug: string, field: string): string {
-  return `redaction-item:${hashText(`${planId}\0${pageSlug}\0${field}`).slice(0, 32)}`;
+function redactionItemId(planId: string, targetType: string, targetId: string, field: string): string {
+  return `redaction-item:${hashText(`${planId}\0${targetType}\0${targetId}\0${field}`).slice(0, 32)}`;
+}
+
+function pageTextField(page: Page, field: PageTextField): string {
+  return field === 'compiled_truth' ? page.compiled_truth : page.timeline;
+}
+
+function profileMemoryTextFields(entry: ProfileMemoryEntry): Array<{ path: string; text: string }> {
+  return [
+    { path: 'subject', text: entry.subject },
+    { path: 'content', text: entry.content },
+    { path: 'source_refs', text: entry.source_refs.join('\n') },
+  ];
+}
+
+function personalEpisodeTextFields(entry: PersonalEpisodeEntry): Array<{ path: string; text: string }> {
+  return [
+    { path: 'title', text: entry.title },
+    { path: 'summary', text: entry.summary },
+    { path: 'source_refs', text: entry.source_refs.join('\n') },
+  ];
+}
+
+function memoryCandidateTextFields(entry: MemoryCandidateEntry): Array<{ path: string; text: string }> {
+  return [
+    { path: 'proposed_content', text: entry.proposed_content },
+    { path: 'source_refs', text: entry.source_refs.join('\n') },
+    { path: 'review_reason', text: entry.review_reason ?? '' },
+    { path: 'patch_provenance_summary', text: entry.patch_provenance_summary ?? '' },
+  ];
+}
+
+function retrievalTraceTextFields(entry: RetrievalTrace): Array<{ path: string; text: string }> {
+  return [
+    { path: 'route', text: entry.route.join('\n') },
+    { path: 'source_refs', text: entry.source_refs.join('\n') },
+    { path: 'derived_consulted', text: entry.derived_consulted.join('\n') },
+    { path: 'verification', text: entry.verification.join('\n') },
+    { path: 'scope_gate_reason', text: entry.scope_gate_reason ?? '' },
+    { path: 'outcome', text: entry.outcome },
+  ];
+}
+
+function byId(left: { id: string }, right: { id: string }): number {
+  return left.id.localeCompare(right.id);
 }
 
 function previewText(text: string, query: string): string {

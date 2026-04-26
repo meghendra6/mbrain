@@ -2,13 +2,16 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { importFromContent } from '../src/core/import-file.ts';
 import { SQLiteEngine } from '../src/core/sqlite-engine.ts';
+import { DEFAULT_NOTE_MANIFEST_SCOPE_ID } from '../src/core/services/note-manifest-service.ts';
 import {
   approveMemoryRedactionPlan,
   applyMemoryRedactionPlan,
   createMemoryRedactionPlan,
   rejectMemoryRedactionPlan,
 } from '../src/core/services/memory-redaction-plan-service.ts';
+import { importContentHash } from '../src/core/utils.ts';
 
 async function createHarness(label: string): Promise<{
   engine: SQLiteEngine;
@@ -102,6 +105,11 @@ describe('memory redaction plan service', () => {
         scope_id: '   ',
         query: 'secret',
       })).rejects.toThrow(/scope_id/i);
+      await expect(createMemoryRedactionPlan(harness.engine, {
+        scope_id: 'workspace:default',
+        query: 'secret',
+        replacement_text: 'still secret',
+      })).rejects.toThrow(/replacement_text/i);
 
       const plan = await createMemoryRedactionPlan(harness.engine, {
         id: 'redaction-plan:test-reject',
@@ -163,15 +171,29 @@ describe('memory redaction plan service', () => {
     }
   });
 
-  test('applies page redactions, updates item hashes, and records execute ledger event', async () => {
+  test('applies page redactions, refreshes derived storage, and records page ledger evidence', async () => {
     const harness = await createHarness('apply-page');
     try {
-      await harness.engine.putPage('concepts/redaction-apply-target', {
-        type: 'concept',
-        title: 'Redaction Apply Target',
-        compiled_truth: 'beta-secret appears twice: beta-secret. [Source: Test, 2026-04-26 10:10 AM KST]',
-        timeline: '- 2026-04-26 | beta-secret in timeline. [Source: Test, 2026-04-26 10:10 AM KST]',
-      });
+      await importFromContent(harness.engine, 'concepts/redaction-apply-target', [
+        '---',
+        'type: concept',
+        'title: Redaction Apply Target',
+        'tags:',
+        '  - privacy',
+        '---',
+        '# Current State',
+        'beta-secret appears twice: beta-secret. [Source: Test, 2026-04-26 10:10 AM KST]',
+        '',
+        '---',
+        '',
+        '## Timeline',
+        '- 2026-04-26 | beta-secret in timeline. [Source: Test, 2026-04-26 10:10 AM KST]',
+      ].join('\n'), { path: 'concepts/redaction-apply-target.md' });
+      const beforePage = await harness.engine.getPage('concepts/redaction-apply-target');
+      expect(beforePage?.content_hash).toBeTruthy();
+      const beforeVersions = await harness.engine.getVersions('concepts/redaction-apply-target');
+      expect(beforeVersions).toHaveLength(0);
+
       const plan = await createMemoryRedactionPlan(harness.engine, {
         id: 'redaction-plan:test-apply',
         scope_id: 'workspace:default',
@@ -198,6 +220,34 @@ describe('memory redaction plan service', () => {
       expect(page?.timeline).toContain('[REMOVED] in timeline.');
       expect(page?.compiled_truth).not.toContain('beta-secret');
       expect(page?.timeline).not.toContain('beta-secret');
+      expect(page?.content_hash).toBe(importContentHash({
+        title: 'Redaction Apply Target',
+        type: 'concept',
+        compiled_truth: page?.compiled_truth ?? '',
+        timeline: page?.timeline ?? '',
+        frontmatter: {},
+        tags: ['privacy'],
+      }));
+
+      const chunks = await harness.engine.getChunks('concepts/redaction-apply-target');
+      expect(chunks.map((chunk) => chunk.chunk_text).join('\n')).not.toContain('beta-secret');
+      expect(chunks.map((chunk) => chunk.chunk_text).join('\n')).toContain('[REMOVED]');
+
+      const manifest = await harness.engine.getNoteManifestEntry(
+        DEFAULT_NOTE_MANIFEST_SCOPE_ID,
+        'concepts/redaction-apply-target',
+      );
+      expect(manifest?.content_hash).toBe(page?.content_hash);
+      expect(JSON.stringify(manifest)).not.toContain('beta-secret');
+
+      const sections = await harness.engine.listNoteSectionEntries({
+        scope_id: DEFAULT_NOTE_MANIFEST_SCOPE_ID,
+        page_slug: 'concepts/redaction-apply-target',
+      });
+      expect(sections.map((section) => section.section_text).join('\n')).not.toContain('beta-secret');
+
+      const afterVersions = await harness.engine.getVersions('concepts/redaction-apply-target');
+      expect(afterVersions).toHaveLength(beforeVersions.length);
 
       const items = await harness.engine.listMemoryRedactionPlanItems({
         plan_id: plan.id,
@@ -208,22 +258,114 @@ describe('memory redaction plan service', () => {
 
       const events = await harness.engine.listMemoryMutationEvents({
         operation: 'execute_redaction_plan',
-        target_id: plan.id,
+        target_id: 'concepts/redaction-apply-target',
       });
       expect(events).toHaveLength(1);
       expect(events[0]).toMatchObject({
         operation: 'execute_redaction_plan',
-        target_kind: 'ledger_event',
-        target_id: plan.id,
+        target_kind: 'page',
+        target_id: 'concepts/redaction-apply-target',
         actor: 'agent:executor',
         result: 'redacted',
         source_refs: ['Source: service apply execution, 2026-04-26 10:11 AM KST'],
         metadata: {
           plan_id: plan.id,
-          applied_item_count: 2,
-          page_count: 1,
+          page_slug: 'concepts/redaction-apply-target',
+          item_count: 2,
         },
       });
+      expect(events[0]!.expected_target_snapshot_hash).toBe(beforePage!.content_hash!);
+      expect(events[0]!.current_target_snapshot_hash).toBe(page!.content_hash!);
+      expect((events[0]?.metadata as any).item_results).toHaveLength(2);
+      expect((events[0]?.metadata as any).item_results.every((entry: any) => entry.before_hash && entry.after_hash)).toBe(true);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test('apply rejects stale page content before mutation and ledger writes', async () => {
+    const harness = await createHarness('stale-cas');
+    try {
+      await importFromContent(harness.engine, 'concepts/redaction-stale-target', [
+        '---',
+        'type: concept',
+        'title: Redaction Stale Target',
+        '---',
+        'stale-secret reviewed text. [Source: Test, 2026-04-26 10:12 AM KST]',
+      ].join('\n'), { path: 'concepts/redaction-stale-target.md' });
+      const plan = await createMemoryRedactionPlan(harness.engine, {
+        id: 'redaction-plan:test-stale',
+        scope_id: 'workspace:default',
+        query: 'stale-secret',
+      });
+      await approveMemoryRedactionPlan(harness.engine, { id: plan.id });
+      await harness.engine.putPage('concepts/redaction-stale-target', {
+        type: 'concept',
+        title: 'Redaction Stale Target',
+        compiled_truth: 'stale-secret unreviewed text. [Source: Test, 2026-04-26 10:13 AM KST]',
+        timeline: '',
+        frontmatter: { type: 'concept', title: 'Redaction Stale Target' },
+      });
+
+      await expect(applyMemoryRedactionPlan(harness.engine, {
+        id: plan.id,
+      })).rejects.toThrow(/stale|changed|hash/i);
+
+      const page = await harness.engine.getPage('concepts/redaction-stale-target');
+      expect(page?.compiled_truth).toContain('stale-secret unreviewed text');
+      expect((await harness.engine.getMemoryRedactionPlan(plan.id))?.status).toBe('approved');
+      const items = await harness.engine.listMemoryRedactionPlanItems({ plan_id: plan.id });
+      expect(items.every((item) => item.status === 'planned')).toBe(true);
+      expect(items.every((item) => item.after_hash === null)).toBe(true);
+      expect(await harness.engine.listMemoryMutationEvents({
+        operation: 'execute_redaction_plan',
+      })).toEqual([]);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test('page-version matches create unsupported items and make apply fail closed', async () => {
+    const harness = await createHarness('page-version-unsupported');
+    try {
+      await harness.engine.putPage('concepts/redaction-version-target', {
+        type: 'concept',
+        title: 'Redaction Version Target',
+        compiled_truth: 'version-secret old snapshot. [Source: Test, 2026-04-26 10:14 AM KST]',
+        timeline: '',
+      });
+      const version = await harness.engine.createVersion('concepts/redaction-version-target');
+      await harness.engine.putPage('concepts/redaction-version-target', {
+        type: 'concept',
+        title: 'Redaction Version Target',
+        compiled_truth: 'Current text no longer contains the query. [Source: Test, 2026-04-26 10:15 AM KST]',
+        timeline: '',
+      });
+
+      const plan = await createMemoryRedactionPlan(harness.engine, {
+        id: 'redaction-plan:test-page-version',
+        scope_id: 'workspace:default',
+        query: 'version-secret',
+      });
+      const items = await harness.engine.listMemoryRedactionPlanItems({ plan_id: plan.id });
+      expect(items).toEqual([
+        expect.objectContaining({
+          target_object_type: 'page_version',
+          target_object_id: String(version.id),
+          field_path: 'compiled_truth',
+          status: 'unsupported',
+          before_hash: expect.any(String),
+        }),
+      ]);
+
+      await approveMemoryRedactionPlan(harness.engine, { id: plan.id });
+      await expect(applyMemoryRedactionPlan(harness.engine, {
+        id: plan.id,
+      })).rejects.toThrow(/unsupported/i);
+      expect((await harness.engine.getMemoryRedactionPlan(plan.id))?.status).toBe('approved');
+      expect(await harness.engine.listMemoryMutationEvents({
+        operation: 'execute_redaction_plan',
+      })).toEqual([]);
     } finally {
       await harness.cleanup();
     }
