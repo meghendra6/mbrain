@@ -793,6 +793,7 @@ export class PostgresEngine implements BrainEngine {
   async getTimeline(slug: string, opts?: TimelineOpts): Promise<TimelineEntry[]> {
     const sql = this.sql;
     const limit = opts?.limit || 100;
+    const offset = opts?.offset || 0;
 
     let rows;
     if (opts?.after && opts?.before) {
@@ -800,21 +801,21 @@ export class PostgresEngine implements BrainEngine {
         SELECT te.* FROM timeline_entries te
         JOIN pages p ON p.id = te.page_id
         WHERE p.slug = ${slug} AND te.date >= ${opts.after}::date AND te.date <= ${opts.before}::date
-        ORDER BY te.date DESC LIMIT ${limit}
+        ORDER BY te.date DESC LIMIT ${limit} OFFSET ${offset}
       `;
     } else if (opts?.after) {
       rows = await sql`
         SELECT te.* FROM timeline_entries te
         JOIN pages p ON p.id = te.page_id
         WHERE p.slug = ${slug} AND te.date >= ${opts.after}::date
-        ORDER BY te.date DESC LIMIT ${limit}
+        ORDER BY te.date DESC LIMIT ${limit} OFFSET ${offset}
       `;
     } else {
       rows = await sql`
         SELECT te.* FROM timeline_entries te
         JOIN pages p ON p.id = te.page_id
         WHERE p.slug = ${slug}
-        ORDER BY te.date DESC LIMIT ${limit}
+        ORDER BY te.date DESC LIMIT ${limit} OFFSET ${offset}
       `;
     }
 
@@ -998,11 +999,12 @@ export class PostgresEngine implements BrainEngine {
     `;
   }
 
-  async getIngestLog(opts?: { limit?: number }): Promise<IngestLogEntry[]> {
+  async getIngestLog(opts?: { limit?: number; offset?: number }): Promise<IngestLogEntry[]> {
     const sql = this.sql;
     const limit = opts?.limit || 50;
+    const offset = opts?.offset || 0;
     const rows = await sql`
-      SELECT * FROM ingest_log ORDER BY created_at DESC LIMIT ${limit}
+      SELECT * FROM ingest_log ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
     `;
     return rows as unknown as IngestLogEntry[];
   }

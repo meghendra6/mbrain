@@ -661,6 +661,7 @@ export class PGLiteEngine implements BrainEngine {
 
   async getTimeline(slug: string, opts?: TimelineOpts): Promise<TimelineEntry[]> {
     const limit = opts?.limit || 100;
+    const offset = opts?.offset || 0;
 
     let result;
     if (opts?.after && opts?.before) {
@@ -668,24 +669,24 @@ export class PGLiteEngine implements BrainEngine {
         `SELECT te.* FROM timeline_entries te
          JOIN pages p ON p.id = te.page_id
          WHERE p.slug = $1 AND te.date >= $2::date AND te.date <= $3::date
-         ORDER BY te.date DESC LIMIT $4`,
-        [slug, opts.after, opts.before, limit]
+         ORDER BY te.date DESC LIMIT $4 OFFSET $5`,
+        [slug, opts.after, opts.before, limit, offset]
       );
     } else if (opts?.after) {
       result = await this.db.query(
         `SELECT te.* FROM timeline_entries te
          JOIN pages p ON p.id = te.page_id
          WHERE p.slug = $1 AND te.date >= $2::date
-         ORDER BY te.date DESC LIMIT $3`,
-        [slug, opts.after, limit]
+         ORDER BY te.date DESC LIMIT $3 OFFSET $4`,
+        [slug, opts.after, limit, offset]
       );
     } else {
       result = await this.db.query(
         `SELECT te.* FROM timeline_entries te
          JOIN pages p ON p.id = te.page_id
          WHERE p.slug = $1
-         ORDER BY te.date DESC LIMIT $2`,
-        [slug, limit]
+         ORDER BY te.date DESC LIMIT $2 OFFSET $3`,
+        [slug, limit, offset]
       );
     }
 
@@ -871,11 +872,12 @@ export class PGLiteEngine implements BrainEngine {
     );
   }
 
-  async getIngestLog(opts?: { limit?: number }): Promise<IngestLogEntry[]> {
+  async getIngestLog(opts?: { limit?: number; offset?: number }): Promise<IngestLogEntry[]> {
     const limit = opts?.limit || 50;
+    const offset = opts?.offset || 0;
     const { rows } = await this.db.query(
-      `SELECT * FROM ingest_log ORDER BY created_at DESC LIMIT $1`,
-      [limit]
+      `SELECT * FROM ingest_log ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      [limit, offset]
     );
     return rows as unknown as IngestLogEntry[];
   }

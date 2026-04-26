@@ -1072,8 +1072,8 @@ export class SQLiteEngine implements BrainEngine {
       params.push(opts.before);
     }
 
-    sql += ` ORDER BY te.date DESC LIMIT ?`;
-    params.push(opts?.limit ?? 100);
+    sql += ` ORDER BY te.date DESC LIMIT ? OFFSET ?`;
+    params.push(opts?.limit ?? 100, opts?.offset ?? 0);
 
     const rows = this.database.query(sql).all(...sqliteBindings(params)) as Record<string, unknown>[];
     return rows.map(rowToTimelineEntry);
@@ -1249,13 +1249,14 @@ export class SQLiteEngine implements BrainEngine {
     `, [entry.source_type, entry.source_ref, JSON.stringify(entry.pages_updated), entry.summary, nowIso()]);
   }
 
-  async getIngestLog(opts?: { limit?: number }): Promise<IngestLogEntry[]> {
+  async getIngestLog(opts?: { limit?: number; offset?: number }): Promise<IngestLogEntry[]> {
     const rows = this.database.query(`
       SELECT id, source_type, source_ref, pages_updated, summary, created_at
       FROM ingest_log
       ORDER BY created_at DESC, id DESC
       LIMIT ?
-    `).all(opts?.limit ?? 50) as Record<string, unknown>[];
+      OFFSET ?
+    `).all(opts?.limit ?? 50, opts?.offset ?? 0) as Record<string, unknown>[];
     return rows.map(rowToIngestLog);
   }
 

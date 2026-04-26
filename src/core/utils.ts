@@ -563,6 +563,7 @@ const MEMORY_REDACTION_TARGET_TYPES = [
   'personal_episode',
   'memory_candidate',
   'retrieval_trace',
+  'ingest_log',
 ] as const;
 const MEMORY_REDACTION_ITEM_STATUSES = ['planned', 'applied', 'unsupported'] as const;
 

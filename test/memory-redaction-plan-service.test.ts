@@ -370,4 +370,247 @@ describe('memory redaction plan service', () => {
       await harness.cleanup();
     }
   });
+
+  test('title and frontmatter matches create unsupported items and make apply fail closed', async () => {
+    const harness = await createHarness('page-metadata-unsupported');
+    try {
+      await harness.engine.putPage('concepts/redaction-metadata-target', {
+        type: 'concept',
+        title: 'metadata-secret title',
+        compiled_truth: 'Body text does not include the query. [Source: Test, 2026-04-26 10:16 AM KST]',
+        timeline: '',
+        frontmatter: {
+          aliases: ['metadata-secret alias'],
+        },
+      });
+
+      const plan = await createMemoryRedactionPlan(harness.engine, {
+        id: 'redaction-plan:test-metadata',
+        scope_id: 'workspace:default',
+        query: 'metadata-secret',
+      });
+      const items = await harness.engine.listMemoryRedactionPlanItems({ plan_id: plan.id });
+      expect(items.map((item) => `${item.target_object_type}:${item.field_path}:${item.status}`).sort()).toEqual([
+        'page:frontmatter:unsupported',
+        'page:title:unsupported',
+      ]);
+
+      await approveMemoryRedactionPlan(harness.engine, { id: plan.id });
+      await expect(applyMemoryRedactionPlan(harness.engine, {
+        id: plan.id,
+      })).rejects.toThrow(/unsupported/i);
+      expect((await harness.engine.getMemoryRedactionPlan(plan.id))?.status).toBe('approved');
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test('page-adjacent persisted matches create unsupported items and block apply', async () => {
+    const harness = await createHarness('page-adjacent-unsupported');
+    try {
+      await harness.engine.putPage('concepts/redaction-adjacent-target', {
+        type: 'concept',
+        title: 'Redaction Adjacent Target',
+        compiled_truth: 'Body text does not include the query. [Source: Test, 2026-04-26 10:17 AM KST]',
+        timeline: '',
+      });
+      await harness.engine.putRawData('concepts/redaction-adjacent-target', 'source-a', {
+        payload: 'adjacent-secret raw payload',
+      });
+      await harness.engine.addTimelineEntry('concepts/redaction-adjacent-target', {
+        date: '2026-04-26',
+        source: 'test',
+        summary: 'adjacent-secret timeline summary',
+        detail: 'timeline detail',
+      });
+      await harness.engine.logIngest({
+        source_type: 'test',
+        source_ref: 'adjacent-secret ingest ref',
+        pages_updated: ['concepts/redaction-adjacent-target'],
+        summary: 'ingest summary',
+      });
+
+      const plan = await createMemoryRedactionPlan(harness.engine, {
+        id: 'redaction-plan:test-adjacent',
+        scope_id: 'workspace:default',
+        query: 'adjacent-secret',
+      });
+      const items = await harness.engine.listMemoryRedactionPlanItems({ plan_id: plan.id });
+      expect(items).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          target_object_type: 'page',
+          target_object_id: 'concepts/redaction-adjacent-target',
+          field_path: 'raw_data:source-a',
+          status: 'unsupported',
+        }),
+        expect.objectContaining({
+          target_object_type: 'page',
+          target_object_id: 'concepts/redaction-adjacent-target',
+          field_path: expect.stringMatching(/^timeline_entries:/),
+          status: 'unsupported',
+        }),
+        expect.objectContaining({
+          target_object_type: 'ingest_log',
+          field_path: 'source_ref',
+          status: 'unsupported',
+        }),
+      ]));
+
+      await approveMemoryRedactionPlan(harness.engine, { id: plan.id });
+      await expect(applyMemoryRedactionPlan(harness.engine, {
+        id: plan.id,
+      })).rejects.toThrow(/unsupported/i);
+      expect((await harness.engine.getMemoryRedactionPlan(plan.id))?.status).toBe('approved');
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test('page-adjacent discovery pages through timeline entries and ingest logs', async () => {
+    const harness = await createHarness('adjacent-pagination');
+    try {
+      await harness.engine.putPage('concepts/redaction-adjacent-pagination', {
+        type: 'concept',
+        title: 'Redaction Adjacent Pagination',
+        compiled_truth: 'Body text does not include the query. [Source: Test, 2026-04-26 10:17 AM KST]',
+        timeline: '',
+      });
+      await harness.engine.addTimelineEntry('concepts/redaction-adjacent-pagination', {
+        date: '2026-04-26',
+        source: 'test',
+        summary: 'deep-adjacent-secret timeline summary',
+      });
+      await harness.engine.addTimelineEntry('concepts/redaction-adjacent-pagination', {
+        date: '2026-04-27',
+        source: 'test',
+        summary: 'newer nonmatching timeline summary',
+      });
+      await harness.engine.logIngest({
+        source_type: 'test',
+        source_ref: 'deep-adjacent-secret ingest ref',
+        pages_updated: ['concepts/redaction-adjacent-pagination'],
+        summary: 'secret ingest summary',
+      });
+      await harness.engine.logIngest({
+        source_type: 'test',
+        source_ref: 'newer nonmatching ingest ref',
+        pages_updated: ['concepts/redaction-adjacent-pagination'],
+        summary: 'nonmatching ingest summary',
+      });
+
+      const originalGetTimeline = harness.engine.getTimeline.bind(harness.engine);
+      const originalGetIngestLog = harness.engine.getIngestLog.bind(harness.engine);
+      harness.engine.getTimeline = async (slug, opts) => originalGetTimeline(slug, {
+        ...opts,
+        limit: 1,
+      });
+      harness.engine.getIngestLog = async (opts) => originalGetIngestLog({
+        ...opts,
+        limit: 1,
+      });
+      const plan = await createMemoryRedactionPlan(harness.engine, {
+        id: 'redaction-plan:test-adjacent-pagination',
+        scope_id: 'workspace:default',
+        query: 'deep-adjacent-secret',
+      });
+      harness.engine.getTimeline = originalGetTimeline;
+      harness.engine.getIngestLog = originalGetIngestLog;
+
+      const items = await harness.engine.listMemoryRedactionPlanItems({ plan_id: plan.id });
+      expect(items).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          target_object_type: 'page',
+          target_object_id: 'concepts/redaction-adjacent-pagination',
+          field_path: expect.stringMatching(/^timeline_entries:/),
+          status: 'unsupported',
+        }),
+        expect.objectContaining({
+          target_object_type: 'ingest_log',
+          field_path: 'source_ref',
+          status: 'unsupported',
+        }),
+      ]));
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test('apply pages through every redaction item before mutating', async () => {
+    const harness = await createHarness('item-pagination');
+    try {
+      await harness.engine.putPage('concepts/redaction-pagination-target', {
+        type: 'concept',
+        title: 'Redaction Pagination Target',
+        compiled_truth: 'paged-secret body. [Source: Test, 2026-04-26 10:18 AM KST]',
+        timeline: '',
+      });
+      const plan = await createMemoryRedactionPlan(harness.engine, {
+        id: 'redaction-plan:test-pagination',
+        scope_id: 'workspace:default',
+        query: 'paged-secret',
+      });
+      await harness.engine.createMemoryRedactionPlanItem({
+        id: 'redaction-item:test-pagination-late-unsupported',
+        plan_id: plan.id,
+        target_object_type: 'profile_memory',
+        target_object_id: 'profile:late',
+        field_path: 'content',
+        status: 'unsupported',
+        preview_text: 'paged-secret',
+        created_at: new Date('2030-01-01T00:00:00.000Z'),
+        updated_at: new Date('2030-01-01T00:00:00.000Z'),
+      });
+      await approveMemoryRedactionPlan(harness.engine, { id: plan.id });
+
+      const originalListItems = harness.engine.listMemoryRedactionPlanItems.bind(harness.engine);
+      harness.engine.listMemoryRedactionPlanItems = async (filters) => originalListItems({
+        ...filters,
+        limit: 1,
+        offset: filters?.offset ?? 0,
+      });
+      await expect(applyMemoryRedactionPlan(harness.engine, {
+        id: plan.id,
+      })).rejects.toThrow(/unsupported/i);
+      harness.engine.listMemoryRedactionPlanItems = originalListItems;
+
+      const page = await harness.engine.getPage('concepts/redaction-pagination-target');
+      expect(page?.compiled_truth).toContain('paged-secret body');
+      expect((await harness.engine.getMemoryRedactionPlan(plan.id))?.status).toBe('approved');
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  test('apply clears stale page-level embeddings after redaction', async () => {
+    const harness = await createHarness('embedding-clear');
+    try {
+      await harness.engine.putPage('concepts/redaction-embedding-target', {
+        type: 'concept',
+        title: 'Redaction Embedding Target',
+        compiled_truth: 'embedding-secret body. [Source: Test, 2026-04-26 10:19 AM KST]',
+        timeline: '',
+      });
+      await harness.engine.updatePageEmbedding(
+        'concepts/redaction-embedding-target',
+        new Float32Array([0.25, 0.75]),
+      );
+      expect((await harness.engine.getPageEmbeddings('concept')).find(
+        (entry) => entry.slug === 'concepts/redaction-embedding-target',
+      )?.embedding).toEqual(new Float32Array([0.25, 0.75]));
+
+      const plan = await createMemoryRedactionPlan(harness.engine, {
+        id: 'redaction-plan:test-embedding-clear',
+        scope_id: 'workspace:default',
+        query: 'embedding-secret',
+      });
+      await approveMemoryRedactionPlan(harness.engine, { id: plan.id });
+      await applyMemoryRedactionPlan(harness.engine, { id: plan.id });
+
+      expect((await harness.engine.getPageEmbeddings('concept')).find(
+        (entry) => entry.slug === 'concepts/redaction-embedding-target',
+      )?.embedding).toBeNull();
+    } finally {
+      await harness.cleanup();
+    }
+  });
 });

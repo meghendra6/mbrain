@@ -139,7 +139,7 @@ export interface BrainEngine {
 
   // Ingest log
   logIngest(entry: IngestLogInput): Promise<void>;
-  getIngestLog(opts?: { limit?: number }): Promise<IngestLogEntry[]>;
+  getIngestLog(opts?: { limit?: number; offset?: number }): Promise<IngestLogEntry[]>;
 
   // Operational memory
   createTaskThread(input: TaskThreadInput): Promise<TaskThread>;

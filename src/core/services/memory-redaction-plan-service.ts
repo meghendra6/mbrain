@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'crypto';
 import type { BrainEngine } from '../engine.ts';
 import { buildPageChunks } from '../import-file.ts';
 import type {
+  IngestLogEntry,
   MemoryCandidateEntry,
   MemoryRedactionPlan,
   MemoryRedactionPlanInput,
@@ -10,7 +11,9 @@ import type {
   PageInput,
   PersonalEpisodeEntry,
   ProfileMemoryEntry,
+  RawData,
   RetrievalTrace,
+  TimelineEntry,
 } from '../types.ts';
 import { importContentHash } from '../utils.ts';
 import { recordMemoryMutationEvent } from './memory-mutation-ledger-service.ts';
@@ -47,6 +50,7 @@ const DEFAULT_APPLY_SOURCE_REFS = ['Source: mbrain apply_memory_redaction_plan o
 const DEFAULT_ACTOR = 'mbrain:redaction_plan_service';
 const PAGE_TEXT_FIELDS = ['compiled_truth', 'timeline'] as const;
 const PAGE_VERSION_TEXT_FIELDS = ['compiled_truth', 'frontmatter'] as const;
+const REDACTION_PLAN_ITEM_PAGE_SIZE = 500;
 
 type PageTextField = typeof PAGE_TEXT_FIELDS[number];
 
@@ -148,7 +152,7 @@ export async function applyMemoryRedactionPlan(
       throw new Error(`memory redaction plan must be approved before apply: ${plan.id}`);
     }
 
-    const items = await tx.listMemoryRedactionPlanItems({ plan_id: plan.id, limit: 10_000 });
+    const items = await listAllMemoryRedactionPlanItems(tx, plan.id);
     assertSupportedApplyItems(items);
     const plannedItems = items.filter((item) => item.status === 'planned');
     const itemsByPage = groupPageItems(plannedItems);
@@ -265,6 +269,7 @@ async function createPlanItems(
   const items: MemoryRedactionPlanItem[] = [];
   const pages = await listAllPages(engine);
   for (const page of pages.sort((left, right) => left.slug.localeCompare(right.slug))) {
+    items.push(...await createPageMetadataUnsupportedItems(engine, plan, page));
     for (const field of PAGE_TEXT_FIELDS) {
       const text = page[field] ?? '';
       if (!text.includes(plan.query)) continue;
@@ -293,7 +298,9 @@ async function createPlanItems(
         }));
       }
     }
+    items.push(...await createPageAdjacentUnsupportedItems(engine, plan, page));
   }
+  items.push(...await createIngestLogUnsupportedItems(engine, plan));
   items.push(...await createProfileMemoryUnsupportedItems(engine, plan));
   items.push(...await createPersonalEpisodeUnsupportedItems(engine, plan));
   items.push(...await createMemoryCandidateUnsupportedItems(engine, plan));
@@ -323,6 +330,76 @@ async function createPlanItem(
     status: input.status,
     preview_text: previewText(input.text, plan.query),
   });
+}
+
+async function createPageMetadataUnsupportedItems(
+  engine: BrainEngine,
+  plan: MemoryRedactionPlan,
+  page: Page,
+): Promise<MemoryRedactionPlanItem[]> {
+  const items: MemoryRedactionPlanItem[] = [];
+  for (const field of pageMetadataTextFields(page)) {
+    if (!field.text.includes(plan.query)) continue;
+    items.push(await createPlanItem(engine, plan, {
+      target_object_type: 'page',
+      target_object_id: page.slug,
+      field_path: field.path,
+      text: field.text,
+      status: 'unsupported',
+    }));
+  }
+  return items;
+}
+
+async function createPageAdjacentUnsupportedItems(
+  engine: BrainEngine,
+  plan: MemoryRedactionPlan,
+  page: Page,
+): Promise<MemoryRedactionPlanItem[]> {
+  const items: MemoryRedactionPlanItem[] = [];
+  for (const entry of (await engine.getRawData(page.slug)).sort((left, right) => left.source.localeCompare(right.source))) {
+    const text = rawDataText(entry);
+    if (!text.includes(plan.query)) continue;
+    items.push(await createPlanItem(engine, plan, {
+      target_object_type: 'page',
+      target_object_id: page.slug,
+      field_path: `raw_data:${entry.source}`,
+      text,
+      status: 'unsupported',
+    }));
+  }
+  for (const entry of (await listAllTimelineEntries(engine, page.slug)).sort((left, right) => left.id - right.id)) {
+    const text = timelineEntryText(entry);
+    if (!text.includes(plan.query)) continue;
+    items.push(await createPlanItem(engine, plan, {
+      target_object_type: 'page',
+      target_object_id: page.slug,
+      field_path: `timeline_entries:${entry.id}`,
+      text,
+      status: 'unsupported',
+    }));
+  }
+  return items;
+}
+
+async function createIngestLogUnsupportedItems(
+  engine: BrainEngine,
+  plan: MemoryRedactionPlan,
+): Promise<MemoryRedactionPlanItem[]> {
+  const items: MemoryRedactionPlanItem[] = [];
+  for (const entry of (await listAllIngestLogEntries(engine)).sort((left, right) => left.id - right.id)) {
+    for (const field of ingestLogTextFields(entry)) {
+      if (!field.text.includes(plan.query)) continue;
+      items.push(await createPlanItem(engine, plan, {
+        target_object_type: 'ingest_log',
+        target_object_id: String(entry.id),
+        field_path: field.path,
+        text: field.text,
+        status: 'unsupported',
+      }));
+    }
+  }
+  return items;
 }
 
 async function createProfileMemoryUnsupportedItems(
@@ -411,6 +488,52 @@ async function listAllPages(engine: BrainEngine): Promise<Page[]> {
     const batch = await engine.listPages({ limit: 500, offset });
     pages.push(...batch);
     if (batch.length < 500) return pages;
+  }
+}
+
+async function listAllMemoryRedactionPlanItems(
+  engine: BrainEngine,
+  planId: string,
+): Promise<MemoryRedactionPlanItem[]> {
+  const items: MemoryRedactionPlanItem[] = [];
+  for (let offset = 0; ;) {
+    const batch = await engine.listMemoryRedactionPlanItems({
+      plan_id: planId,
+      limit: REDACTION_PLAN_ITEM_PAGE_SIZE,
+      offset,
+    });
+    if (batch.length === 0) return items;
+    items.push(...batch);
+    offset += batch.length;
+  }
+}
+
+async function listAllTimelineEntries(
+  engine: BrainEngine,
+  slug: string,
+): Promise<TimelineEntry[]> {
+  const entries: TimelineEntry[] = [];
+  for (let offset = 0; ;) {
+    const batch = await engine.getTimeline(slug, {
+      limit: REDACTION_PLAN_ITEM_PAGE_SIZE,
+      offset,
+    });
+    if (batch.length === 0) return entries;
+    entries.push(...batch);
+    offset += batch.length;
+  }
+}
+
+async function listAllIngestLogEntries(engine: BrainEngine): Promise<IngestLogEntry[]> {
+  const entries: IngestLogEntry[] = [];
+  for (let offset = 0; ;) {
+    const batch = await engine.getIngestLog({
+      limit: REDACTION_PLAN_ITEM_PAGE_SIZE,
+      offset,
+    });
+    if (batch.length === 0) return entries;
+    entries.push(...batch);
+    offset += batch.length;
   }
 }
 
@@ -643,6 +766,7 @@ async function writeRedactedPage(engine: BrainEngine, result: PageApplyResult): 
       manifest,
     }),
   );
+  await engine.updatePageEmbedding(storedPage.slug, null);
 
   return storedPage;
 }
@@ -672,6 +796,38 @@ function redactionItemId(planId: string, targetType: string, targetId: string, f
 
 function pageTextField(page: Page, field: PageTextField): string {
   return field === 'compiled_truth' ? page.compiled_truth : page.timeline;
+}
+
+function pageMetadataTextFields(page: Page): Array<{ path: string; text: string }> {
+  return [
+    { path: 'title', text: page.title },
+    { path: 'frontmatter', text: JSON.stringify(page.frontmatter ?? {}) },
+  ];
+}
+
+function rawDataText(entry: RawData): string {
+  return JSON.stringify({
+    source: entry.source,
+    data: entry.data,
+  });
+}
+
+function timelineEntryText(entry: TimelineEntry): string {
+  return [
+    entry.date,
+    entry.source,
+    entry.summary,
+    entry.detail,
+  ].filter(Boolean).join('\n');
+}
+
+function ingestLogTextFields(entry: IngestLogEntry): Array<{ path: string; text: string }> {
+  return [
+    { path: 'source_type', text: entry.source_type },
+    { path: 'source_ref', text: entry.source_ref },
+    { path: 'pages_updated', text: entry.pages_updated.join('\n') },
+    { path: 'summary', text: entry.summary },
+  ];
 }
 
 function profileMemoryTextFields(entry: ProfileMemoryEntry): Array<{ path: string; text: string }> {

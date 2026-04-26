@@ -945,7 +945,8 @@ export type MemoryRedactionTargetObjectType =
   | 'profile_memory'
   | 'personal_episode'
   | 'memory_candidate'
-  | 'retrieval_trace';
+  | 'retrieval_trace'
+  | 'ingest_log';
 
 export type MemoryRedactionPlanItemStatus = 'planned' | 'applied' | 'unsupported';
 
@@ -1738,6 +1739,7 @@ export interface TimelineInput {
 
 export interface TimelineOpts {
   limit?: number;
+  offset?: number;
   after?: string;
   before?: string;
 }
