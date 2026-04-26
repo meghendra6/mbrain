@@ -1342,6 +1342,7 @@ Run:
 bun test test/phase9-acceptance-pack.test.ts
 bun run bench:phase9-acceptance --json
 bun run test:phase9
+bun run test:e2e:mcp
 ```
 
 Expected:
@@ -1353,8 +1354,10 @@ Expected:
   slice passes
 - `acceptance.phase9_status` matches the aggregated phase outcome
 - `test:phase9` runs the published Phase 9 suites, including target snapshot
-  hash coverage, redaction plan privacy coverage, memory operations health, MCP
-  acceptance coverage, and the acceptance-pack test
+  hash coverage, redaction plan privacy coverage, memory operations health, and
+  the acceptance-pack test
+- `test:e2e:mcp` covers the MCP acceptance surface used by the final redesign
+  verification gate
 
 ## Final redesign acceptance
 
