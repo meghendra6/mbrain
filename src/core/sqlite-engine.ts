@@ -47,6 +47,7 @@ import type {
   MemorySessionAttachmentFilters,
   MemorySessionAttachmentInput,
   MemorySessionInput,
+  MemoryCandidatePatchOperationStatePatch,
   MemoryCandidatePromotionPatch,
   MemoryCandidateStatusEvent,
   MemoryCandidateStatusEventFilters,
@@ -2411,6 +2412,77 @@ export class SQLiteEngine implements BrainEngine {
       WHERE id = ?
     `).get(id) as Record<string, unknown> | null;
     if (!row) throw new Error(`Memory candidate entry not found after status update: ${id}`);
+    return rowToMemoryCandidateEntry(row);
+  }
+
+  async updateMemoryCandidatePatchOperationState(
+    id: string,
+    patch: MemoryCandidatePatchOperationStatePatch,
+  ): Promise<MemoryCandidateEntry | null> {
+    const current = await this.getMemoryCandidateEntry(id);
+    if (!current) {
+      throw new Error(`Memory candidate entry not found before patch operation state update: ${id}`);
+    }
+
+    const timestamp = nowIso();
+    const expectedState = patch.expected_current_patch_operation_state !== undefined
+      ? patch.expected_current_patch_operation_state
+      : current.patch_operation_state ?? null;
+    const expectedStatus = patch.expected_current_status ?? current.status;
+    const reviewedAt = patch.reviewed_at !== undefined
+      ? toNullableIso(patch.reviewed_at)
+      : toNullableIso(current.reviewed_at);
+    const reviewReason = patch.review_reason !== undefined
+      ? patch.review_reason ?? null
+      : current.review_reason;
+    const expectedPatchLedgerEventIds = normalizeExpectedPatchLedgerEventIds(
+      current.patch_ledger_event_ids ?? [],
+      patch.expected_current_patch_ledger_event_ids,
+    );
+    const patchLedgerEventIds = normalizePatchLedgerEventIds(
+      current.patch_ledger_event_ids ?? [],
+      patch.patch_ledger_event_ids,
+    );
+
+    const result = this.database.run(`
+      UPDATE memory_candidate_entries
+      SET patch_operation_state = ?,
+          patch_ledger_event_ids = ?,
+          reviewed_at = ?,
+          review_reason = ?,
+          updated_at = ?
+      WHERE id = ?
+        AND status = ?
+        AND patch_operation_state IS ?
+        AND patch_ledger_event_ids = ?
+    `, [
+      patch.patch_operation_state,
+      JSON.stringify(patchLedgerEventIds),
+      reviewedAt,
+      reviewReason,
+      timestamp,
+      id,
+      expectedStatus,
+      expectedState,
+      JSON.stringify(expectedPatchLedgerEventIds),
+    ]);
+    if (result.changes === 0) {
+      return null;
+    }
+
+    const row = this.database.query(`
+      SELECT id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
+             extraction_kind, confidence_score, importance_score, recurrence_score,
+             sensitivity, status, target_object_type, target_object_id, reviewed_at,
+             review_reason, patch_target_kind, patch_target_id, patch_base_target_snapshot_hash,
+             patch_body, patch_format, patch_operation_state, patch_risk_class,
+             patch_expected_resulting_target_snapshot_hash, patch_provenance_summary,
+             patch_actor, patch_originating_session_id, patch_ledger_event_ids,
+             created_at, updated_at
+      FROM memory_candidate_entries
+      WHERE id = ?
+    `).get(id) as Record<string, unknown> | null;
+    if (!row) throw new Error(`Memory candidate entry not found after patch operation state update: ${id}`);
     return rowToMemoryCandidateEntry(row);
   }
 
@@ -5327,6 +5399,51 @@ function sortByCreatedAtDescIdDesc<T extends { created_at: Date; id: string }>(e
 function toNullableIso(value: Date | string | null | undefined): string | null {
   if (value == null) return null;
   return value instanceof Date ? value.toISOString() : String(value);
+}
+
+function normalizePatchLedgerEventIds(
+  currentIds: readonly string[],
+  nextIds: string[] | undefined,
+): string[] {
+  if (nextIds === undefined) {
+    return [...currentIds];
+  }
+  const normalized = normalizePatchLedgerIdArray(nextIds);
+  if (normalized.length < currentIds.length) {
+    throw new Error('patch_ledger_event_ids must append to the existing event id prefix');
+  }
+  for (let index = 0; index < currentIds.length; index += 1) {
+    if (normalized[index] !== currentIds[index]) {
+      throw new Error('patch_ledger_event_ids must preserve existing event ids as an ordered prefix');
+    }
+  }
+  return normalized;
+}
+
+function normalizeExpectedPatchLedgerEventIds(
+  currentIds: readonly string[],
+  expectedIds: string[] | undefined,
+): string[] {
+  if (expectedIds === undefined) {
+    return [...currentIds];
+  }
+  return normalizePatchLedgerIdArray(expectedIds);
+}
+
+function normalizePatchLedgerIdArray(ids: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const id of ids) {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('patch_ledger_event_ids must be non-empty strings');
+    }
+    if (seen.has(id)) {
+      throw new Error(`patch_ledger_event_ids must not contain duplicates: ${id}`);
+    }
+    seen.add(id);
+    normalized.push(id);
+  }
+  return normalized;
 }
 
 function isSupersessionDuplicateConstraint(error: unknown): boolean {

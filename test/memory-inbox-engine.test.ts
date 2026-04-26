@@ -597,6 +597,92 @@ for (const createHarness of [createSqliteHarness, createPgliteHarness]) {
     }
   }, timeoutMs);
 
+  test(`${createHarness.name} updates patch operation state without changing candidate status`, async () => {
+    const harness = await createHarness();
+    const scopeId = 'workspace:default';
+    const id = `memory-patch-candidate-state:${scopeId}:${harness.label}`;
+    let reopened: BrainEngine | null = null;
+
+    try {
+      await seedPatchCandidate(harness.engine, id, scopeId);
+      const approved = await harness.engine.updateMemoryCandidatePatchOperationState(id, {
+        patch_operation_state: 'approved_for_apply',
+        expected_current_status: 'staged_for_review',
+        expected_current_patch_operation_state: 'proposed',
+        patch_ledger_event_ids: ['ledger:patch-candidate-created', 'ledger:patch-candidate-reviewed'],
+        reviewed_at: new Date('2026-04-26T03:00:00.000Z'),
+        review_reason: 'Reviewer approved the patch for application.',
+      });
+      expect(approved?.status).toBe('staged_for_review');
+      expect(approved?.patch_operation_state).toBe('approved_for_apply');
+      expect(approved?.patch_ledger_event_ids).toEqual([
+        'ledger:patch-candidate-created',
+        'ledger:patch-candidate-reviewed',
+      ]);
+
+      expect(await harness.engine.updateMemoryCandidatePatchOperationState(id, {
+        patch_operation_state: 'applied',
+        expected_current_status: 'staged_for_review',
+        expected_current_patch_operation_state: 'proposed',
+      })).toBeNull();
+      await expect(harness.engine.updateMemoryCandidatePatchOperationState(id, {
+        patch_operation_state: 'conflicted',
+        expected_current_status: 'staged_for_review',
+        expected_current_patch_operation_state: 'approved_for_apply',
+        patch_ledger_event_ids: ['ledger:patch-candidate-reviewed'],
+      })).rejects.toThrow(/append|prefix/);
+      await expect(harness.engine.updateMemoryCandidatePatchOperationState(id, {
+        patch_operation_state: 'conflicted',
+        expected_current_status: 'staged_for_review',
+        expected_current_patch_operation_state: 'approved_for_apply',
+        patch_ledger_event_ids: [
+          'ledger:patch-candidate-reviewed',
+          'ledger:patch-candidate-created',
+          'ledger:patch-candidate-conflicted',
+        ],
+      })).rejects.toThrow(/ordered prefix/);
+      expect(await harness.engine.updateMemoryCandidatePatchOperationState(id, {
+        patch_operation_state: 'conflicted',
+        expected_current_status: 'staged_for_review',
+        expected_current_patch_operation_state: 'approved_for_apply',
+        expected_current_patch_ledger_event_ids: ['ledger:patch-candidate-created'],
+        patch_ledger_event_ids: [
+          'ledger:patch-candidate-created',
+          'ledger:patch-candidate-reviewed',
+          'ledger:patch-candidate-conflicted',
+        ],
+      })).toBeNull();
+
+      await harness.engine.disconnect();
+      reopened = await harness.reopen();
+      const persisted = await reopened.getMemoryCandidateEntry(id);
+      expect(persisted?.status).toBe('staged_for_review');
+      expect(persisted?.patch_operation_state).toBe('approved_for_apply');
+
+      const conflicted = await reopened.updateMemoryCandidatePatchOperationState(id, {
+        patch_operation_state: 'conflicted',
+        expected_current_status: 'staged_for_review',
+        expected_current_patch_operation_state: 'approved_for_apply',
+        patch_ledger_event_ids: [
+          'ledger:patch-candidate-created',
+          'ledger:patch-candidate-reviewed',
+          'ledger:patch-candidate-conflicted',
+        ],
+        review_reason: 'Target snapshot hash changed before application.',
+      });
+      expect(conflicted?.status).toBe('staged_for_review');
+      expect(conflicted?.patch_operation_state).toBe('conflicted');
+      expect(conflicted?.patch_ledger_event_ids).toEqual([
+        'ledger:patch-candidate-created',
+        'ledger:patch-candidate-reviewed',
+        'ledger:patch-candidate-conflicted',
+      ]);
+    } finally {
+      await reopened?.disconnect();
+      await harness.cleanup();
+    }
+  }, timeoutMs);
+
   test(`${createHarness.name} refuses promotion when provenance refs are blank-only`, async () => {
     const harness = await createHarness();
     const scopeId = 'workspace:default';
@@ -724,6 +810,63 @@ if (databaseUrl) {
         review_reason: 'Blank provenance must not pass the engine CAS guard.',
       })).toBeNull();
       expect((await engine.getMemoryCandidateEntry(id))?.status).toBe('staged_for_review');
+    } finally {
+      if (!(engine as any)._sql) {
+        await engine.connect({ engine: 'postgres', database_url: databaseUrl });
+      }
+      await engine.deleteMemoryCandidateEntry(id).catch(() => undefined);
+      await engine.disconnect().catch(() => undefined);
+    }
+  });
+
+  test('postgres updates patch operation state without changing candidate status', async () => {
+    const scopeId = 'workspace:default';
+    const id = `memory-patch-candidate-state:${scopeId}:postgres:${Date.now()}`;
+    const engine = new PostgresEngine();
+
+    try {
+      await engine.connect({ engine: 'postgres', database_url: databaseUrl });
+      await engine.initSchema();
+      await seedPatchCandidate(engine, id, scopeId);
+
+      const approved = await engine.updateMemoryCandidatePatchOperationState(id, {
+        patch_operation_state: 'approved_for_apply',
+        expected_current_status: 'staged_for_review',
+        expected_current_patch_operation_state: 'proposed',
+        patch_ledger_event_ids: ['ledger:patch-candidate-created', 'ledger:patch-candidate-reviewed'],
+      });
+      expect(approved?.status).toBe('staged_for_review');
+      expect(approved?.patch_operation_state).toBe('approved_for_apply');
+
+      expect(await engine.updateMemoryCandidatePatchOperationState(id, {
+        patch_operation_state: 'conflicted',
+        expected_current_status: 'staged_for_review',
+        expected_current_patch_operation_state: 'approved_for_apply',
+        expected_current_patch_ledger_event_ids: ['ledger:patch-candidate-created'],
+        patch_ledger_event_ids: [
+          'ledger:patch-candidate-created',
+          'ledger:patch-candidate-reviewed',
+          'ledger:patch-candidate-conflicted',
+        ],
+      })).toBeNull();
+
+      const conflicted = await engine.updateMemoryCandidatePatchOperationState(id, {
+        patch_operation_state: 'conflicted',
+        expected_current_status: 'staged_for_review',
+        expected_current_patch_operation_state: 'approved_for_apply',
+        patch_ledger_event_ids: [
+          'ledger:patch-candidate-created',
+          'ledger:patch-candidate-reviewed',
+          'ledger:patch-candidate-conflicted',
+        ],
+      });
+      expect(conflicted?.status).toBe('staged_for_review');
+      expect(conflicted?.patch_operation_state).toBe('conflicted');
+      expect(conflicted?.patch_ledger_event_ids).toEqual([
+        'ledger:patch-candidate-created',
+        'ledger:patch-candidate-reviewed',
+        'ledger:patch-candidate-conflicted',
+      ]);
     } finally {
       if (!(engine as any)._sql) {
         await engine.connect({ engine: 'postgres', database_url: databaseUrl });

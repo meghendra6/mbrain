@@ -100,6 +100,8 @@ test('dry_run_memory_mutation is exposed through operations and MCP-style schema
   expect(operation.params.source_refs.required).toBe(true);
   expect(operation.params.dry_run.type).toBe('boolean');
   expect(operation.params.operation.enum).toContain('put_page');
+  expect(operation.params.operation.enum).toContain('review_memory_patch_candidate');
+  expect(operation.params.operation.enum).toContain('apply_memory_patch_candidate');
   expect(operation.params.operation.enum).not.toContain('create_memory_session');
   expect(operation.params.operation.enum).not.toContain('upsert_memory_realm');
   expect(operation.params.operation.enum).not.toContain('record_memory_mutation_event');
@@ -122,6 +124,114 @@ test('dry_run_memory_mutation is exposed through operations and MCP-style schema
     'operation',
     'source_refs',
   ]);
+});
+
+test('dry_run_memory_mutation validates apply_memory_patch_candidate for page targets', async () => {
+  const harness = await createSqliteHarness('apply-patch-policy');
+  try {
+    const operation = getOperation('dry_run_memory_mutation');
+    const targetId = await seedSessionRealmTarget(harness.engine, {
+      session_id: 'session-apply-patch-policy',
+      realm_id: 'realm:apply-patch-policy',
+      access: 'read_write',
+      target_hash: '1'.repeat(64),
+    });
+
+    const missingCandidate = await operation.handler(harness.ctx(), {
+      session_id: 'session-apply-patch-policy',
+      realm_id: 'realm:apply-patch-policy',
+      operation: 'apply_memory_patch_candidate',
+      target_kind: 'page',
+      target_id: targetId,
+      scope_id: 'workspace:default',
+      source_refs: ['Source: dry-run apply patch policy test'],
+    }) as any;
+
+    expect(missingCandidate.allowed).toBe(false);
+    expect(missingCandidate.result).toBe('denied');
+    expect(missingCandidate.conflict_info.reason).toBe('patch_candidate_id_required');
+
+    const missingCandidateWithStaleHash = await operation.handler(harness.ctx(), {
+      session_id: 'session-apply-patch-policy',
+      realm_id: 'realm:apply-patch-policy',
+      operation: 'apply_memory_patch_candidate',
+      target_kind: 'page',
+      target_id: targetId,
+      scope_id: 'workspace:default',
+      expected_target_snapshot_hash: '0'.repeat(64),
+      source_refs: ['Source: dry-run apply patch policy test'],
+    }) as any;
+    expect(missingCandidateWithStaleHash.allowed).toBe(false);
+    expect(missingCandidateWithStaleHash.result).toBe('denied');
+    expect(missingCandidateWithStaleHash.conflict_info.reason).toBe('patch_candidate_id_required');
+
+    await harness.engine.createMemoryCandidateEntry({
+      id: 'patch-candidate-dry-run-apply',
+      scope_id: 'workspace:default',
+      candidate_type: 'note_update',
+      proposed_content: 'Dry-run approved patch candidate.',
+      source_refs: ['Source: dry-run apply patch policy test'],
+      generated_by: 'manual',
+      extraction_kind: 'manual',
+      confidence_score: 0.9,
+      importance_score: 0.8,
+      recurrence_score: 0,
+      sensitivity: 'work',
+      status: 'staged_for_review',
+      target_object_type: 'curated_note',
+      target_object_id: targetId,
+      reviewed_at: null,
+      review_reason: null,
+      patch_target_kind: 'page',
+      patch_target_id: targetId,
+      patch_base_target_snapshot_hash: '1'.repeat(64),
+      patch_body: {
+        compiled_truth: 'Dry-run approved patch body. [Source: User, direct message, 2026-04-26 1:12 PM KST]',
+      },
+      patch_format: 'merge_patch',
+      patch_operation_state: 'approved_for_apply',
+      patch_risk_class: 'low',
+      patch_expected_resulting_target_snapshot_hash: null,
+      patch_provenance_summary: null,
+      patch_actor: 'agent:dry-run-test',
+      patch_originating_session_id: 'session-apply-patch-policy',
+      patch_ledger_event_ids: ['ledger:patch-candidate-created', 'ledger:patch-candidate-reviewed'],
+    } as any);
+
+    const result = await operation.handler(harness.ctx(), {
+      session_id: 'session-apply-patch-policy',
+      realm_id: 'realm:apply-patch-policy',
+      operation: 'apply_memory_patch_candidate',
+      target_kind: 'page',
+      target_id: targetId,
+      scope_id: 'workspace:default',
+      source_refs: ['Source: dry-run apply patch policy test'],
+      metadata: {
+        candidate_id: 'patch-candidate-dry-run-apply',
+      },
+    }) as any;
+
+    expect(result.allowed).toBe(true);
+    expect(result.result).toBe('dry_run');
+    expect(result.operation).toBe('apply_memory_patch_candidate');
+    expect(result.target_kind).toBe('page');
+
+    const denied = await operation.handler(harness.ctx(), {
+      session_id: 'session-apply-patch-policy',
+      realm_id: 'realm:apply-patch-policy',
+      operation: 'apply_memory_patch_candidate',
+      target_kind: 'memory_candidate',
+      target_id: 'candidate:unsupported-apply-target',
+      scope_id: 'workspace:default',
+      source_refs: ['Source: dry-run apply patch policy test'],
+    }) as any;
+
+    expect(denied.allowed).toBe(false);
+    expect(denied.result).toBe('denied');
+    expect(denied.policy_checks.operation_allowed).toBe(false);
+  } finally {
+    await harness.cleanup();
+  }
 });
 
 test('dry_run_memory_mutation records a dry-run ledger event for a read-write attached realm', async () => {

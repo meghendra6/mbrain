@@ -1167,6 +1167,16 @@ export interface MemoryCandidatePromotionPatch {
   review_reason?: string | null;
 }
 
+export interface MemoryCandidatePatchOperationStatePatch {
+  patch_operation_state: MemoryPatchOperationState;
+  expected_current_status?: MemoryCandidateStatus;
+  expected_current_patch_operation_state?: MemoryPatchOperationState | null;
+  expected_current_patch_ledger_event_ids?: string[];
+  patch_ledger_event_ids?: string[];
+  reviewed_at?: Date | string | null;
+  review_reason?: string | null;
+}
+
 export interface MemoryCandidatePromotionPreflightInput {
   id: string;
 }

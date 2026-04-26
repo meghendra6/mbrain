@@ -45,6 +45,7 @@ import type {
   MemorySessionAttachmentFilters,
   MemorySessionAttachmentInput,
   MemorySessionInput,
+  MemoryCandidatePatchOperationStatePatch,
   MemoryCandidatePromotionPatch,
   MemoryCandidateStatusEvent,
   MemoryCandidateStatusEventFilters,
@@ -2015,6 +2016,67 @@ export class PGLiteEngine implements BrainEngine {
     return rowToMemoryCandidateEntry(rows[0] as Record<string, unknown>);
   }
 
+  async updateMemoryCandidatePatchOperationState(
+    id: string,
+    patch: MemoryCandidatePatchOperationStatePatch,
+  ): Promise<MemoryCandidateEntry | null> {
+    const current = await this.getMemoryCandidateEntry(id);
+    if (!current) {
+      throw new Error(`Memory candidate entry not found before patch operation state update: ${id}`);
+    }
+    const expectedState = patch.expected_current_patch_operation_state !== undefined
+      ? patch.expected_current_patch_operation_state
+      : current.patch_operation_state ?? null;
+    const expectedStatus = patch.expected_current_status ?? current.status;
+    const reviewedAt = patch.reviewed_at !== undefined
+      ? (patch.reviewed_at instanceof Date ? patch.reviewed_at.toISOString() : patch.reviewed_at ?? null)
+      : (current.reviewed_at instanceof Date ? current.reviewed_at.toISOString() : current.reviewed_at ?? null);
+    const reviewReason = patch.review_reason !== undefined
+      ? patch.review_reason ?? null
+      : current.review_reason;
+    const expectedPatchLedgerEventIds = normalizeExpectedPatchLedgerEventIds(
+      current.patch_ledger_event_ids ?? [],
+      patch.expected_current_patch_ledger_event_ids,
+    );
+    const patchLedgerEventIds = normalizePatchLedgerEventIds(
+      current.patch_ledger_event_ids ?? [],
+      patch.patch_ledger_event_ids,
+    );
+
+    const { rows } = await this.db.query(
+      `UPDATE memory_candidate_entries
+       SET patch_operation_state = $2,
+           patch_ledger_event_ids = $3,
+           reviewed_at = $4,
+           review_reason = $5,
+           updated_at = now()
+       WHERE id = $1
+         AND status = $6
+         AND patch_operation_state IS NOT DISTINCT FROM $7
+         AND patch_ledger_event_ids = $8::jsonb
+       RETURNING id, scope_id, candidate_type, proposed_content, source_refs, generated_by,
+                 extraction_kind, confidence_score, importance_score, recurrence_score,
+                 sensitivity, status, target_object_type, target_object_id, reviewed_at,
+                 review_reason, patch_target_kind, patch_target_id, patch_base_target_snapshot_hash,
+                 patch_body, patch_format, patch_operation_state, patch_risk_class,
+                 patch_expected_resulting_target_snapshot_hash, patch_provenance_summary,
+                 patch_actor, patch_originating_session_id, patch_ledger_event_ids,
+                 created_at, updated_at`,
+      [
+        id,
+        patch.patch_operation_state,
+        JSON.stringify(patchLedgerEventIds),
+        reviewedAt,
+        reviewReason,
+        expectedStatus,
+        expectedState,
+        JSON.stringify(expectedPatchLedgerEventIds),
+      ],
+    );
+    if (rows.length === 0) return null;
+    return rowToMemoryCandidateEntry(rows[0] as Record<string, unknown>);
+  }
+
   async promoteMemoryCandidateEntry(id: string, patch: MemoryCandidatePromotionPatch = {}): Promise<MemoryCandidateEntry | null> {
     // I4: reject promotion unless the candidate has at least one non-blank
     // provenance entry. Keeps direct engine callers fail-closed.
@@ -2841,6 +2903,51 @@ function sortByCreatedAtDescIdDesc<T extends { created_at: Date; id: string }>(e
 function toNullableIso(value: Date | string | null | undefined): string | null {
   if (value == null) return null;
   return value instanceof Date ? value.toISOString() : String(value);
+}
+
+function normalizePatchLedgerEventIds(
+  currentIds: readonly string[],
+  nextIds: string[] | undefined,
+): string[] {
+  if (nextIds === undefined) {
+    return [...currentIds];
+  }
+  const normalized = normalizePatchLedgerIdArray(nextIds);
+  if (normalized.length < currentIds.length) {
+    throw new Error('patch_ledger_event_ids must append to the existing event id prefix');
+  }
+  for (let index = 0; index < currentIds.length; index += 1) {
+    if (normalized[index] !== currentIds[index]) {
+      throw new Error('patch_ledger_event_ids must preserve existing event ids as an ordered prefix');
+    }
+  }
+  return normalized;
+}
+
+function normalizeExpectedPatchLedgerEventIds(
+  currentIds: readonly string[],
+  expectedIds: string[] | undefined,
+): string[] {
+  if (expectedIds === undefined) {
+    return [...currentIds];
+  }
+  return normalizePatchLedgerIdArray(expectedIds);
+}
+
+function normalizePatchLedgerIdArray(ids: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const id of ids) {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('patch_ledger_event_ids must be non-empty strings');
+    }
+    if (seen.has(id)) {
+      throw new Error(`patch_ledger_event_ids must not contain duplicates: ${id}`);
+    }
+    seen.add(id);
+    normalized.push(id);
+  }
+  return normalized;
 }
 
 function normalizeMemoryMutationPagination(
