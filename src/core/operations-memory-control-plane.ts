@@ -2,6 +2,11 @@ import { randomUUID } from 'crypto';
 import type { Operation } from './operations.ts';
 import { recordMemoryMutationEvent } from './services/memory-mutation-ledger-service.ts';
 import {
+  DEFAULT_MEMORY_OPERATIONS_HEALTH_LIMIT,
+  DEFAULT_MEMORY_OPERATIONS_HEALTH_SCOPE_ID,
+  getMemoryOperationsHealth,
+} from './services/memory-operations-health-service.ts';
+import {
   approveMemoryRedactionPlan as approveMemoryRedactionPlanService,
   applyMemoryRedactionPlan as applyMemoryRedactionPlanService,
   createMemoryRedactionPlan as createMemoryRedactionPlanService,
@@ -379,6 +384,20 @@ function memorySessionAttachmentFilters(
     ...(realmId !== undefined ? { realm_id: realmId } : {}),
     limit: integerParam(deps, 'limit', p.limit, { defaultValue: 100, min: 0, max: 500 }),
     offset: integerParam(deps, 'offset', p.offset, { defaultValue: 0, min: 0 }),
+  };
+}
+
+function memoryOperationsHealthInput(
+  deps: { OperationError: OperationErrorCtor },
+  p: Record<string, unknown>,
+) {
+  return {
+    scope_id: optionalString(deps, 'scope_id', p.scope_id) ?? DEFAULT_MEMORY_OPERATIONS_HEALTH_SCOPE_ID,
+    limit: integerParam(deps, 'limit', p.limit, {
+      defaultValue: DEFAULT_MEMORY_OPERATIONS_HEALTH_LIMIT,
+      min: 0,
+      max: 10000,
+    }),
   };
 }
 
@@ -963,6 +982,22 @@ export function createMemoryControlPlaneOperations(
     cliHints: { name: 'memory-redaction-plan-apply', positional: ['id'] },
   };
 
+  const get_memory_operations_health: Operation = {
+    name: 'get_memory_operations_health',
+    description: 'Return a scoped health report for Phase 9 memory operations control-plane state.',
+    params: {
+      scope_id: { type: 'string', default: DEFAULT_MEMORY_OPERATIONS_HEALTH_SCOPE_ID },
+      limit: {
+        type: 'number',
+        default: DEFAULT_MEMORY_OPERATIONS_HEALTH_LIMIT,
+        description: 'Maximum rows sampled from each underlying control-plane list.',
+      },
+    },
+    mutating: false,
+    handler: async (ctx, p) => getMemoryOperationsHealth(ctx.engine, memoryOperationsHealthInput(deps, p)),
+    cliHints: { name: 'memory-operations-health', aliases: { n: 'limit' } },
+  };
+
   return [
     upsert_memory_realm,
     get_memory_realm,
@@ -979,5 +1014,6 @@ export function createMemoryControlPlaneOperations(
     approve_memory_redaction_plan,
     reject_memory_redaction_plan,
     apply_memory_redaction_plan,
+    get_memory_operations_health,
   ];
 }
