@@ -25,7 +25,7 @@ import { createBrainLoopAuditOperations } from './operations-brain-loop-audit.ts
 import { createMemoryInboxOperations, DEFAULT_MEMORY_INBOX_SCOPE_ID } from './operations-memory-inbox.ts';
 import { createMemoryControlPlaneOperations } from './operations-memory-control-plane.ts';
 import { createMemoryMutationLedgerOperations } from './operations-memory-mutation-ledger.ts';
-import { assertMemoryWriteAllowed } from './services/memory-access-policy-service.ts';
+import { assertMemoryWriteAllowed, MemoryAccessPolicyError } from './services/memory-access-policy-service.ts';
 import { recordMemoryMutationEvent } from './services/memory-mutation-ledger-service.ts';
 import { getStructuralContextAtlasOverview } from './services/context-atlas-overview-service.ts';
 import { getStructuralContextAtlasReport } from './services/context-atlas-report-service.ts';
@@ -1462,6 +1462,23 @@ async function recordPutPageConflict(
   }
 }
 
+async function assertPutPageMemoryWriteAllowed(
+  engine: BrainEngine,
+  input: {
+    memory_session_id?: string | null;
+    realm_id?: string | null;
+  },
+): Promise<void> {
+  try {
+    await assertMemoryWriteAllowed(engine, input);
+  } catch (error) {
+    if (error instanceof MemoryAccessPolicyError) {
+      throw new OperationError('invalid_params', error.message);
+    }
+    throw error;
+  }
+}
+
 function putPageOperationResult(result: { slug: string; status: string; chunks: number; error?: string }) {
   return {
     slug: result.slug,
@@ -1493,14 +1510,28 @@ const put_page: Operation = {
     assertWritableSlugQuality(slug);
     if (ctx.dryRun) return { dry_run: true, action: 'put_page', slug };
     const memorySessionId = optionalPutPageString('memory_session_id', p.memory_session_id) ?? null;
-    await assertMemoryWriteAllowed(ctx.engine, {
-      memory_session_id: memorySessionId,
-      realm_id: memorySessionId ? (optionalPutPageString('realm_id', p.realm_id) ?? null) : null,
-    });
-    assertPutPageSourceAttribution(slug, content);
-    const audit = putPageAuditContext(p);
-    const expectedContentHash = putPageExpectedContentHash(p.expected_content_hash);
+    const authorizationRealmId = memorySessionId ? (optionalPutPageString('realm_id', p.realm_id) ?? null) : null;
+    const prevalidatedPutPage = memorySessionId
+      ? null
+      : (() => {
+        assertPutPageSourceAttribution(slug, content);
+        return {
+          audit: putPageAuditContext(p),
+          expectedContentHash: putPageExpectedContentHash(p.expected_content_hash),
+        };
+      })();
     const outcome = await ctx.engine.transaction(async (tx) => {
+      if (memorySessionId) {
+        await assertPutPageMemoryWriteAllowed(tx, {
+          memory_session_id: memorySessionId,
+          realm_id: authorizationRealmId,
+        });
+        assertPutPageSourceAttribution(slug, content);
+      }
+      const audit = prevalidatedPutPage ? prevalidatedPutPage.audit : putPageAuditContext(p);
+      const expectedContentHash = prevalidatedPutPage
+        ? prevalidatedPutPage.expectedContentHash
+        : putPageExpectedContentHash(p.expected_content_hash);
       const existing = expectedContentHash !== undefined
         ? await tx.getPageForUpdate(slug)
         : await tx.getPage(slug);
@@ -1509,6 +1540,7 @@ const put_page: Operation = {
       if (expectedContentHash !== undefined && !existing) {
         return {
           kind: 'conflict' as const,
+          audit,
           conflict: {
             slug,
             expectedContentHash,
@@ -1525,6 +1557,7 @@ const put_page: Operation = {
       if (expectedContentHash !== undefined && previousHash !== expectedContentHash) {
         return {
           kind: 'conflict' as const,
+          audit,
           conflict: {
             slug,
             expectedContentHash,
@@ -1601,7 +1634,7 @@ const put_page: Operation = {
     });
 
     if (outcome.kind === 'conflict') {
-      await recordPutPageConflict(ctx.engine, audit, outcome.conflict);
+      await recordPutPageConflict(ctx.engine, outcome.audit, outcome.conflict);
       throw outcome.error;
     }
     return putPageOperationResult(outcome.result);
