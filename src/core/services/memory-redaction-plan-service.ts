@@ -45,6 +45,8 @@ export interface ApplyMemoryRedactionPlanServiceInput {
 }
 
 const DEFAULT_REPLACEMENT_TEXT = '[REDACTED]';
+const APPLIED_PLAN_QUERY_TOMBSTONE = '[APPLIED REDACTION PLAN QUERY TOMBSTONED]';
+const APPLIED_PLAN_REPLACEMENT_TOMBSTONE = '[APPLIED REDACTION PLAN REPLACEMENT TOMBSTONED]';
 const DEFAULT_CREATE_SOURCE_REFS = ['Source: mbrain create_memory_redaction_plan operation'];
 const DEFAULT_APPLY_SOURCE_REFS = ['Source: mbrain apply_memory_redaction_plan operation'];
 const DEFAULT_ACTOR = 'mbrain:redaction_plan_service';
@@ -92,8 +94,8 @@ export async function createMemoryRedactionPlan(
       result: 'staged_for_review',
       metadata: {
         plan_id: plan.id,
-        query: plan.query,
-        replacement_text: plan.replacement_text,
+        query_hash: hashText(plan.query),
+        replacement_text_hash: hashText(plan.replacement_text),
         item_count: items.length,
       },
     });
@@ -197,8 +199,6 @@ export async function applyMemoryRedactionPlan(
         result: 'redacted',
         metadata: {
           plan_id: plan.id,
-          query: plan.query,
-          replacement_text: plan.replacement_text,
           page_slug: storedPage.slug,
           item_count: pageResult.itemResults.length,
           item_ids: appliedItemIds,
@@ -217,6 +217,8 @@ export async function applyMemoryRedactionPlan(
     const applied = await tx.updateMemoryRedactionPlanStatus(plan.id, {
       status: 'applied',
       expected_current_status: 'approved',
+      query: APPLIED_PLAN_QUERY_TOMBSTONE,
+      replacement_text: APPLIED_PLAN_REPLACEMENT_TOMBSTONE,
       applied_at: appliedAt,
     });
     if (!applied) {

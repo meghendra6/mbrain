@@ -2278,6 +2278,8 @@ export class PostgresEngine implements BrainEngine {
     const rows = await sql`
       UPDATE memory_redaction_plans
       SET status = ${normalized.status},
+          query = ${hasOwn(normalized, 'query') ? normalized.query! : current.query},
+          replacement_text = ${hasOwn(normalized, 'replacement_text') ? normalized.replacement_text! : current.replacement_text},
           review_reason = ${hasOwn(normalized, 'review_reason') ? normalized.review_reason ?? null : current.review_reason},
           reviewed_at = ${hasOwn(normalized, 'reviewed_at') ? toNullableIso(normalized.reviewed_at ?? null) : toNullableIso(current.reviewed_at)},
           applied_at = ${hasOwn(normalized, 'applied_at') ? toNullableIso(normalized.applied_at ?? null) : toNullableIso(current.applied_at)}

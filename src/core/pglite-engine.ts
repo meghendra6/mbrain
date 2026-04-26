@@ -2147,15 +2147,19 @@ export class PGLiteEngine implements BrainEngine {
     const { rows } = await this.db.query(
       `UPDATE memory_redaction_plans
        SET status = $1,
-           review_reason = $2,
-           reviewed_at = $3,
-           applied_at = $4
-       WHERE id = $5
-         AND status = $6
+           query = $2,
+           replacement_text = $3,
+           review_reason = $4,
+           reviewed_at = $5,
+           applied_at = $6
+       WHERE id = $7
+         AND status = $8
        RETURNING id, scope_id, query, replacement_text, status, requested_by,
                  review_reason, created_at, reviewed_at, applied_at`,
       [
         normalized.status,
+        hasOwn(normalized, 'query') ? normalized.query : current.query,
+        hasOwn(normalized, 'replacement_text') ? normalized.replacement_text : current.replacement_text,
         hasOwn(normalized, 'review_reason') ? normalized.review_reason ?? null : current.review_reason,
         hasOwn(normalized, 'reviewed_at') ? toNullableIso(normalized.reviewed_at ?? null) : toNullableIso(current.reviewed_at),
         hasOwn(normalized, 'applied_at') ? toNullableIso(normalized.applied_at ?? null) : toNullableIso(current.applied_at),

@@ -160,6 +160,16 @@ describe('memory redaction plan operations', () => {
         id: plan.id,
         status: 'applied',
       });
+      expect(JSON.stringify(await get.handler(harness.ctx(), { id: plan.id }))).not.toContain('gamma-secret');
+      expect(JSON.stringify(await get.handler(harness.ctx(), { id: plan.id }))).not.toContain('[MASKED]');
+      expect(JSON.stringify(await list.handler(harness.ctx(), {
+        scope_id: 'workspace:default',
+        status: 'applied',
+      }))).not.toContain('gamma-secret');
+      expect(JSON.stringify(await list.handler(harness.ctx(), {
+        scope_id: 'workspace:default',
+        status: 'applied',
+      }))).not.toContain('[MASKED]');
 
       const page = await harness.engine.getPage('concepts/redaction-operation-target');
       expect(page?.compiled_truth).toContain('[MASKED]');

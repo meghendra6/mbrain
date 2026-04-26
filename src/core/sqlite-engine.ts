@@ -2567,6 +2567,8 @@ export class SQLiteEngine implements BrainEngine {
     const result = this.database.run(`
       UPDATE memory_redaction_plans
       SET status = ?,
+          query = ?,
+          replacement_text = ?,
           review_reason = ?,
           reviewed_at = ?,
           applied_at = ?
@@ -2574,6 +2576,8 @@ export class SQLiteEngine implements BrainEngine {
         AND status = ?
     `, sqliteBindings([
       normalized.status,
+      hasOwn(normalized, 'query') ? normalized.query! : current.query,
+      hasOwn(normalized, 'replacement_text') ? normalized.replacement_text! : current.replacement_text,
       hasOwn(normalized, 'review_reason') ? normalized.review_reason ?? null : current.review_reason,
       hasOwn(normalized, 'reviewed_at') ? toNullableIso(normalized.reviewed_at ?? null) : toNullableIso(current.reviewed_at),
       hasOwn(normalized, 'applied_at') ? toNullableIso(normalized.applied_at ?? null) : toNullableIso(current.applied_at),

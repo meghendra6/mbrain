@@ -214,6 +214,8 @@ describe('memory redaction plan service', () => {
       });
       expect(applied.status).toBe('applied');
       expect(applied.applied_at).toBeInstanceOf(Date);
+      expect(applied.query).not.toBe('beta-secret');
+      expect(applied.replacement_text).not.toBe('[REMOVED]');
 
       const page = await harness.engine.getPage('concepts/redaction-apply-target');
       expect(page?.compiled_truth).toContain('[REMOVED] appears twice: [REMOVED].');
@@ -256,6 +258,14 @@ describe('memory redaction plan service', () => {
       expect(items.every((item) => item.status === 'applied')).toBe(true);
       expect(items.every((item) => item.before_hash && item.after_hash && item.before_hash !== item.after_hash)).toBe(true);
 
+      const storedPlan = await harness.engine.getMemoryRedactionPlan(plan.id);
+      const listedPlans = await harness.engine.listMemoryRedactionPlans({
+        scope_id: 'workspace:default',
+        status: 'applied',
+      });
+      expect(JSON.stringify([applied, storedPlan, listedPlans])).not.toContain('beta-secret');
+      expect(JSON.stringify([applied, storedPlan, listedPlans])).not.toContain('[REMOVED]');
+
       const events = await harness.engine.listMemoryMutationEvents({
         operation: 'execute_redaction_plan',
         target_id: 'concepts/redaction-apply-target',
@@ -278,6 +288,16 @@ describe('memory redaction plan service', () => {
       expect(events[0]!.current_target_snapshot_hash).toBe(page!.content_hash!);
       expect((events[0]?.metadata as any).item_results).toHaveLength(2);
       expect((events[0]?.metadata as any).item_results.every((entry: any) => entry.before_hash && entry.after_hash)).toBe(true);
+
+      const ledgerEvents = await harness.engine.listMemoryMutationEvents({
+        session_id: plan.id,
+      });
+      expect(ledgerEvents.map((event) => event.operation).sort()).toEqual([
+        'create_redaction_plan',
+        'execute_redaction_plan',
+      ]);
+      expect(JSON.stringify(ledgerEvents)).not.toContain('beta-secret');
+      expect(JSON.stringify(ledgerEvents)).not.toContain('[REMOVED]');
     } finally {
       await harness.cleanup();
     }

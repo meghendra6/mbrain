@@ -607,6 +607,12 @@ export function normalizeMemoryRedactionPlanStatusPatch(
     ...(patch.expected_current_status !== undefined
       ? { expected_current_status: patch.expected_current_status }
       : {}),
+    ...(patch.query !== undefined
+      ? { query: normalizeRequiredMemoryRedactionString('query', patch.query) }
+      : {}),
+    ...(patch.replacement_text !== undefined
+      ? { replacement_text: normalizeMemoryRedactionText('replacement_text', patch.replacement_text) }
+      : {}),
     ...(patch.review_reason !== undefined
       ? { review_reason: normalizeNullableMemoryRedactionString('review_reason', patch.review_reason) }
       : {}),

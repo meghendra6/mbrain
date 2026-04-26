@@ -986,6 +986,8 @@ export interface MemoryRedactionPlanFilters {
 export interface MemoryRedactionPlanStatusPatch {
   status: MemoryRedactionPlanStatus;
   expected_current_status?: MemoryRedactionPlanStatus;
+  query?: string;
+  replacement_text?: string;
   review_reason?: string | null;
   reviewed_at?: Date | string | null;
   applied_at?: Date | string | null;
