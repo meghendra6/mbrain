@@ -1,5 +1,7 @@
 import type { Operation } from './operations.ts';
 import type { BrainEngine } from './engine.ts';
+import { importFromContent } from './import-file.ts';
+import { parseMarkdown, serializeMarkdown } from './markdown.ts';
 import {
   advanceMemoryCandidateStatus,
   createMemoryCandidateEntryWithStatusEvent,
@@ -22,10 +24,17 @@ import {
   resolveTargetSnapshotHash,
   UnsupportedTargetSnapshotKindError,
 } from './services/target-snapshot-hash-service.ts';
-import type { MemoryMutationTargetKind, MemoryPatchOperationState } from './types.ts';
+import { contentHash, importContentHash } from './utils.ts';
+import type {
+  MemoryCandidateEntry,
+  MemoryMutationTargetKind,
+  MemoryPatchOperationState,
+  Page,
+  PageType,
+} from './types.ts';
 
 type OperationErrorCtor = new (
-  code: 'memory_candidate_not_found' | 'invalid_params',
+  code: any,
   message: string,
   suggestion?: string,
   docs?: string,
@@ -43,6 +52,18 @@ const MEMORY_CANDIDATE_SENSITIVITY_VALUES = ['public', 'work', 'personal', 'secr
 const MEMORY_CANDIDATE_TARGET_OBJECT_TYPE_VALUES = ['curated_note', 'procedure', 'profile_memory', 'personal_episode', 'other'] as const;
 const CANONICAL_HANDOFF_TARGET_OBJECT_TYPE_VALUES = ['curated_note', 'procedure', 'profile_memory', 'personal_episode'] as const;
 const MEMORY_CANDIDATE_CONTRADICTION_OUTCOME_VALUES = ['rejected', 'unresolved', 'superseded'] as const;
+const PAGE_TYPE_VALUES = [
+  'person',
+  'company',
+  'deal',
+  'yc',
+  'civic',
+  'project',
+  'concept',
+  'source',
+  'media',
+  'system',
+] as const satisfies readonly PageType[];
 const MEMORY_MUTATION_TARGET_KIND_VALUES = [
   'page',
   'source_record',
@@ -89,6 +110,7 @@ const MEMORY_PATCH_OPERATION_STATE_VALUES = [
   'conflicted',
   'failed',
 ] as const;
+const MEMORY_PATCH_REVIEW_DECISION_VALUES = ['approve', 'reject'] as const;
 const MEMORY_PATCH_RISK_CLASS_VALUES = ['low', 'medium', 'high', 'critical', 'unknown'] as const;
 const MEMORY_PATCH_FIELD_NAMES = [
   'patch_target_kind',
@@ -390,6 +412,328 @@ function targetObjectTypeForPatchTarget(
   }
 }
 
+async function assertActiveReadWriteMemorySession(
+  deps: { OperationError: OperationErrorCtor },
+  engine: BrainEngine,
+  input: {
+    sessionId: string;
+    realmId: string;
+    scopeId: string;
+  },
+): Promise<void> {
+  const session = await engine.getMemorySession(input.sessionId);
+  if (!session || session.status !== 'active') {
+    throw invalidParams(deps, `memory session is not active: ${input.sessionId}`);
+  }
+  const realm = await engine.getMemoryRealm(input.realmId);
+  if (!realm || realm.archived_at) {
+    throw invalidParams(deps, `memory realm is not active: ${input.realmId}`);
+  }
+  const attachment = (await engine.listMemorySessionAttachments({
+    session_id: input.sessionId,
+    realm_id: input.realmId,
+    limit: 1,
+  }))[0] ?? null;
+  if (!attachment || attachment.access !== 'read_write') {
+    throw invalidParams(deps, `memory realm is not attached read-write to session: ${input.realmId}`);
+  }
+  if (!isScopeAllowedForRealm(realm.scope, input.scopeId)) {
+    throw invalidParams(deps, `scope_id ${input.scopeId} is outside realm scope ${realm.scope}`);
+  }
+}
+
+function appendPatchLedgerEventId(
+  candidate: Pick<MemoryCandidateEntry, 'patch_ledger_event_ids'>,
+  eventId: string,
+): string[] {
+  const existing = candidate.patch_ledger_event_ids ?? [];
+  return existing.includes(eventId) ? existing : [...existing, eventId];
+}
+
+function requirePatchCandidate(
+  deps: { OperationError: OperationErrorCtor },
+  candidate: MemoryCandidateEntry | null,
+  candidateId: string,
+): MemoryCandidateEntry {
+  if (!candidate) {
+    throw new deps.OperationError('memory_candidate_not_found', `Memory patch candidate not found: ${candidateId}`);
+  }
+  if (
+    !candidate.patch_target_kind
+    || !candidate.patch_target_id
+    || !candidate.patch_format
+    || !candidate.patch_operation_state
+    || candidate.patch_body == null
+  ) {
+    throw invalidParams(deps, `memory candidate is not a reviewable patch candidate: ${candidateId}`);
+  }
+  return candidate;
+}
+
+function unsupportedPatchApplySurfaceReason(
+  candidate: Pick<MemoryCandidateEntry, 'patch_target_kind' | 'patch_format'>,
+): string | null {
+  if (candidate.patch_target_kind !== 'page') {
+    return `apply_memory_patch_candidate currently supports page targets only; got ${candidate.patch_target_kind ?? 'none'}`;
+  }
+  if (candidate.patch_format !== 'merge_patch') {
+    return `apply_memory_patch_candidate currently supports merge_patch format only; got ${candidate.patch_format ?? 'none'}`;
+  }
+  return null;
+}
+
+async function recordInvalidPatchLifecycleDenial(
+  deps: { OperationError: OperationErrorCtor },
+  tx: BrainEngine,
+  input: {
+    sessionId: string;
+    realmId: string;
+    actor: string;
+    operation: 'review_memory_patch_candidate' | 'apply_memory_patch_candidate';
+    targetKind: MemoryMutationTargetKind;
+    targetId: string;
+    candidate: MemoryCandidateEntry;
+    sourceRefs: string[];
+    message: string;
+  },
+): Promise<{ kind: 'denied'; message: string }> {
+  const patchOperationState = input.candidate.patch_operation_state;
+  if (!patchOperationState) {
+    throw invalidParams(deps, `memory patch candidate has no patch operation state: ${input.candidate.id}`);
+  }
+
+  const event = await recordMemoryMutationEvent(tx, {
+    session_id: input.sessionId,
+    realm_id: input.realmId,
+    actor: input.actor,
+    operation: input.operation,
+    target_kind: input.targetKind,
+    target_id: input.targetId,
+    scope_id: input.candidate.scope_id,
+    source_refs: input.sourceRefs,
+    result: 'denied',
+    conflict_info: {
+      reason: 'invalid_patch_candidate_lifecycle',
+      candidate_id: input.candidate.id,
+      message: input.message,
+      current_status: input.candidate.status,
+      current_patch_operation_state: patchOperationState,
+    },
+    metadata: {
+      candidate_id: input.candidate.id,
+      patch_target_kind: input.candidate.patch_target_kind,
+      patch_target_id: input.candidate.patch_target_id,
+      patch_format: input.candidate.patch_format,
+      previous_status: input.candidate.status,
+      previous_patch_operation_state: patchOperationState,
+    },
+  });
+  const updated = await tx.updateMemoryCandidatePatchOperationState(input.candidate.id, {
+    patch_operation_state: patchOperationState,
+    expected_current_status: input.candidate.status,
+    expected_current_patch_operation_state: patchOperationState,
+    patch_ledger_event_ids: appendPatchLedgerEventId(input.candidate, event.id),
+  });
+  if (!updated) {
+    throw invalidParams(deps, `memory patch candidate changed before lifecycle denial recording completed: ${input.candidate.id}`);
+  }
+  return {
+    kind: 'denied',
+    message: input.message,
+  };
+}
+
+function pageSnapshotHash(page: Page): string {
+  return page.content_hash ?? contentHash(page.compiled_truth, page.timeline || '');
+}
+
+const PAGE_MERGE_PATCH_FIELDS = new Set([
+  'type',
+  'title',
+  'compiled_truth',
+  'timeline',
+  'frontmatter',
+  'tags',
+]);
+const PAGE_FRONTMATTER_RESERVED_FIELDS = new Set(['type', 'title', 'tags', 'slug']);
+const PAGE_SOURCE_ATTRIBUTION_RE = /\[Source:\s*([^\]\n]*)\]/g;
+const PAGE_METADATA_MERGE_PATCH_FIELDS = ['type', 'title', 'frontmatter', 'tags'] as const;
+
+function materializePageMergePatch(
+  deps: { OperationError: OperationErrorCtor },
+  page: Page,
+  tags: string[],
+  patchBody: unknown,
+): { content: string; target_snapshot_hash: string } {
+  if (!patchBody || typeof patchBody !== 'object' || Array.isArray(patchBody)) {
+    throw invalidParams(deps, 'merge_patch patch_body must be an object');
+  }
+  const patch = patchBody as Record<string, unknown>;
+  for (const key of Object.keys(patch)) {
+    if (!PAGE_MERGE_PATCH_FIELDS.has(key)) {
+      throw invalidParams(deps, `unsupported page merge_patch field: ${key}`);
+    }
+  }
+
+  const next = {
+    type: page.type,
+    title: page.title,
+    compiled_truth: page.compiled_truth,
+    timeline: page.timeline || '',
+    frontmatter: stripReservedPageFrontmatterFields(page.frontmatter ?? {}),
+    tags: [...tags],
+  };
+  const changesPageMetadata = PAGE_METADATA_MERGE_PATCH_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(patch, field));
+  const changesPageText = Object.prototype.hasOwnProperty.call(patch, 'compiled_truth')
+    || Object.prototype.hasOwnProperty.call(patch, 'timeline');
+  if (changesPageMetadata && !changesPageText) {
+    throw invalidParams(
+      deps,
+      'page metadata merge_patch fields must include source-attributed compiled_truth or timeline context',
+    );
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'type')) {
+    next.type = requireEnumValue(deps, 'patch_body.type', patch.type, PAGE_TYPE_VALUES);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'title')) {
+    next.title = normalizeRequiredPatchString(deps, 'patch_body.title', patch.title);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'compiled_truth')) {
+    next.compiled_truth = normalizeRequiredPatchString(deps, 'patch_body.compiled_truth', patch.compiled_truth);
+    assertPatchFieldSourceAttribution(deps, 'patch_body.compiled_truth', next.compiled_truth);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'timeline')) {
+    next.timeline = normalizeRequiredPatchString(deps, 'patch_body.timeline', patch.timeline);
+    assertPatchFieldSourceAttribution(deps, 'patch_body.timeline', next.timeline);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'frontmatter')) {
+    if (patch.frontmatter === null) {
+      next.frontmatter = {};
+    } else if (isPlainJsonObject(patch.frontmatter)) {
+      assertNoReservedPageFrontmatterPatchFields(deps, patch.frontmatter);
+      next.frontmatter = stripReservedPageFrontmatterFields(applyJsonMergePatch(next.frontmatter, patch.frontmatter));
+    } else {
+      throw invalidParams(deps, 'patch_body.frontmatter must be an object or null');
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'tags')) {
+    if (!Array.isArray(patch.tags) || !patch.tags.every((tag) => typeof tag === 'string' && tag.trim().length > 0)) {
+      throw invalidParams(deps, 'patch_body.tags must be an array of non-empty strings');
+    }
+    next.tags = patch.tags.map((tag) => tag.trim());
+  }
+
+  assertPagePatchSourceAttribution(deps, next.compiled_truth, next.timeline);
+
+  const targetSnapshotHash = importContentHash({
+    title: next.title,
+    type: next.type,
+    compiled_truth: next.compiled_truth,
+    timeline: next.timeline,
+    frontmatter: next.frontmatter,
+    tags: next.tags,
+  });
+  const content = serializeMarkdown(next.frontmatter, next.compiled_truth, next.timeline, {
+    type: next.type,
+    title: next.title,
+    tags: next.tags,
+  });
+  const parsedContentHash = importContentHash(parseMarkdown(content, `${page.slug}.md`));
+  if (parsedContentHash !== targetSnapshotHash) {
+    throw invalidParams(deps, 'page merge_patch materialized hash does not match serialized import hash');
+  }
+  return {
+    content,
+    target_snapshot_hash: targetSnapshotHash,
+  };
+}
+
+function normalizeRequiredPatchString(
+  deps: { OperationError: OperationErrorCtor },
+  field: string,
+  value: unknown,
+): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw invalidParams(deps, `${field} must be a non-empty string`);
+  }
+  return value.trim();
+}
+
+function assertPagePatchSourceAttribution(
+  deps: { OperationError: OperationErrorCtor },
+  compiledTruth: string,
+  timeline: string,
+): void {
+  if (hasPageSourceAttribution(`${compiledTruth}\n${timeline}`)) return;
+  throw invalidParams(deps, 'page patch result must include at least one non-empty [Source: ...] attribution');
+}
+
+function assertPatchFieldSourceAttribution(
+  deps: { OperationError: OperationErrorCtor },
+  field: string,
+  content: string,
+): void {
+  if (hasPageSourceAttribution(content)) return;
+  throw invalidParams(deps, `${field} must include a non-empty [Source: ...] attribution`);
+}
+
+function hasPageSourceAttribution(content: string): boolean {
+  PAGE_SOURCE_ATTRIBUTION_RE.lastIndex = 0;
+  for (const match of content.matchAll(PAGE_SOURCE_ATTRIBUTION_RE)) {
+    if ((match[1] ?? '').trim()) return true;
+  }
+  return false;
+}
+
+function assertNoReservedPageFrontmatterPatchFields(
+  deps: { OperationError: OperationErrorCtor },
+  frontmatterPatch: Record<string, unknown>,
+): void {
+  for (const key of Object.keys(frontmatterPatch)) {
+    if (PAGE_FRONTMATTER_RESERVED_FIELDS.has(key)) {
+      throw invalidParams(deps, `patch_body.frontmatter must not include reserved page metadata field: ${key}`);
+    }
+  }
+}
+
+function stripReservedPageFrontmatterFields(
+  frontmatter: Record<string, unknown>,
+): Record<string, unknown> {
+  const stripped = { ...frontmatter };
+  for (const key of PAGE_FRONTMATTER_RESERVED_FIELDS) {
+    delete stripped[key];
+  }
+  return stripped;
+}
+
+function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function applyJsonMergePatch(
+  base: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) {
+      delete result[key];
+      continue;
+    }
+    const current = result[key];
+    if (isPlainJsonObject(current) && isPlainJsonObject(value)) {
+      result[key] = applyJsonMergePatch(current, value);
+      continue;
+    }
+    JSON.stringify(value);
+    result[key] = value;
+  }
+  return result;
+}
+
 function normalizeOptionalIsoTimestamp(
   deps: { OperationError: OperationErrorCtor },
   field: string,
@@ -483,6 +827,17 @@ export function createMemoryInboxOperations(
         description: 'Optional target object type filter',
         enum: [...MEMORY_CANDIDATE_TARGET_OBJECT_TYPE_VALUES],
       },
+      patch_operation_state: {
+        type: 'string',
+        description: 'Optional patch operation state filter',
+        enum: [...MEMORY_PATCH_OPERATION_STATE_VALUES],
+      },
+      patch_target_kind: {
+        type: 'string',
+        description: 'Optional patch target kind filter',
+        enum: [...MEMORY_PATCH_TARGET_KIND_VALUES],
+      },
+      patch_target_id: { type: 'string', description: 'Optional patch target id filter' },
       limit: { type: 'number', description: `Max results (default 20, cap ${MAX_MEMORY_CANDIDATE_LIMIT})` },
       offset: { type: 'number', description: 'Offset for pagination (default 0)' },
     },
@@ -492,6 +847,9 @@ export function createMemoryInboxOperations(
         status: optionalEnumValue(deps, 'status', p.status, MEMORY_CANDIDATE_STATUS_VALUES),
         candidate_type: optionalEnumValue(deps, 'candidate_type', p.candidate_type, MEMORY_CANDIDATE_TYPE_VALUES),
         target_object_type: optionalEnumValue(deps, 'target_object_type', p.target_object_type, MEMORY_CANDIDATE_TARGET_OBJECT_TYPE_VALUES),
+        patch_operation_state: optionalEnumValue(deps, 'patch_operation_state', p.patch_operation_state, MEMORY_PATCH_OPERATION_STATE_VALUES),
+        patch_target_kind: optionalEnumValue(deps, 'patch_target_kind', p.patch_target_kind, MEMORY_PATCH_TARGET_KIND_VALUES),
+        patch_target_id: normalizeOptionalNonEmptyString(deps, 'patch_target_id', p.patch_target_id) ?? undefined,
         limit: normalizeLimit(deps, p.limit),
         offset: normalizeOffset(deps, p.offset),
       });
@@ -775,7 +1133,7 @@ export function createMemoryInboxOperations(
         };
       }
 
-      return ctx.engine.transaction(async (txBase) => {
+      const outcome = await ctx.engine.transaction(async (txBase) => {
         const tx = txBase as BrainEngine;
         const event = await recordMemoryMutationEvent(tx, {
           session_id: sessionId,
@@ -804,8 +1162,606 @@ export function createMemoryInboxOperations(
           interaction_id: interactionId,
         });
       });
+      return outcome;
     },
     cliHints: { name: 'create-memory-patch-candidate' },
+  };
+
+  const review_memory_patch_candidate: Operation = {
+    name: 'review_memory_patch_candidate',
+    description: 'Approve or reject a reviewable memory patch candidate without applying it to canonical memory.',
+    params: {
+      candidate_id: { type: 'string', required: true, description: 'Memory patch candidate id' },
+      session_id: { type: 'string', required: true, description: 'Active reviewing memory session id' },
+      realm_id: { type: 'string', required: true, description: 'Active memory realm id attached read-write to the session' },
+      actor: { type: 'string', required: true, description: 'Actor reviewing the patch candidate' },
+      decision: {
+        type: 'string',
+        required: true,
+        description: 'Patch review decision',
+        enum: [...MEMORY_PATCH_REVIEW_DECISION_VALUES],
+      },
+      reviewed_at: { type: 'string', description: 'Optional ISO timestamp for review metadata' },
+      review_reason: { type: 'string', description: 'Optional review reason for auditability' },
+      source_refs: { type: 'array', required: true, items: { type: 'string' }, description: 'Required provenance strings for the review decision' },
+    },
+    mutating: true,
+    handler: async (ctx, p) => {
+      const candidateId = normalizeOptionalNonEmptyString(deps, 'candidate_id', p.candidate_id);
+      const sessionId = normalizeOptionalNonEmptyString(deps, 'session_id', p.session_id);
+      const realmId = normalizeOptionalNonEmptyString(deps, 'realm_id', p.realm_id);
+      const actor = normalizeOptionalNonEmptyString(deps, 'actor', p.actor);
+      if (!candidateId || !sessionId || !realmId || !actor) {
+        throw invalidParams(deps, 'candidate_id, session_id, realm_id, and actor are required');
+      }
+      const decision = requireEnumValue(deps, 'decision', p.decision, MEMORY_PATCH_REVIEW_DECISION_VALUES);
+      const sourceRefs = normalizeSourceRefs(deps, p);
+      if (sourceRefs.length === 0) {
+        throw invalidParams(deps, 'source_refs must contain at least one provenance reference');
+      }
+      const reviewedAt = normalizeOptionalIsoTimestamp(deps, 'reviewed_at', p.reviewed_at);
+      const reviewReason = normalizeOptionalNonEmptyString(deps, 'review_reason', p.review_reason);
+
+      if (ctx.dryRun) {
+        return {
+          dry_run: true,
+          action: 'review_memory_patch_candidate',
+          candidate_id: candidateId,
+          decision,
+        };
+      }
+
+      const outcome = await ctx.engine.transaction(async (txBase) => {
+        const tx = txBase as BrainEngine;
+        const candidate = requirePatchCandidate(
+          deps,
+          await tx.getMemoryCandidateEntry(candidateId),
+          candidateId,
+        );
+        await assertActiveReadWriteMemorySession(deps, tx, {
+          sessionId,
+          realmId,
+          scopeId: candidate.scope_id,
+        });
+        if (candidate.status !== 'staged_for_review') {
+          return recordInvalidPatchLifecycleDenial(deps, tx, {
+            sessionId,
+            realmId,
+            actor,
+            operation: 'review_memory_patch_candidate',
+            targetKind: 'memory_candidate',
+            targetId: candidate.id,
+            candidate,
+            sourceRefs,
+            message: `memory patch candidate must be staged_for_review before review: ${candidateId}`,
+          });
+        }
+        if (candidate.patch_operation_state !== 'proposed' && candidate.patch_operation_state !== 'dry_run_validated') {
+          return recordInvalidPatchLifecycleDenial(deps, tx, {
+            sessionId,
+            realmId,
+            actor,
+            operation: 'review_memory_patch_candidate',
+            targetKind: 'memory_candidate',
+            targetId: candidate.id,
+            candidate,
+            sourceRefs,
+            message: `memory patch candidate cannot be reviewed from state: ${candidate.patch_operation_state ?? 'none'}`,
+          });
+        }
+        const unsupportedApplySurfaceReason = decision === 'approve'
+          ? unsupportedPatchApplySurfaceReason(candidate)
+          : null;
+        if (unsupportedApplySurfaceReason) {
+          const event = await recordMemoryMutationEvent(tx, {
+            session_id: sessionId,
+            realm_id: realmId,
+            actor,
+            operation: 'review_memory_patch_candidate',
+            target_kind: 'memory_candidate',
+            target_id: candidate.id,
+            scope_id: candidate.scope_id,
+            source_refs: sourceRefs,
+            result: 'denied',
+            conflict_info: {
+              reason: 'unsupported_patch_apply_surface',
+              candidate_id: candidate.id,
+              message: unsupportedApplySurfaceReason,
+            },
+            metadata: {
+              decision,
+              patch_target_kind: candidate.patch_target_kind,
+              patch_target_id: candidate.patch_target_id,
+              patch_base_target_snapshot_hash: candidate.patch_base_target_snapshot_hash,
+              patch_format: candidate.patch_format,
+              previous_patch_operation_state: candidate.patch_operation_state,
+            },
+          });
+          const updated = await tx.updateMemoryCandidatePatchOperationState(candidate.id, {
+            patch_operation_state: candidate.patch_operation_state,
+            expected_current_status: 'staged_for_review',
+            expected_current_patch_operation_state: candidate.patch_operation_state,
+            patch_ledger_event_ids: appendPatchLedgerEventId(candidate, event.id),
+            reviewed_at: reviewedAt,
+            review_reason: reviewReason ?? unsupportedApplySurfaceReason,
+          });
+          if (!updated) {
+            throw invalidParams(deps, `memory patch candidate changed before review denial recording completed: ${candidateId}`);
+          }
+          return {
+            kind: 'denied' as const,
+            message: unsupportedApplySurfaceReason,
+          };
+        }
+
+        const event = await recordMemoryMutationEvent(tx, {
+          session_id: sessionId,
+          realm_id: realmId,
+          actor,
+          operation: 'review_memory_patch_candidate',
+          target_kind: 'memory_candidate',
+          target_id: candidate.id,
+          scope_id: candidate.scope_id,
+          source_refs: sourceRefs,
+          result: decision === 'approve' ? 'applied' : 'denied',
+          metadata: {
+            decision,
+            patch_target_kind: candidate.patch_target_kind,
+            patch_target_id: candidate.patch_target_id,
+            patch_base_target_snapshot_hash: candidate.patch_base_target_snapshot_hash,
+            patch_format: candidate.patch_format,
+            previous_patch_operation_state: candidate.patch_operation_state,
+          },
+        });
+
+        if (decision === 'approve') {
+          const updated = await tx.updateMemoryCandidatePatchOperationState(candidate.id, {
+            patch_operation_state: 'approved_for_apply',
+            expected_current_status: 'staged_for_review',
+            expected_current_patch_operation_state: candidate.patch_operation_state,
+            patch_ledger_event_ids: appendPatchLedgerEventId(candidate, event.id),
+            reviewed_at: reviewedAt,
+            review_reason: reviewReason,
+          });
+          if (!updated) {
+            throw invalidParams(deps, `memory patch candidate changed before review completed: ${candidateId}`);
+          }
+          return { kind: 'updated' as const, candidate: updated };
+        }
+
+        await rejectMemoryCandidateEntry(tx, {
+          id: candidate.id,
+          reviewed_at: reviewedAt,
+          review_reason: reviewReason ?? 'Reviewer rejected the patch candidate.',
+        });
+        const updated = await tx.updateMemoryCandidatePatchOperationState(candidate.id, {
+          patch_operation_state: 'failed',
+          expected_current_status: 'rejected',
+          expected_current_patch_operation_state: candidate.patch_operation_state,
+          patch_ledger_event_ids: appendPatchLedgerEventId(candidate, event.id),
+          reviewed_at: reviewedAt,
+          review_reason: reviewReason ?? 'Reviewer rejected the patch candidate.',
+        });
+        if (!updated) {
+          throw invalidParams(deps, `memory patch candidate changed before rejection completed: ${candidateId}`);
+        }
+        return { kind: 'updated' as const, candidate: updated };
+      });
+      if (outcome.kind === 'denied') {
+        throw invalidParams(deps, outcome.message);
+      }
+      return outcome.candidate;
+    },
+    cliHints: { name: 'review-memory-patch-candidate' },
+  };
+
+  const apply_memory_patch_candidate: Operation = {
+    name: 'apply_memory_patch_candidate',
+    description: 'Apply an approved page merge patch candidate after rechecking the target snapshot hash.',
+    params: {
+      candidate_id: { type: 'string', required: true, description: 'Approved memory patch candidate id' },
+      session_id: { type: 'string', required: true, description: 'Active applying memory session id' },
+      realm_id: { type: 'string', required: true, description: 'Active memory realm id attached read-write to the session' },
+      actor: { type: 'string', required: true, description: 'Actor applying the patch candidate' },
+      reviewed_at: { type: 'string', description: 'Optional ISO timestamp for apply metadata' },
+      review_reason: { type: 'string', description: 'Optional apply reason for auditability' },
+      source_refs: { type: 'array', required: true, items: { type: 'string' }, description: 'Required provenance strings for the apply decision' },
+    },
+    mutating: true,
+    handler: async (ctx, p) => {
+      const candidateId = normalizeOptionalNonEmptyString(deps, 'candidate_id', p.candidate_id);
+      const sessionId = normalizeOptionalNonEmptyString(deps, 'session_id', p.session_id);
+      const realmId = normalizeOptionalNonEmptyString(deps, 'realm_id', p.realm_id);
+      const actor = normalizeOptionalNonEmptyString(deps, 'actor', p.actor);
+      if (!candidateId || !sessionId || !realmId || !actor) {
+        throw invalidParams(deps, 'candidate_id, session_id, realm_id, and actor are required');
+      }
+      const sourceRefs = normalizeSourceRefs(deps, p);
+      if (sourceRefs.length === 0) {
+        throw invalidParams(deps, 'source_refs must contain at least one provenance reference');
+      }
+      const reviewedAt = normalizeOptionalIsoTimestamp(deps, 'reviewed_at', p.reviewed_at);
+      const reviewReason = normalizeOptionalNonEmptyString(deps, 'review_reason', p.review_reason);
+
+      if (ctx.dryRun) {
+        return {
+          dry_run: true,
+          action: 'apply_memory_patch_candidate',
+          candidate_id: candidateId,
+        };
+      }
+
+      const outcome = await ctx.engine.transaction(async (txBase) => {
+        const tx = txBase as BrainEngine;
+        const candidate = requirePatchCandidate(
+          deps,
+          await tx.getMemoryCandidateEntry(candidateId),
+          candidateId,
+        );
+        await assertActiveReadWriteMemorySession(deps, tx, {
+          sessionId,
+          realmId,
+          scopeId: candidate.scope_id,
+        });
+        const candidateTargetKind = candidate.patch_target_kind as MemoryMutationTargetKind;
+        const candidateTargetId = candidate.patch_target_id as string;
+        if (candidate.status !== 'staged_for_review') {
+          return recordInvalidPatchLifecycleDenial(deps, tx, {
+            sessionId,
+            realmId,
+            actor,
+            operation: 'apply_memory_patch_candidate',
+            targetKind: candidateTargetKind,
+            targetId: candidateTargetId,
+            candidate,
+            sourceRefs,
+            message: `memory patch candidate must be staged_for_review before apply: ${candidateId}`,
+          });
+        }
+        if (candidate.patch_operation_state !== 'approved_for_apply') {
+          return recordInvalidPatchLifecycleDenial(deps, tx, {
+            sessionId,
+            realmId,
+            actor,
+            operation: 'apply_memory_patch_candidate',
+            targetKind: candidateTargetKind,
+            targetId: candidateTargetId,
+            candidate,
+            sourceRefs,
+            message: `memory patch candidate must be approved_for_apply before apply: ${candidateId}`,
+          });
+        }
+        const unsupportedApplySurfaceReason = unsupportedPatchApplySurfaceReason(candidate);
+        if (unsupportedApplySurfaceReason) {
+          const event = await recordMemoryMutationEvent(tx, {
+            session_id: sessionId,
+            realm_id: realmId,
+            actor,
+            operation: 'apply_memory_patch_candidate',
+            target_kind: candidateTargetKind,
+            target_id: candidateTargetId,
+            scope_id: candidate.scope_id,
+            source_refs: sourceRefs,
+            expected_target_snapshot_hash: candidate.patch_base_target_snapshot_hash,
+            current_target_snapshot_hash: null,
+            result: 'failed',
+            conflict_info: {
+              reason: 'unsupported_patch_apply_surface',
+              candidate_id: candidate.id,
+              message: unsupportedApplySurfaceReason,
+            },
+            metadata: {
+              candidate_id: candidate.id,
+              patch_format: candidate.patch_format,
+              previous_patch_operation_state: candidate.patch_operation_state,
+            },
+          });
+          const updated = await tx.updateMemoryCandidatePatchOperationState(candidate.id, {
+            patch_operation_state: 'failed',
+            expected_current_status: 'staged_for_review',
+            expected_current_patch_operation_state: 'approved_for_apply',
+            patch_ledger_event_ids: appendPatchLedgerEventId(candidate, event.id),
+            reviewed_at: reviewedAt,
+            review_reason: reviewReason ?? unsupportedApplySurfaceReason,
+          });
+          if (!updated) {
+            throw invalidParams(deps, `memory patch candidate changed before unsupported apply recording completed: ${candidateId}`);
+          }
+          return {
+            kind: 'failed' as const,
+            message: unsupportedApplySurfaceReason,
+          };
+        }
+
+        const targetId = candidate.patch_target_id as string;
+        const page = await tx.getPageForUpdate(targetId);
+        const currentTargetSnapshotHash = page ? pageSnapshotHash(page) : null;
+        const expectedTargetSnapshotHash = candidate.patch_base_target_snapshot_hash ?? null;
+
+        if (expectedTargetSnapshotHash !== currentTargetSnapshotHash) {
+          const event = await recordMemoryMutationEvent(tx, {
+            session_id: sessionId,
+            realm_id: realmId,
+            actor,
+            operation: 'apply_memory_patch_candidate',
+            target_kind: 'page',
+            target_id: targetId,
+            scope_id: candidate.scope_id,
+            source_refs: sourceRefs,
+            expected_target_snapshot_hash: expectedTargetSnapshotHash,
+            current_target_snapshot_hash: currentTargetSnapshotHash,
+            result: 'conflict',
+            conflict_info: {
+              reason: 'target_snapshot_hash_mismatch',
+              candidate_id: candidate.id,
+              expected_target_snapshot_hash: expectedTargetSnapshotHash,
+              current_target_snapshot_hash: currentTargetSnapshotHash,
+            },
+            metadata: {
+              candidate_id: candidate.id,
+              patch_format: candidate.patch_format,
+              previous_patch_operation_state: candidate.patch_operation_state,
+            },
+          });
+          const updated = await tx.updateMemoryCandidatePatchOperationState(candidate.id, {
+            patch_operation_state: 'conflicted',
+            expected_current_status: 'staged_for_review',
+            expected_current_patch_operation_state: 'approved_for_apply',
+            patch_ledger_event_ids: appendPatchLedgerEventId(candidate, event.id),
+            reviewed_at: reviewedAt,
+            review_reason: reviewReason ?? 'Patch target snapshot hash conflicted at apply time.',
+          });
+          if (!updated) {
+            throw invalidParams(deps, `memory patch candidate changed before conflict recording completed: ${candidateId}`);
+          }
+          return {
+            kind: 'conflict' as const,
+            targetId,
+          };
+        }
+
+        if (!page) {
+          const event = await recordMemoryMutationEvent(tx, {
+            session_id: sessionId,
+            realm_id: realmId,
+            actor,
+            operation: 'apply_memory_patch_candidate',
+            target_kind: 'page',
+            target_id: targetId,
+            scope_id: candidate.scope_id,
+            source_refs: sourceRefs,
+            expected_target_snapshot_hash: expectedTargetSnapshotHash,
+            current_target_snapshot_hash: null,
+            result: 'failed',
+            conflict_info: {
+              reason: 'missing_page_apply_not_supported',
+              candidate_id: candidate.id,
+            },
+            metadata: {
+              candidate_id: candidate.id,
+              patch_format: candidate.patch_format,
+              previous_patch_operation_state: candidate.patch_operation_state,
+            },
+          });
+          const updated = await tx.updateMemoryCandidatePatchOperationState(candidate.id, {
+            patch_operation_state: 'failed',
+            expected_current_status: 'staged_for_review',
+            expected_current_patch_operation_state: 'approved_for_apply',
+            patch_ledger_event_ids: appendPatchLedgerEventId(candidate, event.id),
+            reviewed_at: reviewedAt,
+            review_reason: reviewReason ?? 'Applying patches to missing page targets is not supported yet.',
+          });
+          if (!updated) {
+            throw invalidParams(deps, `memory patch candidate changed before missing-target apply recording completed: ${candidateId}`);
+          }
+          return {
+            kind: 'failed' as const,
+            message: 'applying patches to missing page targets is not supported yet',
+          };
+        }
+
+        let materialized: { content: string; target_snapshot_hash: string };
+        try {
+          materialized = materializePageMergePatch(
+            deps,
+            page,
+            await tx.getTags(targetId),
+            candidate.patch_body,
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'patch materialization failed';
+          const event = await recordMemoryMutationEvent(tx, {
+            session_id: sessionId,
+            realm_id: realmId,
+            actor,
+            operation: 'apply_memory_patch_candidate',
+            target_kind: 'page',
+            target_id: targetId,
+            scope_id: candidate.scope_id,
+            source_refs: sourceRefs,
+            expected_target_snapshot_hash: expectedTargetSnapshotHash,
+            current_target_snapshot_hash: currentTargetSnapshotHash,
+            result: 'failed',
+            conflict_info: {
+              reason: 'patch_materialization_failed',
+              candidate_id: candidate.id,
+              error: message,
+            },
+            metadata: {
+              candidate_id: candidate.id,
+              patch_format: candidate.patch_format,
+              previous_patch_operation_state: candidate.patch_operation_state,
+            },
+          });
+          const updated = await tx.updateMemoryCandidatePatchOperationState(candidate.id, {
+            patch_operation_state: 'failed',
+            expected_current_status: 'staged_for_review',
+            expected_current_patch_operation_state: 'approved_for_apply',
+            patch_ledger_event_ids: appendPatchLedgerEventId(candidate, event.id),
+            reviewed_at: reviewedAt,
+            review_reason: reviewReason ?? 'Patch materialization failed before page write.',
+          });
+          if (!updated) {
+            throw invalidParams(deps, `memory patch candidate changed before materialization failure recording completed: ${candidateId}`);
+          }
+          return {
+            kind: 'failed' as const,
+            message,
+          };
+        }
+        if (
+          candidate.patch_expected_resulting_target_snapshot_hash
+          && candidate.patch_expected_resulting_target_snapshot_hash !== materialized.target_snapshot_hash
+        ) {
+          const event = await recordMemoryMutationEvent(tx, {
+            session_id: sessionId,
+            realm_id: realmId,
+            actor,
+            operation: 'apply_memory_patch_candidate',
+            target_kind: 'page',
+            target_id: targetId,
+            scope_id: candidate.scope_id,
+            source_refs: sourceRefs,
+            expected_target_snapshot_hash: expectedTargetSnapshotHash,
+            current_target_snapshot_hash: currentTargetSnapshotHash,
+            result: 'failed',
+            conflict_info: {
+              reason: 'expected_resulting_target_snapshot_hash_mismatch',
+              candidate_id: candidate.id,
+              expected_resulting_target_snapshot_hash: candidate.patch_expected_resulting_target_snapshot_hash,
+              materialized_target_snapshot_hash: materialized.target_snapshot_hash,
+            },
+            metadata: {
+              candidate_id: candidate.id,
+              patch_format: candidate.patch_format,
+              previous_patch_operation_state: candidate.patch_operation_state,
+            },
+          });
+          const updated = await tx.updateMemoryCandidatePatchOperationState(candidate.id, {
+            patch_operation_state: 'failed',
+            expected_current_status: 'staged_for_review',
+            expected_current_patch_operation_state: 'approved_for_apply',
+            patch_ledger_event_ids: appendPatchLedgerEventId(candidate, event.id),
+            reviewed_at: reviewedAt,
+            review_reason: reviewReason ?? 'Patch materialized to an unexpected target snapshot hash.',
+          });
+          if (!updated) {
+            throw invalidParams(deps, `memory patch candidate changed before failed apply recording completed: ${candidateId}`);
+          }
+          return {
+            kind: 'failed' as const,
+            message: 'patch materialized to an unexpected target snapshot hash',
+          };
+        }
+
+        const importResult = await importFromContent(tx, targetId, materialized.content);
+        const finalPage = await tx.getPage(targetId);
+        if (importResult.error || !finalPage?.content_hash) {
+          const event = await recordMemoryMutationEvent(tx, {
+            session_id: sessionId,
+            realm_id: realmId,
+            actor,
+            operation: 'apply_memory_patch_candidate',
+            target_kind: 'page',
+            target_id: targetId,
+            scope_id: candidate.scope_id,
+            source_refs: sourceRefs,
+            expected_target_snapshot_hash: expectedTargetSnapshotHash,
+            current_target_snapshot_hash: currentTargetSnapshotHash,
+            result: 'failed',
+            metadata: {
+              candidate_id: candidate.id,
+              patch_format: candidate.patch_format,
+              import_status: importResult.status,
+              error: importResult.error ?? 'missing final page content hash',
+            },
+          });
+          const updated = await tx.updateMemoryCandidatePatchOperationState(candidate.id, {
+            patch_operation_state: 'failed',
+            expected_current_status: 'staged_for_review',
+            expected_current_patch_operation_state: 'approved_for_apply',
+            patch_ledger_event_ids: appendPatchLedgerEventId(candidate, event.id),
+            reviewed_at: reviewedAt,
+            review_reason: reviewReason ?? 'Patch apply failed while writing the page.',
+          });
+          if (!updated) {
+            throw invalidParams(deps, `memory patch candidate changed before failed apply recording completed: ${candidateId}`);
+          }
+          return {
+            kind: 'failed' as const,
+            message: importResult.error ?? 'missing final page content hash',
+          };
+        }
+        if (finalPage.content_hash !== materialized.target_snapshot_hash) {
+          throw invalidParams(deps, 'imported page content hash does not match materialized patch hash');
+        }
+
+        const event = await recordMemoryMutationEvent(tx, {
+          session_id: sessionId,
+          realm_id: realmId,
+          actor,
+          operation: 'apply_memory_patch_candidate',
+          target_kind: 'page',
+          target_id: targetId,
+          scope_id: candidate.scope_id,
+          source_refs: sourceRefs,
+          expected_target_snapshot_hash: expectedTargetSnapshotHash,
+          current_target_snapshot_hash: finalPage.content_hash,
+          result: 'applied',
+          metadata: {
+            candidate_id: candidate.id,
+            patch_format: candidate.patch_format,
+            previous_target_snapshot_hash: currentTargetSnapshotHash,
+            import_status: importResult.status,
+            chunks: importResult.chunks,
+          },
+        });
+        const patchedCandidate = await tx.updateMemoryCandidatePatchOperationState(candidate.id, {
+          patch_operation_state: 'applied',
+          expected_current_status: 'staged_for_review',
+          expected_current_patch_operation_state: 'approved_for_apply',
+          patch_ledger_event_ids: appendPatchLedgerEventId(candidate, event.id),
+          reviewed_at: reviewedAt,
+          review_reason: reviewReason ?? 'Applied approved patch candidate.',
+        });
+        if (!patchedCandidate) {
+          throw invalidParams(deps, `memory patch candidate changed before apply completed: ${candidateId}`);
+        }
+        const promoted = await promoteMemoryCandidateEntry(tx, {
+          id: candidate.id,
+          reviewed_at: reviewedAt,
+          review_reason: reviewReason ?? 'Applied approved patch candidate.',
+        });
+        return {
+          kind: 'applied' as const,
+          candidate: promoted,
+          target_id: targetId,
+          previous_target_snapshot_hash: currentTargetSnapshotHash,
+          current_target_snapshot_hash: finalPage.content_hash,
+          ledger_event_id: event.id,
+        };
+      });
+
+      if (outcome.kind === 'conflict') {
+        throw new deps.OperationError('write_conflict', `target snapshot hash mismatch for ${outcome.targetId}`);
+      }
+      if (outcome.kind === 'denied') {
+        throw new deps.OperationError('invalid_params', outcome.message);
+      }
+      if (outcome.kind === 'failed') {
+        throw new deps.OperationError('invalid_params', outcome.message);
+      }
+      return {
+        status: 'applied',
+        candidate: outcome.candidate,
+        target_kind: 'page',
+        target_id: outcome.target_id,
+        previous_target_snapshot_hash: outcome.previous_target_snapshot_hash,
+        current_target_snapshot_hash: outcome.current_target_snapshot_hash,
+        ledger_event_id: outcome.ledger_event_id,
+      };
+    },
+    cliHints: { name: 'apply-memory-patch-candidate' },
   };
 
   const rank_memory_candidate_entries: Operation = {
@@ -1359,6 +2315,8 @@ export function createMemoryInboxOperations(
     delete_memory_candidate_entry,
     create_memory_candidate_entry,
     create_memory_patch_candidate,
+    review_memory_patch_candidate,
+    apply_memory_patch_candidate,
     rank_memory_candidate_entries,
     capture_map_derived_candidates,
     list_memory_candidate_review_backlog,

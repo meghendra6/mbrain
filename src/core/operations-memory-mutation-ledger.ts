@@ -136,6 +136,8 @@ const DRY_RUN_MEMORY_MUTATION_OPERATION_POLICIES = {
   delete_personal_episode_entry: { targetKinds: ['personal_episode'] },
   attach_memory_realm_to_session: { targetKinds: ['memory_session_attachment'], allowMissingTarget: true, missingTargetScope: 'attachment_realm', requiresReadWriteAttachment: false },
   create_memory_candidate_entry: { targetKinds: ['memory_candidate'], allowMissingTarget: true, missingTargetScope: 'workspace_default', mustBeMissingTarget: true },
+  review_memory_patch_candidate: { targetKinds: ['memory_candidate'] },
+  apply_memory_patch_candidate: { targetKinds: ['page'] },
   advance_memory_candidate_status: { targetKinds: ['memory_candidate'] },
   reject_memory_candidate_entry: { targetKinds: ['memory_candidate'] },
   delete_memory_candidate_entry: { targetKinds: ['memory_candidate'] },
@@ -441,6 +443,17 @@ function dryRunMemoryMutationInput(
     metadata: optionalObject(deps, 'metadata', p.metadata) ?? {},
     dry_run: optionalBoolean(deps, 'dry_run', p.dry_run),
   };
+}
+
+function metadataString(
+  metadata: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = metadata[key];
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return null;
+  }
+  return value.trim();
 }
 
 function initialDryRunPolicyChecks(): DryRunMemoryMutationPolicyChecks {
@@ -796,6 +809,7 @@ export function createMemoryMutationLedgerOperations(
           allowed,
           result,
           ledger_recorded: !preview,
+          operation: input.operation,
           target_kind: input.target_kind,
           target_id: input.target_id,
           expected_target_snapshot_hash: input.expected_target_snapshot_hash ?? null,
@@ -865,6 +879,44 @@ export function createMemoryMutationLedgerOperations(
       checks.scope_allowed = isTargetScopeCompatibleWithRealm(realm, effectiveScopeId, targetScope);
       if (!checks.scope_allowed) {
         return finish('denied');
+      }
+
+      if (input.operation === 'apply_memory_patch_candidate') {
+        const candidateId = metadataString(input.metadata, 'candidate_id');
+        if (!candidateId) {
+          return finish('denied', {
+            reason: 'patch_candidate_id_required',
+            message: 'metadata.candidate_id is required for apply_memory_patch_candidate dry runs',
+          });
+        }
+        const candidate = await ctx.engine.getMemoryCandidateEntry(candidateId);
+        if (
+          !candidate
+          || candidate.patch_target_kind !== 'page'
+          || candidate.patch_target_id !== input.target_id
+          || candidate.patch_format !== 'merge_patch'
+          || candidate.status !== 'staged_for_review'
+          || candidate.patch_operation_state !== 'approved_for_apply'
+        ) {
+          return finish('denied', {
+            reason: 'invalid_patch_candidate_lifecycle',
+            candidate_id: candidateId,
+            candidate_status: candidate?.status ?? null,
+            candidate_patch_operation_state: candidate?.patch_operation_state ?? null,
+            candidate_patch_target_kind: candidate?.patch_target_kind ?? null,
+            candidate_patch_target_id: candidate?.patch_target_id ?? null,
+            candidate_patch_format: candidate?.patch_format ?? null,
+          });
+        }
+        if (candidate.patch_base_target_snapshot_hash !== currentTargetSnapshotHash) {
+          return finish('conflict', {
+            reason: 'target_snapshot_hash_mismatch',
+            legacy_reason: 'content_hash_mismatch',
+            candidate_id: candidateId,
+            expected_target_snapshot_hash: candidate.patch_base_target_snapshot_hash,
+            current_target_snapshot_hash: currentTargetSnapshotHash,
+          });
+        }
       }
 
       if (

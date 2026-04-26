@@ -88,6 +88,13 @@ describe('E2E: MCP Tool Generation', () => {
     expect((createPatchCandidate?.inputSchema.properties as any).patch_body.type).toEqual(['object', 'array']);
     expect((createPatchCandidate?.inputSchema.properties as any).target_kind.enum).toContain('page');
     expect((createPatchCandidate?.inputSchema.properties as any).target_kind.enum).not.toContain('source_record');
+    const reviewPatchCandidate = tools.find((tool) => tool.name === 'review_memory_patch_candidate');
+    expect((reviewPatchCandidate?.inputSchema.properties as any).decision.enum).toEqual(['approve', 'reject']);
+    const applyPatchCandidate = tools.find((tool) => tool.name === 'apply_memory_patch_candidate');
+    expect((applyPatchCandidate?.inputSchema.properties as any).candidate_id.type).toBe('string');
+    const listMemoryCandidates = tools.find((tool) => tool.name === 'list_memory_candidate_entries');
+    expect((listMemoryCandidates?.inputSchema.properties as any).patch_operation_state.enum).toContain('approved_for_apply');
+    expect((listMemoryCandidates?.inputSchema.properties as any).patch_target_kind.enum).toContain('page');
   });
 
   test('MCP server module can be imported', async () => {
