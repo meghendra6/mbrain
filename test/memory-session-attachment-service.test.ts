@@ -147,6 +147,141 @@ describe('memory session access policy', () => {
     }
   });
 
+  test('put_page rejects writes to an archived realm with a read-write attachment', async () => {
+    const handle = await allocateSqliteBrain('session-access-policy-archived-realm');
+    const upsertRealm = operation('upsert_memory_realm');
+    const createSession = operation('create_memory_session');
+    const attach = operation('attach_memory_realm_to_session');
+    const put = operation('put_page');
+
+    try {
+      await upsertRealm.handler(ctx(handle), {
+        id: 'project:archived-policy',
+        name: 'Archived Policy Project',
+        scope: 'work',
+        default_access: 'read_only',
+      });
+      await createSession.handler(ctx(handle), {
+        id: 'session-archived-policy',
+      });
+      await attach.handler(ctx(handle), {
+        session_id: 'session-archived-policy',
+        realm_id: 'project:archived-policy',
+        access: 'read_write',
+      });
+      await upsertRealm.handler(ctx(handle), {
+        id: 'project:archived-policy',
+        name: 'Archived Policy Project',
+        scope: 'work',
+        default_access: 'read_only',
+        archived_at: '2026-04-25T00:00:00.000Z',
+      });
+
+      let error: unknown;
+      try {
+        await put.handler(ctx(handle), {
+          slug: 'concepts/archived-realm-policy-test',
+          content: citedContent,
+          memory_session_id: 'session-archived-policy',
+          realm_id: 'project:archived-policy',
+        });
+      } catch (caught) {
+        error = caught;
+      }
+
+      expect(error).toBeInstanceOf(OperationError);
+      expect((error as OperationError).code).toBe('invalid_params');
+      expect((error as Error).message).toMatch(/not active/i);
+      expect(await handle.engine.getPage('concepts/archived-realm-policy-test')).toBeNull();
+    } finally {
+      await handle.teardown();
+    }
+  });
+
+  test('put_page rejects workspace/default scope writes to a personal realm', async () => {
+    const handle = await allocateSqliteBrain('session-access-policy-personal-scope-deny');
+    const upsertRealm = operation('upsert_memory_realm');
+    const createSession = operation('create_memory_session');
+    const attach = operation('attach_memory_realm_to_session');
+    const put = operation('put_page');
+
+    try {
+      await upsertRealm.handler(ctx(handle), {
+        id: 'personal:policy-deny',
+        name: 'Personal Policy Deny',
+        scope: 'personal',
+        default_access: 'read_only',
+      });
+      await createSession.handler(ctx(handle), {
+        id: 'session-personal-policy-deny',
+      });
+      await attach.handler(ctx(handle), {
+        session_id: 'session-personal-policy-deny',
+        realm_id: 'personal:policy-deny',
+        access: 'read_write',
+      });
+
+      let error: unknown;
+      try {
+        await put.handler(ctx(handle), {
+          slug: 'concepts/personal-realm-workspace-scope-test',
+          content: citedContent,
+          memory_session_id: 'session-personal-policy-deny',
+          realm_id: 'personal:policy-deny',
+        });
+      } catch (caught) {
+        error = caught;
+      }
+
+      expect(error).toBeInstanceOf(OperationError);
+      expect((error as OperationError).code).toBe('invalid_params');
+      expect((error as Error).message).toMatch(/outside realm scope personal/i);
+      expect(await handle.engine.getPage('concepts/personal-realm-workspace-scope-test')).toBeNull();
+    } finally {
+      await handle.teardown();
+    }
+  });
+
+  test('put_page allows personal scope writes to a personal realm', async () => {
+    const handle = await allocateSqliteBrain('session-access-policy-personal-scope-allow');
+    const upsertRealm = operation('upsert_memory_realm');
+    const createSession = operation('create_memory_session');
+    const attach = operation('attach_memory_realm_to_session');
+    const put = operation('put_page');
+
+    try {
+      await upsertRealm.handler(ctx(handle), {
+        id: 'personal:policy-allow',
+        name: 'Personal Policy Allow',
+        scope: 'personal',
+        default_access: 'read_only',
+      });
+      await createSession.handler(ctx(handle), {
+        id: 'session-personal-policy-allow',
+      });
+      await attach.handler(ctx(handle), {
+        session_id: 'session-personal-policy-allow',
+        realm_id: 'personal:policy-allow',
+        access: 'read_write',
+      });
+
+      const result = await put.handler(ctx(handle), {
+        slug: 'concepts/personal-realm-personal-scope-test',
+        content: citedContent,
+        memory_session_id: 'session-personal-policy-allow',
+        realm_id: 'personal:policy-allow',
+        scope_id: 'personal:policy-test',
+      }) as any;
+
+      expect(result.status).toBe('created_or_updated');
+      expect(await handle.engine.getPage('concepts/personal-realm-personal-scope-test')).toMatchObject({
+        slug: 'concepts/personal-realm-personal-scope-test',
+      });
+    } finally {
+      await handle.teardown();
+    }
+  });
+
   test('put_page rejects writes authorized by a closed session with a read-write attachment', async () => {
     const handle = await allocateSqliteBrain('session-access-policy-closed');
     const upsertRealm = operation('upsert_memory_realm');

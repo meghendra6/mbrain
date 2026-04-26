@@ -1467,6 +1467,7 @@ async function assertPutPageMemoryWriteAllowed(
   input: {
     memory_session_id?: string | null;
     realm_id?: string | null;
+    scope_id?: string | null;
   },
 ): Promise<void> {
   try {
@@ -1511,6 +1512,9 @@ const put_page: Operation = {
     if (ctx.dryRun) return { dry_run: true, action: 'put_page', slug };
     const memorySessionId = optionalPutPageString('memory_session_id', p.memory_session_id) ?? null;
     const authorizationRealmId = memorySessionId ? (optionalPutPageString('realm_id', p.realm_id) ?? null) : null;
+    const authorizationScopeId = memorySessionId
+      ? (optionalPutPageString('scope_id', p.scope_id) ?? 'workspace:default')
+      : null;
     const prevalidatedPutPage = memorySessionId
       ? null
       : (() => {
@@ -1525,6 +1529,7 @@ const put_page: Operation = {
         await assertPutPageMemoryWriteAllowed(tx, {
           memory_session_id: memorySessionId,
           realm_id: authorizationRealmId,
+          scope_id: authorizationScopeId,
         });
         assertPutPageSourceAttribution(slug, content);
       }
