@@ -30,6 +30,11 @@ const runtimeImport = new Function('specifier', 'return import(specifier)') as (
   specifier: string,
 ) => Promise<any>;
 
+interface SyncFailure {
+  path: string;
+  message: string;
+}
+
 function git(repoPath: string, ...args: string[]): string {
   return execFileSync('git', ['-C', repoPath, ...args], {
     encoding: 'utf-8',
@@ -113,26 +118,34 @@ export async function performSync(engine: BrainEngine, opts: SyncOpts): Promise<
   const diffOutput = git(repoPath, 'diff', '--name-status', '-M', `${lastCommit}..${headCommit}`);
   const manifest = buildSyncManifest(diffOutput);
 
-  // Filter to syncable files
-  const filtered: SyncManifest = {
-    added: manifest.added.filter(p => isSyncable(p)),
-    modified: manifest.modified.filter(p => isSyncable(p)),
-    deleted: manifest.deleted.filter(p => isSyncable(p)),
-    renamed: manifest.renamed.filter(r => isSyncable(r.to)),
-  };
-
-  // Delete pages that became un-syncable (modified but filtered out)
-  const unsyncableModified = manifest.modified.filter(p => !isSyncable(p));
-  for (const path of unsyncableModified) {
+  const renamedSyncableToUnsyncable = manifest.renamed.filter(r => isSyncable(r.from) && !isSyncable(r.to));
+  const renamedUnsyncableToSyncable = manifest.renamed.filter(r => !isSyncable(r.from) && isSyncable(r.to));
+  const renamedSyncableToSyncable = manifest.renamed.filter(r => isSyncable(r.from) && isSyncable(r.to));
+  const staleUnsyncableModified: string[] = [];
+  for (const path of manifest.modified.filter(p => !isSyncable(p))) {
     const slug = pathToSlug(path);
     try {
       const existing = await engine.getPage(slug);
-      if (existing) {
-        await engine.deletePage(slug);
-        console.log(`  Deleted un-syncable page: ${slug}`);
-      }
-    } catch { /* ignore */ }
+      if (existing) staleUnsyncableModified.push(path);
+    } catch {
+      // Ignore stale cleanup probes; syncable changes should still proceed.
+    }
   }
+
+  // Filter to syncable files and stale pages that must be removed.
+  const filtered: SyncManifest = {
+    added: [
+      ...manifest.added.filter(p => isSyncable(p)),
+      ...renamedUnsyncableToSyncable.map(r => r.to),
+    ],
+    modified: manifest.modified.filter(p => isSyncable(p)),
+    deleted: [
+      ...manifest.deleted.filter(p => isSyncable(p)),
+      ...renamedSyncableToUnsyncable.map(r => r.from),
+      ...staleUnsyncableModified,
+    ],
+    renamed: renamedSyncableToSyncable,
+  };
 
   const totalChanges = filtered.added.length + filtered.modified.length +
     filtered.deleted.length + filtered.renamed.length;
@@ -179,70 +192,96 @@ export async function performSync(engine: BrainEngine, opts: SyncOpts): Promise<
   const pagesAffected: string[] = [];
   let chunksCreated = 0;
   const start = Date.now();
+  const failures: SyncFailure[] = [];
 
-  // Process deletes first (prevents slug conflicts)
-  for (const path of filtered.deleted) {
-    const slug = pathToSlug(path);
-    await engine.deletePage(slug);
-    pagesAffected.push(slug);
-  }
-
-  // Process renames (updateSlug preserves page_id, chunks, embeddings)
-  for (const { from, to } of filtered.renamed) {
-    const oldSlug = pathToSlug(from);
-    const newSlug = pathToSlug(to);
-    try {
-      await engine.updateSlug(oldSlug, newSlug);
-    } catch {
-      // Slug doesn't exist or collision, treat as add
+  const addPageAffected = (slug: string) => {
+    if (!pagesAffected.includes(slug)) {
+      pagesAffected.push(slug);
     }
-    // Reimport at new path (picks up content changes)
-    const filePath = join(repoPath, to);
-    if (existsSync(filePath)) {
-      const result = await importFile(engine, filePath, to);
-      if (result.status === 'imported') chunksCreated += result.chunks;
-    }
-    pagesAffected.push(newSlug);
-  }
+  };
 
-  // Process adds and modifies
-  const useTransaction = (filtered.added.length + filtered.modified.length) > 10;
-  const processAddsModifies = async () => {
+  const recordFailure = (path: string, message: string) => {
+    failures.push({ path, message });
+    console.error(`  Warning: skipped ${path}: ${message}`);
+  };
+
+  const recordImportResult = (
+    path: string,
+    result: Awaited<ReturnType<typeof importFile>>,
+  ) => {
+    if (result.status === 'imported') {
+      chunksCreated += result.chunks;
+      addPageAffected(result.slug);
+      return;
+    }
+
+    if (result.error) {
+      recordFailure(path, result.error);
+    }
+  };
+
+  await engine.transaction(async (tx) => {
+    // Process deletes first (prevents slug conflicts)
+    for (const path of filtered.deleted) {
+      const slug = pathToSlug(path);
+      await tx.deletePage(slug);
+      addPageAffected(slug);
+    }
+
+    // Process renames (updateSlug preserves page_id, chunks, embeddings)
+    for (const { from, to } of filtered.renamed) {
+      const oldSlug = pathToSlug(from);
+      const newSlug = pathToSlug(to);
+      try {
+        await tx.updateSlug(oldSlug, newSlug);
+      } catch {
+        // Slug doesn't exist or collision, treat as add.
+      }
+      // Reimport at new path (picks up content changes)
+      const filePath = join(repoPath, to);
+      if (existsSync(filePath)) {
+        try {
+          const result = await importFile(tx, filePath, to);
+          recordImportResult(to, result);
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          recordFailure(to, msg);
+        }
+      }
+      addPageAffected(newSlug);
+    }
+
+    // Process adds and modifies
     for (const path of [...filtered.added, ...filtered.modified]) {
       const filePath = join(repoPath, path);
       if (!existsSync(filePath)) continue;
       try {
-        const result = await importFile(engine, filePath, path);
-        if (result.status === 'imported') {
-          chunksCreated += result.chunks;
-          pagesAffected.push(result.slug);
-        }
+        const result = await importFile(tx, filePath, path);
+        recordImportResult(path, result);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
-        console.error(`  Warning: skipped ${path}: ${msg}`);
+        recordFailure(path, msg);
       }
     }
-  };
 
-  if (useTransaction) {
-    await engine.transaction(async () => { await processAddsModifies(); });
-  } else {
-    await processAddsModifies();
-  }
+    if (failures.length > 0) {
+      throw new Error(formatSyncFailures(failures));
+    }
 
-  const elapsed = Date.now() - start;
+    const elapsed = Date.now() - start;
 
-  // Update sync state AFTER all changes succeed
-  await engine.setConfig('sync.last_commit', headCommit);
-  await engine.setConfig('sync.last_run', new Date().toISOString());
-  await engine.setConfig('sync.repo_path', repoPath);
+    // Update sync state AFTER all changes succeed.
+    await tx.setConfig('sync.last_commit', headCommit);
+    await tx.setConfig('sync.last_run', new Date().toISOString());
+    await tx.setConfig('sync.repo_path', repoPath);
 
-  // Log ingest
-  await engine.logIngest({
-    source_type: 'git_sync',
-    source_ref: `${repoPath} @ ${headCommit.slice(0, 8)}`,
-    pages_updated: pagesAffected,
-    summary: `Sync: +${filtered.added.length} ~${filtered.modified.length} -${filtered.deleted.length} R${filtered.renamed.length}, ${chunksCreated} chunks, ${elapsed}ms`,
+    // Log ingest only after checkpoint update is safe.
+    await tx.logIngest({
+      source_type: 'git_sync',
+      source_ref: `${repoPath} @ ${headCommit.slice(0, 8)}`,
+      pages_updated: pagesAffected,
+      summary: `Sync: +${filtered.added.length} ~${filtered.modified.length} -${filtered.deleted.length} R${filtered.renamed.length}, ${chunksCreated} chunks, ${elapsed}ms`,
+    });
   });
 
   if (chunksCreated > 0) {
@@ -260,6 +299,15 @@ export async function performSync(engine: BrainEngine, opts: SyncOpts): Promise<
     chunksCreated,
     pagesAffected,
   };
+}
+
+function formatSyncFailures(failures: SyncFailure[]): string {
+  const shown = failures
+    .slice(0, 5)
+    .map(f => `${f.path}: ${f.message}`)
+    .join('; ');
+  const suffix = failures.length > 5 ? `; ${failures.length - 5} more` : '';
+  return `Sync failed for ${failures.length} file(s): ${shown}${suffix}. Checkpoint not advanced; fix the files and rerun sync.`;
 }
 
 async function performFullSync(

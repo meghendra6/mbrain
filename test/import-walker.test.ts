@@ -28,6 +28,30 @@ describe('collectMarkdownFiles', () => {
     expect(files).toContain(join(root, 'notes', 'other.md'));
   });
 
+  test('skips markdown files that are not syncable brain pages', () => {
+    writeFileSync(join(root, 'README.md'), '# resolver\n');
+    writeFileSync(join(root, 'schema.md'), '# schema\n');
+    mkdirSync(join(root, 'people'), { recursive: true });
+    writeFileSync(join(root, 'people', 'alice.md'), '# Alice\n');
+    writeFileSync(join(root, 'people', 'README.md'), '# people resolver\n');
+    mkdirSync(join(root, 'people', 'alice.raw'), { recursive: true });
+    writeFileSync(join(root, 'people', 'alice.raw', 'source.md'), '# raw source\n');
+    mkdirSync(join(root, 'ops'), { recursive: true });
+    writeFileSync(join(root, 'ops', 'deploy.md'), '# deploy log\n');
+    mkdirSync(join(root, 'node_modules', 'pkg'), { recursive: true });
+    writeFileSync(join(root, 'node_modules', 'pkg', 'notes.md'), '# package notes\n');
+
+    const files = collectMarkdownFiles(root);
+
+    expect(files).toContain(join(root, 'people', 'alice.md'));
+    expect(files).not.toContain(join(root, 'README.md'));
+    expect(files).not.toContain(join(root, 'schema.md'));
+    expect(files).not.toContain(join(root, 'people', 'README.md'));
+    expect(files).not.toContain(join(root, 'people', 'alice.raw', 'source.md'));
+    expect(files).not.toContain(join(root, 'ops', 'deploy.md'));
+    expect(files).not.toContain(join(root, 'node_modules', 'pkg', 'notes.md'));
+  });
+
   test('skips a symlink file pointing outside the import root', () => {
     const secretFile = join(outside, 'secret.md');
     writeFileSync(secretFile, '# secret\n');
