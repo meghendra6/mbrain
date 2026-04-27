@@ -18,7 +18,7 @@ import { buildPageChunks, importFile } from '../import-file.ts';
 import { parseMarkdown, type ParsedMarkdown } from '../markdown.ts';
 import { buildNoteManifestEntry } from './note-manifest-service.ts';
 import { buildNoteSectionEntries } from './note-section-service.ts';
-import { slugifyPath } from '../sync.ts';
+import { isSyncable, slugifyPath } from '../sync.ts';
 import type { ChunkInput } from '../types.ts';
 import { importContentHash, validateSlug } from '../utils.ts';
 
@@ -647,8 +647,11 @@ export function collectMarkdownFiles(dir: string): string[] {
 
       if (stat.isDirectory()) {
         walk(fullPath);
-      } else if (entry.endsWith('.md') || entry.endsWith('.mdx')) {
-        files.push(fullPath);
+      } else {
+        const relativePath = relative(dir, fullPath).replace(/\\/g, '/');
+        if (isSyncable(relativePath)) {
+          files.push(fullPath);
+        }
       }
     }
   };

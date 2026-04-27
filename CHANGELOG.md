@@ -4,6 +4,8 @@ All notable changes to MBrain will be documented in this file.
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-04-27
+
 ### Added
 
 - **`mbrain setup-agent --claude` now installs the session-end stop hook automatically.** A new bash hook (`~/.claude/scripts/hooks/stop-mbrain-check.sh` + `lib/mbrain-relevance.sh`) gets written, registered in `~/.claude/hooks/hooks.json` as `stop:mbrain-check`, and shipped with a skip-dirs template. When a Claude Code session ends, the hook emits a `block` decision that forces the agent to do one more turn and write session-derived knowledge back to the brain — or explicitly say `MBRAIN-PASS: <reason>`. Re-entry is guarded by Claude Code's native `stop_hook_active` field, and the gate respects `MBRAIN_STOP_HOOK=0`, `~/.claude/mbrain-skip-dirs`, and missing-CLI fail-closed. Re-runs of `setup-agent` upsert a single registration (idempotent).
@@ -11,6 +13,14 @@ All notable changes to MBrain will be documented in this file.
 ### Fixed
 
 - **`mbrain init --help` no longer creates a brain as a side effect.** The init command used to fall through its flag checks when `--help`/`-h` was passed, silently bootstrapping a PGLite brain and overwriting `~/.mbrain/config.json`. It now prints usage and exits 0 without touching config or data.
+- **Incremental sync no longer advances the git checkpoint after partial import failure.** Syncable markdown files that are rejected by import validation now make `mbrain sync` fail before writing `sync.last_commit`, so fixing the file and rerunning sync retries the same git range.
+- **Renaming a durable page to an unsyncable resolver path now removes the old page.** A rename such as `people/alice.md -> people/README.md` is treated as a page deletion instead of an ignored diff that leaves stale data in the brain.
+- **Full import and incremental sync now use the same page filter.** `mbrain import` skips resolver/meta markdown such as `README.md`, `schema.md`, `index.md`, `log.md`, `ops/`, hidden paths, and `.raw/` sidecars, matching the incremental sync policy.
+- **The default test script now gives PGLite-heavy tests enough time to finish.** `bun run test` uses a 20s per-test timeout instead of Bun's 5s default, avoiding false negatives from local embedded database startup and migration work.
+
+### Changed
+
+- **Version metadata now reports `0.10.2`.** `VERSION`, `package.json`, and `skills/manifest.json` are aligned so `mbrain --version` and the skills manifest describe the same release.
 
 ## [0.10.1] - 2026-04-17
 
