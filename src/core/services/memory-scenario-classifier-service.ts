@@ -77,6 +77,12 @@ const PROJECT_QUERY_PATTERNS = [
   /((프로젝트|시스템).*(아키텍처|구조|설계|검색 라우팅|라우팅)|검색 라우팅|라우팅 구조)/i,
 ] as const;
 
+const EXPLICIT_PROJECT_ARCHITECTURE_PATTERNS = [
+  /\b(?:explain|describe|summari[sz]e|walk\s+me\s+through)\b.*\b(?:project|system|repo|repository|codebase)\s+(?:architecture|structure|design)\b/i,
+  /\b(?:explain|describe|summari[sz]e|walk\s+me\s+through)\b.*\b(?:architecture|structure|design)\s+(?:of|for)\s+(?:the\s+)?(?:project|system|repo|repository|codebase)\b/i,
+  /(설명|알려줘).*(프로젝트|시스템|저장소|레포|코드베이스).*(아키텍처|구조|설계)/i,
+] as const;
+
 const EXPLICIT_KNOWLEDGE_QUERY_PATTERNS = [
   /\b(what do we know about|who is|who are|tell me about)\b/i,
   /(무엇을 알고|알고 있나요|누구)/i,
@@ -216,6 +222,13 @@ function detectProject(input: MemoryScenarioClassifierInput): ScenarioSignal | n
       reason_codes: ['system_or_project_subject'],
     };
   }
+  if (matchesAny(input.query, EXPLICIT_PROJECT_ARCHITECTURE_PATTERNS)) {
+    return {
+      scenario: 'project_qa',
+      confidence: 'medium',
+      reason_codes: ['project_query_signal'],
+    };
+  }
   if (isGenericConceptQuestion(input.query)) return null;
   if (matchesAny(input.query, PROJECT_QUERY_PATTERNS)) {
     return {
@@ -228,6 +241,13 @@ function detectProject(input: MemoryScenarioClassifierInput): ScenarioSignal | n
 }
 
 function detectKnowledge(input: MemoryScenarioClassifierInput): ScenarioSignal | null {
+  if (hasExplicitExternalConceptAsk(input.query)) {
+    return {
+      scenario: 'knowledge_qa',
+      confidence: 'medium',
+      reason_codes: ['knowledge_question_signal'],
+    };
+  }
   if (hasKnownSubjectKind(input, KNOWLEDGE_SUBJECT_KINDS) || matchesAny(input.query, EXPLICIT_KNOWLEDGE_QUERY_PATTERNS)) {
     return {
       scenario: 'knowledge_qa',
@@ -329,6 +349,58 @@ function matchesAny(
 
 function isGenericConceptQuestion(query: string | undefined): boolean {
   return matchesAny(query, GENERIC_CONCEPT_QUERY_PATTERNS);
+}
+
+function hasExplicitExternalConceptAsk(query: string | undefined): boolean {
+  if (!query) return false;
+
+  const match = query.match(
+    /\b(?:explain|define|tell\s+me\s+about)\s+(?:the\s+|a\s+|an\s+)?([a-z][a-z0-9-]*(?:\s+[a-z][a-z0-9-]*){1,4})\b/i,
+  );
+  if (!match) return false;
+
+  const words = match[1]?.toLowerCase().split(/\s+/) ?? [];
+  if (words.length < 2) return false;
+
+  const taskLocalWords = new Set([
+    'why',
+    'how',
+    'what',
+    'when',
+    'where',
+    'whether',
+    'if',
+    'fix',
+    'fixes',
+    'change',
+    'changes',
+    'patch',
+    'patches',
+    'test',
+    'tests',
+    'failure',
+    'failures',
+    'failing',
+    'bug',
+    'bugs',
+    'code',
+    'implementation',
+    'work',
+    'route',
+    'routes',
+    'project',
+    'system',
+    'repo',
+    'repository',
+    'codebase',
+    'architecture',
+    'structure',
+    'design',
+    'routing',
+    'retrieval',
+  ]);
+
+  return words.every((word) => !taskLocalWords.has(word));
 }
 
 function suppressKnowledgeWhenCovered(signals: ScenarioSignal[]): ScenarioSignal[] {

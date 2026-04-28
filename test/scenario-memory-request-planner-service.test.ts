@@ -47,6 +47,30 @@ describe('scenario memory request planner', () => {
     expect(plan.next_tool).toBe('resume_task');
   });
 
+  test('keeps coding-local failing test explanations as coding continuation', () => {
+    const plan = planScenarioMemoryRequest({
+      query: 'Continue implementation and explain failing tests',
+      task_id: 'task-123',
+      repo_path: '/repo/mbrain',
+    });
+
+    expect(plan.classification.scenario).toBe('coding_continuation');
+    expect(plan.decomposed_plans).toEqual([]);
+    expect(plan.next_tool).toBe('resume_task');
+  });
+
+  test('keeps repeated coding-local route test explanations as coding continuation', () => {
+    const plan = planScenarioMemoryRequest({
+      query: 'Continue fixing failing route tests and explain failing route tests',
+      task_id: 'task-123',
+      repo_path: '/repo/mbrain',
+    });
+
+    expect(plan.classification.scenario).toBe('coding_continuation');
+    expect(plan.decomposed_plans).toEqual([]);
+    expect(plan.next_tool).toBe('resume_task');
+  });
+
   test('plans project QA through project and system pages before maps', () => {
     const plan = planScenarioMemoryRequest({
       query: 'Explain the mbrain retrieval architecture',

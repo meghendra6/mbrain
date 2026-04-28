@@ -260,6 +260,80 @@ describe('memory scenario classifier', () => {
     expect(result.reason_codes).toContain('multiple_material_scenarios');
   });
 
+  test('decomposes task plus project architecture without known subjects', () => {
+    const result = classifyMemoryScenario({
+      query: 'Continue the task and explain the mbrain project architecture',
+      task_id: 'task-123',
+    });
+
+    expect(result.scenario).toBe('mixed');
+    expect(result.decomposed_routes.map((route) => route.scenario)).toEqual([
+      'coding_continuation',
+      'project_qa',
+    ]);
+  });
+
+  test('decomposes task plus system architecture without known subjects', () => {
+    const result = classifyMemoryScenario({
+      query: 'Continue the task and explain the mbrain system architecture',
+      task_id: 'task-123',
+    });
+
+    expect(result.scenario).toBe('mixed');
+    expect(result.decomposed_routes.map((route) => route.scenario)).toEqual([
+      'coding_continuation',
+      'project_qa',
+    ]);
+  });
+
+  test('decomposes task plus explicit external concept explanation', () => {
+    const result = classifyMemoryScenario({
+      query: 'Continue the task and explain vector clocks',
+      task_id: 'task-123',
+    });
+
+    expect(result.scenario).toBe('mixed');
+    expect(result.decomposed_routes.map((route) => route.scenario)).toEqual([
+      'coding_continuation',
+      'knowledge_qa',
+    ]);
+  });
+
+  test('decomposes resume implementation plus explicit external concept explanation', () => {
+    const result = classifyMemoryScenario({
+      query: 'Resume implementation and explain dependency injection',
+      task_id: 'task-123',
+    });
+
+    expect(result.scenario).toBe('mixed');
+    expect(result.decomposed_routes.map((route) => route.scenario)).toEqual([
+      'coding_continuation',
+      'knowledge_qa',
+    ]);
+  });
+
+  test('keeps task-local explanation requests as coding continuation', () => {
+    const result = classifyMemoryScenario({
+      query: 'Continue implementation and explain failing tests',
+      task_id: 'task-123',
+      repo_path: '/repo/mbrain',
+    });
+
+    expect(result.scenario).toBe('coding_continuation');
+    expect(result.decomposed_routes).toEqual([]);
+  });
+
+  test('keeps repeated task-local route test explanations as coding continuation', () => {
+    const result = classifyMemoryScenario({
+      query: 'Continue fixing failing route tests and explain failing route tests',
+      task_id: 'task-123',
+      repo_path: '/repo/mbrain',
+    });
+
+    expect(result.scenario).toBe('coding_continuation');
+    expect(result.decomposed_routes).toEqual([]);
+  });
+
   test('decomposes mixed coding plus explicit knowledge query', () => {
     const result = classifyMemoryScenario({
       query: 'What do we know about Pedro, and continue task-123?',

@@ -316,46 +316,7 @@ function normalizePlannerClassification(
   classification: MemoryScenarioClassification,
   input: ScenarioMemoryRequestInput,
 ): MemoryScenarioClassification {
-  return normalizeTaskContinuationClassification(
-    preserveExplicitKnowledgeMixedClassification(classification, input),
-    input,
-  );
-}
-
-function preserveExplicitKnowledgeMixedClassification(
-  classification: MemoryScenarioClassification,
-  input: ScenarioMemoryRequestInput,
-): MemoryScenarioClassification {
-  if (classification.scenario !== 'coding_continuation') return classification;
-  if (!hasExplicitContinuationAsk(input.query)) return classification;
-  const preservedScenario = selectPreservedQuestionScenario(input.query);
-  if (!preservedScenario) return classification;
-  const preservedReasonCode = preservedScenario === 'project_qa'
-    ? 'project_query_signal'
-    : 'knowledge_question_signal';
-
-  return {
-    ...classification,
-    scenario: 'mixed',
-    confidence: 'high',
-    reason_codes: dedupe([
-      ...classification.reason_codes,
-      preservedReasonCode,
-      'multiple_material_scenarios',
-    ]),
-    decomposed_routes: [
-      {
-        scenario: 'coding_continuation',
-        confidence: classification.confidence,
-        reason_codes: classification.reason_codes,
-      },
-      {
-        scenario: preservedScenario,
-        confidence: 'medium',
-        reason_codes: [preservedReasonCode],
-      },
-    ],
-  };
+  return normalizeTaskContinuationClassification(classification, input);
 }
 
 function normalizeTaskContinuationClassification(
@@ -391,63 +352,6 @@ function normalizeTaskContinuationClassification(
     reason_codes: codingRoute.reason_codes,
     decomposed_routes: [],
   };
-}
-
-function hasExplicitContinuationAsk(query: string | undefined): boolean {
-  if (!query) return false;
-
-  return /\b(continue|resume|pick\s+up)\b/i.test(query)
-    || /(이어서|계속)/i.test(query);
-}
-
-function selectPreservedQuestionScenario(
-  query: string | undefined,
-): Exclude<MaterialScenario, 'coding_continuation'> | null {
-  if (hasExplicitProjectSystemArchitectureAsk(query)) return 'project_qa';
-  if (hasExplicitNamedConceptAsk(query)) return 'knowledge_qa';
-  return null;
-}
-
-function hasExplicitNamedConceptAsk(query: string | undefined): boolean {
-  if (!query) return false;
-
-  const match = query.match(
-    /\b(?:explain|define|tell\s+me\s+about)\s+(?:the\s+|a\s+|an\s+)?([a-z][a-z0-9-]*(?:\s+[a-z][a-z0-9-]*){1,4})\b/i,
-  );
-  if (!match) return false;
-
-  const words = match[1]?.toLowerCase().split(/\s+/) ?? [];
-  if (words.length < 2) return false;
-
-  const blockedWords = new Set([
-    'why',
-    'how',
-    'what',
-    'when',
-    'where',
-    'whether',
-    'if',
-    'fix',
-    'change',
-    'patch',
-    'test',
-    'failure',
-    'bug',
-    'code',
-    'implementation',
-    'work',
-  ]);
-  return words.every((word) => !blockedWords.has(word));
-}
-
-function hasExplicitProjectSystemArchitectureAsk(query: string | undefined): boolean {
-  if (!query) return false;
-
-  return [
-    /\b(?:project|system|repo|repository|codebase)\s+(?:architecture|structure|design)\b/i,
-    /\b(?:architecture|structure|design)\s+(?:of|for)\s+(?:the\s+)?(?:project|system|repo|repository|codebase)\b/i,
-    /(?:프로젝트|시스템|저장소|레포|코드베이스).*(?:아키텍처|구조|설계)/i,
-  ].some((pattern) => pattern.test(query));
 }
 
 function hasExplicitProjectAsk(query: string | undefined): boolean {
@@ -504,8 +408,4 @@ function cloneRules(rules: MemoryPlannedActivationRule[]): MemoryPlannedActivati
     ...rule,
     reason_codes: [...rule.reason_codes],
   }));
-}
-
-function dedupe(values: string[]): string[] {
-  return [...new Set(values)];
 }
