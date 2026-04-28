@@ -44,6 +44,9 @@ import { getPrecisionLookupRoute } from './services/precision-lookup-route-servi
 import { evaluateScopeGate } from './services/scope-gate-service.ts';
 import { planRetrievalRequest } from './services/retrieval-request-planner-service.ts';
 import { selectRetrievalRoute } from './services/retrieval-route-selector-service.ts';
+import { selectActivationPolicy } from './services/memory-activation-policy-service.ts';
+import { classifyMemoryScenario } from './services/memory-scenario-classifier-service.ts';
+import { planScenarioMemoryRequest } from './services/scenario-memory-request-planner-service.ts';
 import { getWorkspaceCorpusCard } from './services/workspace-corpus-card-service.ts';
 import { getWorkspaceOrientationBundle } from './services/workspace-orientation-bundle-service.ts';
 import { getWorkspaceProjectCard } from './services/workspace-project-card-service.ts';
@@ -66,6 +69,12 @@ import * as db from './db.ts';
 import { getUnsupportedCapabilityReason } from './offline-profile.ts';
 import type {
   CodeClaim,
+  MemoryActivationArtifact,
+  MemoryArtifactKind,
+  MemoryScenario,
+  MemoryScenarioKnownSubject,
+  MemoryScenarioKnownSubjectKind,
+  MemoryScenarioSourceKind,
   PersonalEpisodeSourceKind,
   ProfileMemoryType,
   RetrievalRequestPlannerInput,
@@ -224,6 +233,54 @@ const SCOPE_GATE_POLICIES = [
   'defer',
   'deny',
 ] as const satisfies readonly ScopeGatePolicy[];
+
+const MEMORY_SCENARIOS = [
+  'coding_continuation',
+  'project_qa',
+  'knowledge_qa',
+  'auto_accumulation',
+  'personal_recall',
+  'mixed',
+] as const satisfies readonly MemoryScenario[];
+
+const MEMORY_SCENARIO_SOURCE_KINDS = [
+  'chat',
+  'code_event',
+  'import',
+  'meeting',
+  'cron',
+  'manual',
+  'session_end',
+  'trace_review',
+] as const satisfies readonly MemoryScenarioSourceKind[];
+
+const MEMORY_SCENARIO_KNOWN_SUBJECT_KINDS = [
+  'project',
+  'system',
+  'concept',
+  'person',
+  'company',
+  'source',
+  'file',
+  'symbol',
+  'task',
+  'profile',
+  'personal_episode',
+] as const satisfies readonly MemoryScenarioKnownSubjectKind[];
+
+const MEMORY_ARTIFACT_KINDS = [
+  'current_artifact',
+  'compiled_truth',
+  'timeline',
+  'source_record',
+  'context_map',
+  'codemap_pointer',
+  'task_attempt_failed',
+  'task_decision',
+  'memory_candidate',
+  'profile_memory',
+  'personal_episode',
+] as const satisfies readonly MemoryArtifactKind[];
 
 export interface ParseOpArgsOptions {
   warn?: (msg: string) => void;
@@ -1111,6 +1168,119 @@ function parseStringListParam(value: unknown, key: string): string[] | undefined
     .split(/\r?\n|,/)
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+}
+
+function parseKnownSubjectsParam(
+  value: unknown,
+  key: string,
+): Array<string | MemoryScenarioKnownSubject> | undefined {
+  if (value === undefined || value === null) return undefined;
+
+  let parsed: unknown = value;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new OperationError('invalid_params', `${key} must be valid JSON when passed as a string.`);
+    }
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new OperationError('invalid_params', `${key} must be an array.`);
+  }
+
+  return parsed.map((item, index) => {
+    if (typeof item === 'string') return item;
+    if (!item || typeof item !== 'object') {
+      throw new OperationError('invalid_params', `${key}[${index}] must be a string or object.`);
+    }
+
+    const subject = item as Record<string, unknown>;
+    if (typeof subject.ref !== 'string' || subject.ref.length === 0) {
+      throw new OperationError('invalid_params', `${key}[${index}].ref must be a non-empty string.`);
+    }
+
+    const knownSubject: MemoryScenarioKnownSubject = { ref: subject.ref };
+    if (subject.kind !== undefined) {
+      if (subject.kind === null) {
+        throw new OperationError('invalid_params', `${key}[${index}].kind must be one of: ${MEMORY_SCENARIO_KNOWN_SUBJECT_KINDS.join(', ')}.`);
+      }
+      const kind = parseEnumParam(subject.kind, `${key}[${index}].kind`, MEMORY_SCENARIO_KNOWN_SUBJECT_KINDS);
+      if (kind) knownSubject.kind = kind;
+    }
+    return knownSubject;
+  });
+}
+
+function parseActivationArtifacts(
+  value: unknown,
+  key: string,
+): MemoryActivationArtifact[] {
+  if (value === undefined || value === null) return [];
+
+  let parsed: unknown = value;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new OperationError('invalid_params', `${key} must be valid JSON when passed as a string.`);
+    }
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new OperationError('invalid_params', `${key} must be an array.`);
+  }
+
+  return parsed.map((item, index) => {
+    if (!item || typeof item !== 'object') {
+      throw new OperationError('invalid_params', `${key}[${index}] must be an object.`);
+    }
+
+    const artifact = item as Record<string, unknown>;
+    if (typeof artifact.id !== 'string' || artifact.id.length === 0) {
+      throw new OperationError('invalid_params', `${key}[${index}].id must be a non-empty string.`);
+    }
+
+    const artifactKind = parseEnumParam(
+      artifact.artifact_kind,
+      `${key}[${index}].artifact_kind`,
+      MEMORY_ARTIFACT_KINDS,
+    );
+    if (!artifactKind) {
+      throw new OperationError('invalid_params', `${key}[${index}].artifact_kind must be one of: ${MEMORY_ARTIFACT_KINDS.join(', ')}.`);
+    }
+
+    if (artifact.source_ref !== undefined && typeof artifact.source_ref !== 'string') {
+      throw new OperationError('invalid_params', `${key}[${index}].source_ref must be a string.`);
+    }
+    if (artifact.stale !== undefined && typeof artifact.stale !== 'boolean') {
+      throw new OperationError('invalid_params', `${key}[${index}].stale must be a boolean.`);
+    }
+    if (artifact.anchors_valid !== undefined && typeof artifact.anchors_valid !== 'boolean') {
+      throw new OperationError('invalid_params', `${key}[${index}].anchors_valid must be a boolean.`);
+    }
+
+    let scopePolicy: ScopeGatePolicy | undefined;
+    if (artifact.scope_policy !== undefined) {
+      if (artifact.scope_policy === null) {
+        throw new OperationError('invalid_params', `${key}[${index}].scope_policy must be one of: ${SCOPE_GATE_POLICIES.join(', ')}.`);
+      }
+      scopePolicy = parseEnumParam(
+        artifact.scope_policy,
+        `${key}[${index}].scope_policy`,
+        SCOPE_GATE_POLICIES,
+      );
+    }
+
+    return {
+      id: artifact.id,
+      artifact_kind: artifactKind,
+      source_ref: artifact.source_ref,
+      stale: artifact.stale,
+      anchors_valid: artifact.anchors_valid,
+      scope_policy: scopePolicy,
+    };
+  });
 }
 
 function formatCodeClaimVerificationSummary(results: Array<{
@@ -3494,6 +3664,88 @@ const plan_retrieval_request: Operation = {
   cliHints: { name: 'plan-retrieval-request' },
 };
 
+const classify_memory_scenario: Operation = {
+  name: 'classify_memory_scenario',
+  description: 'Classify a memory request into a scenario before retrieval.',
+  params: {
+    query: { type: 'string', description: 'Raw user request or system task' },
+    task_id: { type: 'string', description: 'Optional active task id' },
+    repo_path: { type: 'string', description: 'Optional active repository path' },
+    requested_scope: { type: 'string', description: 'Optional explicit scope override', enum: [...REQUESTED_SCOPES] },
+    source_kind: { type: 'string', description: 'Optional source kind for classification', enum: [...MEMORY_SCENARIO_SOURCE_KINDS] },
+    known_subjects: {
+      type: ['array', 'string'],
+      description: 'Optional detected subject refs as strings or objects with ref and kind, or a JSON array string',
+    },
+  },
+  mutating: false,
+  handler: async (_ctx, p) => classifyMemoryScenario({
+    query: typeof p.query === 'string' ? p.query : undefined,
+    task_id: typeof p.task_id === 'string' ? p.task_id : undefined,
+    repo_path: typeof p.repo_path === 'string' ? p.repo_path : undefined,
+    requested_scope: parseEnumParam(p.requested_scope, 'requested_scope', REQUESTED_SCOPES),
+    source_kind: parseEnumParam(p.source_kind, 'source_kind', MEMORY_SCENARIO_SOURCE_KINDS),
+    known_subjects: parseKnownSubjectsParam(p.known_subjects, 'known_subjects'),
+  }),
+  cliHints: { name: 'classify-memory-scenario', aliases: { scope: 'requested_scope' } },
+};
+
+const select_activation_policy: Operation = {
+  name: 'select_activation_policy',
+  description: 'Select how retrieved memory artifacts may affect a response.',
+  params: {
+    scenario: { type: 'string', required: true, description: 'Memory scenario', enum: [...MEMORY_SCENARIOS] },
+    artifacts: {
+      type: ['array', 'string'],
+      description: 'Activation artifacts as objects or a JSON array string',
+    },
+  },
+  mutating: false,
+  handler: async (_ctx, p) => {
+    const scenario = parseEnumParam(p.scenario, 'scenario', MEMORY_SCENARIOS);
+    if (!scenario) {
+      throw new OperationError('invalid_params', `scenario must be one of: ${MEMORY_SCENARIOS.join(', ')}.`);
+    }
+
+    return selectActivationPolicy({
+      scenario,
+      artifacts: parseActivationArtifacts(p.artifacts, 'artifacts'),
+    });
+  },
+  cliHints: { name: 'select-activation-policy' },
+};
+
+const plan_scenario_memory_request: Operation = {
+  name: 'plan_scenario_memory_request',
+  description: 'Plan scenario-aware memory reads, activation, next tool, and writeback hints without mutating memory.',
+  params: {
+    query: { type: 'string', description: 'Raw user request or system task' },
+    task_id: { type: 'string', description: 'Optional active task id' },
+    repo_path: { type: 'string', description: 'Optional active repository path' },
+    requested_scope: { type: 'string', description: 'Optional explicit scope override', enum: [...REQUESTED_SCOPES] },
+    source_kind: { type: 'string', description: 'Optional source kind for classification', enum: [...MEMORY_SCENARIO_SOURCE_KINDS] },
+    known_subjects: {
+      type: ['array', 'string'],
+      description: 'Optional detected subject refs as strings or objects with ref and kind, or a JSON array string',
+    },
+    artifacts: {
+      type: ['array', 'string'],
+      description: 'Optional activation artifacts as objects or a JSON array string',
+    },
+  },
+  mutating: false,
+  handler: async (_ctx, p) => planScenarioMemoryRequest({
+    query: typeof p.query === 'string' ? p.query : undefined,
+    task_id: typeof p.task_id === 'string' ? p.task_id : undefined,
+    repo_path: typeof p.repo_path === 'string' ? p.repo_path : undefined,
+    requested_scope: parseEnumParam(p.requested_scope, 'requested_scope', REQUESTED_SCOPES),
+    source_kind: parseEnumParam(p.source_kind, 'source_kind', MEMORY_SCENARIO_SOURCE_KINDS),
+    known_subjects: parseKnownSubjectsParam(p.known_subjects, 'known_subjects'),
+    artifacts: parseActivationArtifacts(p.artifacts, 'artifacts'),
+  }),
+  cliHints: { name: 'plan-scenario-memory-request', aliases: { scope: 'requested_scope' } },
+};
+
 const reverify_code_claims: Operation = {
   name: 'reverify_code_claims',
   description: 'Re-check code path, symbol, and branch claims against the current workspace.',
@@ -4138,7 +4390,7 @@ export const operations: Operation[] = [
   // Structural graph
   get_note_structural_neighbors, find_note_structural_path,
   // Persisted context maps
-  build_context_map, get_context_map_entry, list_context_map_entries, get_context_map_report, get_context_map_explanation, query_context_map, find_context_map_path, get_broad_synthesis_route, get_precision_lookup_route, get_mixed_scope_bridge, get_mixed_scope_disclosure, get_personal_profile_lookup_route, get_personal_episode_lookup_route, select_personal_write_target, preview_personal_export, evaluate_scope_gate, select_retrieval_route, plan_retrieval_request, reverify_code_claims, get_workspace_system_card, get_workspace_project_card, get_workspace_orientation_bundle, get_workspace_corpus_card,
+  build_context_map, get_context_map_entry, list_context_map_entries, get_context_map_report, get_context_map_explanation, query_context_map, find_context_map_path, get_broad_synthesis_route, get_precision_lookup_route, get_mixed_scope_bridge, get_mixed_scope_disclosure, get_personal_profile_lookup_route, get_personal_episode_lookup_route, select_personal_write_target, preview_personal_export, evaluate_scope_gate, select_retrieval_route, classify_memory_scenario, select_activation_policy, plan_scenario_memory_request, plan_retrieval_request, reverify_code_claims, get_workspace_system_card, get_workspace_project_card, get_workspace_orientation_bundle, get_workspace_corpus_card,
   // Context atlas registry
   build_context_atlas, get_context_atlas_entry, list_context_atlas_entries, select_context_atlas_entry, get_context_atlas_overview, get_context_atlas_report, get_atlas_orientation_card, get_atlas_orientation_bundle,
   // Operational memory
