@@ -90,6 +90,30 @@ describe('memory scenario classifier', () => {
     expect(result.reason_codes).not.toContain('personal_signal');
   });
 
+  test('does not treat issue tracker concept questions as coding continuation', () => {
+    const result = classifyMemoryScenario({
+      query: 'What is an issue tracker?',
+    });
+
+    expect(result.scenario).toBe('knowledge_qa');
+    expect([
+      result.scenario,
+      ...result.decomposed_routes.map((route) => route.scenario),
+    ]).not.toContain('coding_continuation');
+  });
+
+  test('does not treat system design concept questions as project QA', () => {
+    const result = classifyMemoryScenario({
+      query: 'What is system design?',
+    });
+
+    expect(result.scenario).toBe('knowledge_qa');
+    expect([
+      result.scenario,
+      ...result.decomposed_routes.map((route) => route.scenario),
+    ]).not.toContain('project_qa');
+  });
+
   test('classifies trace review as automatic accumulation', () => {
     const result = classifyMemoryScenario({
       query: 'Review this session for durable memory candidates',

@@ -64,13 +64,17 @@ const PERSONAL_QUERY_PATTERNS = [
 ] as const;
 
 const CODING_QUERY_PATTERNS = [
-  /\b(continue|resume|pick up|failing test|fix|implement|coding|code|repo|repository|branch|pr|pull request|issue)\b/i,
-  /(이어서|계속|진행|실패한 테스트|테스트|수정|구현|코드|리포|저장소|브랜치|작업)/i,
+  /\b(continue|resume|pick up)\b.*\b(task|implementation|implementing|fix|failing test|test|code|repo|repository|branch|pr|pull request|issue|work)\b/i,
+  /\b(fix|debug|repair)\b.*\b(failing test|test|bug|issue|code|implementation)\b/i,
+  /\b(repo|repository|branch|pr|pull request)\b/i,
+  /(이어서|계속).*(구현|수정|작업|테스트|코드)/i,
+  /(실패한 테스트|테스트.*수정|구현 작업|코드.*수정|리포|저장소|브랜치)/i,
 ] as const;
 
 const PROJECT_QUERY_PATTERNS = [
-  /\b(project|system|architecture|design|codebase|route selector|routing|retrieval route)\b/i,
-  /(프로젝트|시스템|아키텍처|구조|설계|검색 라우팅|라우팅)/i,
+  /\b(project\s+(architecture|design|preferences?|storage|routing|structure)|codebase|route selector|retrieval route)\b/i,
+  /\b(mbrain\s+project\s+architecture|project\s+architecture)\b/i,
+  /((프로젝트|시스템).*(아키텍처|구조|설계|검색 라우팅|라우팅)|검색 라우팅|라우팅 구조)/i,
 ] as const;
 
 const EXPLICIT_KNOWLEDGE_QUERY_PATTERNS = [
