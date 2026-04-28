@@ -57,8 +57,10 @@ const PERSONAL_SUBJECT_KINDS = new Set<MemoryScenarioKnownSubjectKind>([
 const TASK_SUBJECT_KINDS = new Set<MemoryScenarioKnownSubjectKind>(['task']);
 
 const PERSONAL_QUERY_PATTERNS = [
-  /\b(my|personal|routine|habit|preference|preferences|morning routine|daily|remember my)\b/i,
-  /(^|[^\p{L}\p{N}_])내(?=$|[^\p{L}\p{N}_])|나의|개인|루틴|습관|일상|생활|선호|회상/iu,
+  /\bremember\s+my\b/i,
+  /\bmy\s+(?:personal\s+)?(?:morning\s+)?(?:routine|routines|habit|habits|preference|preferences|schedule|daily routine)\b/i,
+  /(^|[^\p{L}\p{N}_])내\s*(?:선호|루틴|습관|일상|생활|일정)(?:을|를|이|가|은|는)?(?=$|[^\p{L}\p{N}_])/iu,
+  /나의\s*(?:선호|루틴|습관|일상|생활|일정)(?:을|를|이|가|은|는)?/iu,
 ] as const;
 
 const CODING_QUERY_PATTERNS = [

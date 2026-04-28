@@ -60,6 +60,36 @@ describe('memory scenario classifier', () => {
     expect(result.reason_codes).not.toContain('personal_signal');
   });
 
+  test('does not treat daily project operations phrasing as personal recall', () => {
+    const result = classifyMemoryScenario({
+      query: 'Explain the daily cron job',
+    });
+
+    expect(['knowledge_qa', 'project_qa']).toContain(result.scenario);
+    expect(result.decomposed_routes.map((route) => route.scenario)).not.toContain('personal_recall');
+    expect(result.reason_codes).not.toContain('personal_signal');
+  });
+
+  test('does not treat routine maintenance knowledge phrasing as personal recall', () => {
+    const result = classifyMemoryScenario({
+      query: 'What is a routine maintenance window?',
+    });
+
+    expect(result.scenario).toBe('knowledge_qa');
+    expect(result.decomposed_routes.map((route) => route.scenario)).not.toContain('personal_recall');
+    expect(result.reason_codes).not.toContain('personal_signal');
+  });
+
+  test('does not treat project preferences storage as personal recall', () => {
+    const result = classifyMemoryScenario({
+      query: 'How does project preferences storage work?',
+    });
+
+    expect(result.scenario).toBe('project_qa');
+    expect(result.decomposed_routes.map((route) => route.scenario)).not.toContain('personal_recall');
+    expect(result.reason_codes).not.toContain('personal_signal');
+  });
+
   test('classifies trace review as automatic accumulation', () => {
     const result = classifyMemoryScenario({
       query: 'Review this session for durable memory candidates',
