@@ -330,6 +330,7 @@ function preserveExplicitKnowledgeMixedClassification(
   if (!hasExplicitContinuationAsk(input.query) || !hasExplicitKnowledgeAsk(input.query)) {
     return classification;
   }
+  if (hasCodingLocalExplanationAsk(input.query)) return classification;
   const preservedScenario = selectPreservedQuestionScenario(input.query);
   const preservedReasonCode = preservedScenario === 'project_qa'
     ? 'project_query_signal'
@@ -410,6 +411,12 @@ function hasExplicitKnowledgeAsk(query: string | undefined): boolean {
     /\bhow\s+(?:does|do|is|are)\b/i,
     /(설명|알려줘|무엇|뭐야|무슨\s*뜻)/i,
   ].some((pattern) => pattern.test(query));
+}
+
+function hasCodingLocalExplanationAsk(query: string | undefined): boolean {
+  if (!query) return false;
+
+  return /\b(?:explain|describe|walk\s+me\s+through)\s+(?:the\s+|this\s+|that\s+)?(?:fix|change|patch|test|failure|bug|code|implementation|work)\b/i.test(query);
 }
 
 function selectPreservedQuestionScenario(query: string | undefined): Exclude<MaterialScenario, 'coding_continuation'> {

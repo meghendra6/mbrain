@@ -23,6 +23,18 @@ describe('scenario memory request planner', () => {
     expect(plan.trace_required).toBe(true);
   });
 
+  test('keeps coding-local fix explanations as coding continuation', () => {
+    const plan = planScenarioMemoryRequest({
+      query: 'Continue fixing the failing route test and explain the fix',
+      task_id: 'task-123',
+      repo_path: '/repo/mbrain',
+    });
+
+    expect(plan.classification.scenario).toBe('coding_continuation');
+    expect(plan.decomposed_plans).toEqual([]);
+    expect(plan.next_tool).toBe('resume_task');
+  });
+
   test('plans project QA through project and system pages before maps', () => {
     const plan = planScenarioMemoryRequest({
       query: 'Explain the mbrain retrieval architecture',
