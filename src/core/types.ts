@@ -1485,6 +1485,196 @@ export interface RetrievalRequestPlan {
   steps: RetrievalRequestPlanStep[];
 }
 
+export type MemoryScenario =
+  | 'coding_continuation'
+  | 'project_qa'
+  | 'knowledge_qa'
+  | 'auto_accumulation'
+  | 'personal_recall'
+  | 'mixed';
+
+export type MemoryScenarioConfidence = 'high' | 'medium' | 'low';
+export type MemoryScenarioScopeDecision = 'work' | 'personal' | 'mixed' | 'defer';
+export type MemoryScenarioSourceKind =
+  | 'chat'
+  | 'code_event'
+  | 'import'
+  | 'meeting'
+  | 'cron'
+  | 'manual'
+  | 'session_end'
+  | 'trace_review';
+
+export type MemoryScenarioKnownSubjectKind =
+  | 'project'
+  | 'system'
+  | 'concept'
+  | 'person'
+  | 'company'
+  | 'source'
+  | 'file'
+  | 'symbol'
+  | 'task'
+  | 'profile'
+  | 'personal_episode';
+
+export interface MemoryScenarioKnownSubject {
+  ref: string;
+  kind?: MemoryScenarioKnownSubjectKind;
+}
+
+export interface MemoryScenarioClassifierInput {
+  query?: string;
+  task_id?: string | null;
+  repo_path?: string | null;
+  requested_scope?: Exclude<MemoryScenarioScopeDecision, 'defer'>;
+  source_kind?: MemoryScenarioSourceKind;
+  known_subjects?: Array<string | MemoryScenarioKnownSubject>;
+}
+
+export interface MemoryScenarioDecomposedRoute {
+  scenario: Exclude<MemoryScenario, 'mixed'>;
+  confidence: MemoryScenarioConfidence;
+  reason_codes: string[];
+}
+
+export interface MemoryScenarioClassifierResult {
+  scenario: MemoryScenario;
+  confidence: MemoryScenarioConfidence;
+  scope_decision: MemoryScenarioScopeDecision;
+  reason_codes: string[];
+  requires_user_clarification: boolean;
+  decomposed_routes: MemoryScenarioDecomposedRoute[];
+}
+
+export type MemoryActivationDecision =
+  | 'answer_ground'
+  | 'citation_only'
+  | 'orientation_only'
+  | 'verify_first'
+  | 'suppress_if_valid'
+  | 'candidate_only'
+  | 'ignore';
+
+export type MemoryArtifactKind =
+  | 'current_artifact'
+  | 'compiled_truth'
+  | 'timeline'
+  | 'source_record'
+  | 'context_map'
+  | 'codemap_pointer'
+  | 'task_attempt_failed'
+  | 'task_decision'
+  | 'memory_candidate'
+  | 'profile_memory'
+  | 'personal_episode';
+
+export type MemoryArtifactAuthority =
+  | 'user_direct_statement'
+  | 'verified_current_artifact'
+  | 'canonical_compiled_truth'
+  | 'source_or_timeline_evidence'
+  | 'operational_memory'
+  | 'derived_orientation'
+  | 'unreviewed_candidate'
+  | 'scope_denied';
+
+export type MemoryNextTool =
+  | 'get_page'
+  | 'get_task_working_set'
+  | 'resume_task'
+  | 'record_attempt'
+  | 'record_decision'
+  | 'record_retrieval_trace'
+  | 'reverify_code_claims'
+  | 'query_context_map'
+  | 'get_precision_lookup_route'
+  | 'create_memory_candidate_entry'
+  | 'rank_memory_candidate_entries'
+  | 'evaluate_scope_gate'
+  | 'answer_now';
+
+export type MemoryWritebackHint =
+  | 'none'
+  | 'record_trace'
+  | 'record_attempt'
+  | 'record_decision'
+  | 'refresh_working_set'
+  | 'create_candidate'
+  | 'update_canonical_direct'
+  | 'defer_for_review'
+  | 'sync_after_write';
+
+export interface MemoryActivationArtifact {
+  id: string;
+  artifact_kind: MemoryArtifactKind;
+  source_ref?: string;
+  stale?: boolean;
+  anchors_valid?: boolean;
+  scope_policy?: ScopeGatePolicy;
+}
+
+export interface MemoryActivationPolicyInput {
+  scenario: MemoryScenario;
+  artifacts: MemoryActivationArtifact[];
+}
+
+export interface MemoryActivationPolicyDecision {
+  artifact_id: string;
+  decision: MemoryActivationDecision;
+  authority: MemoryArtifactAuthority;
+  reason_codes: string[];
+  source_ref: string | null;
+}
+
+export interface MemoryActivationPolicyResult {
+  decisions: MemoryActivationPolicyDecision[];
+  next_tool: MemoryNextTool;
+  writeback_hint: MemoryWritebackHint;
+  stale_warnings: string[];
+  verification_required: boolean;
+  source_refs: string[];
+  trace_required: boolean;
+}
+
+export type MemoryScenarioClassification = MemoryScenarioClassifierResult;
+
+export interface MemoryPlannedActivationRule {
+  planned_read: string;
+  artifact_kind: MemoryArtifactKind;
+  decision: MemoryActivationDecision;
+  authority: MemoryArtifactAuthority;
+  reason_codes: string[];
+}
+
+export interface ScenarioMemoryRequestInput extends MemoryScenarioClassifierInput {
+  artifacts?: MemoryActivationArtifact[];
+}
+
+export interface ScenarioMemorySubplan {
+  scenario: Exclude<MemoryScenario, 'mixed'>;
+  primary_reads: string[];
+  secondary_reads: string[];
+  next_tool: MemoryNextTool;
+  writeback_hint: MemoryWritebackHint;
+  planned_activation_rules: MemoryPlannedActivationRule[];
+}
+
+export interface ScenarioMemoryRequestPlan {
+  classification: MemoryScenarioClassification;
+  primary_reads: string[];
+  secondary_reads: string[];
+  activation_decisions: MemoryActivationPolicyDecision[];
+  next_tool: MemoryNextTool;
+  writeback_hint: MemoryWritebackHint;
+  stale_warnings: string[];
+  verification_required: boolean;
+  source_refs: string[];
+  trace_required: boolean;
+  decomposed_plans: ScenarioMemorySubplan[];
+  planned_activation_rules: MemoryPlannedActivationRule[];
+}
+
 export interface RetrievalRouteSelectorResult {
   selected_intent: RetrievalRouteIntent;
   selection_reason: string;

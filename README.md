@@ -332,9 +332,11 @@ path.
 
 For richer routing, agents can use intent-specific operations for precision
 lookup, broad synthesis, task resume, mixed-scope recall, brain-loop audit, and
-code-claim verification. The default rule is simple: canonical sources first,
-derived orientation second, live verification when claims depend on the current
-workspace.
+code-claim verification. For cross-scenario prompts, agents can also classify
+the memory scenario, select activation policy for candidate artifacts, and plan
+the next memory reads before invoking route-specific tools. The default rule is
+simple: canonical sources first, derived orientation second, live verification
+when claims depend on the current workspace.
 
 ## Engines
 
@@ -410,6 +412,7 @@ Raw operation calls are available when an agent or script needs the full surface
 ```bash
 mbrain --tools-json
 mbrain call get_stats '{}'
+mbrain call plan_scenario_memory_request '{"query":"Resume the retrieval refactor","task_id":"task-123"}'
 ```
 
 ## MCP
@@ -516,7 +519,8 @@ has no placeholder tests and covers fresh install, task resume, routing, scope
 denial, promotion provenance, supersession, rejection, canonical-first retrieval,
 precision degradation, code-claim verification, export boundaries, retrieval
 traces, brain-loop audit, interaction-linked writes, nullable interaction IDs,
-and candidate status event auditing.
+and candidate status event auditing. Scenario-aware memory request planning has
+focused unit and operation coverage alongside the scenario suite.
 
 ## Documentation Map
 
