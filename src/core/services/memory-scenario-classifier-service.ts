@@ -95,8 +95,10 @@ const GENERIC_CONCEPT_QUERY_PATTERNS = [
 ] as const;
 
 const ACCUMULATION_QUERY_PATTERNS = [
-  /\b(durable memory|memory candidates?|accumulate|accumulation|capture|ingest|trace review|review this session)\b/i,
-  /(장기 기억|기억 후보|남길 것|누적|축적|수집|검토)/i,
+  /\b(capture|review|ingest|accumulate)\b.*\b(durable memory|memory candidates?)\b.*\b(session|trace)\b/i,
+  /\b(review|capture)\b\s+this\s+session\b.*\b(durable memory|memory candidates?)\b/i,
+  /\btrace review\b.*\b(durable memory|memory candidates?)\b/i,
+  /(이\s*세션에서|이번\s*세션에서|세션에서).*(장기\s*기억\s*후보|기억\s*후보).*(남길|검토|수집|캡처|추출)/i,
 ] as const;
 
 export function classifyMemoryScenario(

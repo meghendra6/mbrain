@@ -185,6 +185,40 @@ describe('memory scenario classifier', () => {
     expect(resultScenarios(result)).not.toContain('project_qa');
   });
 
+  test('does not treat durable memory concept questions as accumulation', () => {
+    const result = classifyMemoryScenario({
+      query: 'What is durable memory?',
+    });
+
+    expect(result.scenario).toBe('knowledge_qa');
+    expect(resultScenarios(result)).not.toContain('auto_accumulation');
+  });
+
+  test('does not treat memory candidate concept questions as accumulation', () => {
+    const result = classifyMemoryScenario({
+      query: 'What are memory candidates?',
+    });
+
+    expect(result.scenario).toBe('knowledge_qa');
+    expect(resultScenarios(result)).not.toContain('auto_accumulation');
+  });
+
+  test('does not treat generic capture requests as accumulation', () => {
+    const result = classifyMemoryScenario({
+      query: 'Capture a screenshot',
+    });
+
+    expect(resultScenarios(result)).not.toContain('auto_accumulation');
+  });
+
+  test('does not treat generic Korean review requests as accumulation', () => {
+    const result = classifyMemoryScenario({
+      query: 'PR을 검토해줘',
+    });
+
+    expect(resultScenarios(result)).not.toContain('auto_accumulation');
+  });
+
   test('classifies trace review as automatic accumulation', () => {
     const result = classifyMemoryScenario({
       query: 'Review this session for durable memory candidates',
