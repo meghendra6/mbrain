@@ -283,7 +283,7 @@ const ROUTES: Record<MaterialScenario, ScenarioRoute> = {
 export function planScenarioMemoryRequest(
   input: ScenarioMemoryRequestInput,
 ): ScenarioMemoryRequestPlan {
-  const classification = normalizeTaskContinuationClassification(
+  const classification = normalizePlannerClassification(
     classifyMemoryScenario(input),
     input,
   );
@@ -309,6 +309,49 @@ export function planScenarioMemoryRequest(
     trace_required: route.trace_required || activation.trace_required,
     decomposed_plans: buildSubplans(classification),
     planned_activation_rules: cloneRules(route.planned_activation_rules),
+  };
+}
+
+function normalizePlannerClassification(
+  classification: MemoryScenarioClassification,
+  input: ScenarioMemoryRequestInput,
+): MemoryScenarioClassification {
+  return normalizeTaskContinuationClassification(
+    preserveExplicitKnowledgeMixedClassification(classification, input),
+    input,
+  );
+}
+
+function preserveExplicitKnowledgeMixedClassification(
+  classification: MemoryScenarioClassification,
+  input: ScenarioMemoryRequestInput,
+): MemoryScenarioClassification {
+  if (classification.scenario !== 'coding_continuation') return classification;
+  if (!hasExplicitContinuationAsk(input.query) || !hasExplicitKnowledgeAsk(input.query)) {
+    return classification;
+  }
+
+  return {
+    ...classification,
+    scenario: 'mixed',
+    confidence: 'high',
+    reason_codes: dedupe([
+      ...classification.reason_codes,
+      'knowledge_question_signal',
+      'multiple_material_scenarios',
+    ]),
+    decomposed_routes: [
+      {
+        scenario: 'coding_continuation',
+        confidence: classification.confidence,
+        reason_codes: classification.reason_codes,
+      },
+      {
+        scenario: 'knowledge_qa',
+        confidence: 'medium',
+        reason_codes: ['knowledge_question_signal'],
+      },
+    ],
   };
 }
 
@@ -345,6 +388,24 @@ function normalizeTaskContinuationClassification(
     reason_codes: codingRoute.reason_codes,
     decomposed_routes: [],
   };
+}
+
+function hasExplicitContinuationAsk(query: string | undefined): boolean {
+  if (!query) return false;
+
+  return /\b(continue|resume|pick\s+up)\b/i.test(query)
+    || /(이어서|계속)/i.test(query);
+}
+
+function hasExplicitKnowledgeAsk(query: string | undefined): boolean {
+  if (!query) return false;
+
+  return [
+    /\b(explain|describe|define|answer|tell\s+me\s+about)\b/i,
+    /\bwhat\s+(?:is|are|does)\b/i,
+    /\bhow\s+(?:does|do|is|are)\b/i,
+    /(설명|알려줘|무엇|뭐야|무슨\s*뜻)/i,
+  ].some((pattern) => pattern.test(query));
 }
 
 function hasExplicitProjectAsk(query: string | undefined): boolean {
@@ -401,4 +462,8 @@ function cloneRules(rules: MemoryPlannedActivationRule[]): MemoryPlannedActivati
     ...rule,
     reason_codes: [...rule.reason_codes],
   }));
+}
+
+function dedupe(values: string[]): string[] {
+  return [...new Set(values)];
 }
