@@ -327,11 +327,9 @@ function preserveExplicitKnowledgeMixedClassification(
   input: ScenarioMemoryRequestInput,
 ): MemoryScenarioClassification {
   if (classification.scenario !== 'coding_continuation') return classification;
-  if (!hasExplicitContinuationAsk(input.query) || !hasExplicitKnowledgeAsk(input.query)) {
-    return classification;
-  }
-  if (hasCodingLocalExplanationAsk(input.query)) return classification;
+  if (!hasExplicitContinuationAsk(input.query)) return classification;
   const preservedScenario = selectPreservedQuestionScenario(input.query);
+  if (!preservedScenario) return classification;
   const preservedReasonCode = preservedScenario === 'project_qa'
     ? 'project_query_signal'
     : 'knowledge_question_signal';
@@ -402,25 +400,44 @@ function hasExplicitContinuationAsk(query: string | undefined): boolean {
     || /(이어서|계속)/i.test(query);
 }
 
-function hasExplicitKnowledgeAsk(query: string | undefined): boolean {
-  if (!query) return false;
-
-  return [
-    /\b(explain|describe|define|answer|tell\s+me\s+about)\b/i,
-    /\bwhat\s+(?:is|are|does)\b/i,
-    /\bhow\s+(?:does|do|is|are)\b/i,
-    /(설명|알려줘|무엇|뭐야|무슨\s*뜻)/i,
-  ].some((pattern) => pattern.test(query));
+function selectPreservedQuestionScenario(
+  query: string | undefined,
+): Exclude<MaterialScenario, 'coding_continuation'> | null {
+  if (hasExplicitProjectSystemArchitectureAsk(query)) return 'project_qa';
+  if (hasExplicitNamedConceptAsk(query)) return 'knowledge_qa';
+  return null;
 }
 
-function hasCodingLocalExplanationAsk(query: string | undefined): boolean {
+function hasExplicitNamedConceptAsk(query: string | undefined): boolean {
   if (!query) return false;
 
-  return /\b(?:explain|describe|walk\s+me\s+through)\s+(?:the\s+|this\s+|that\s+)?(?:fix|change|patch|test|failure|bug|code|implementation|work)\b/i.test(query);
-}
+  const match = query.match(
+    /\b(?:explain|define|tell\s+me\s+about)\s+(?:the\s+|a\s+|an\s+)?([a-z][a-z0-9-]*(?:\s+[a-z][a-z0-9-]*){1,4})\b/i,
+  );
+  if (!match) return false;
 
-function selectPreservedQuestionScenario(query: string | undefined): Exclude<MaterialScenario, 'coding_continuation'> {
-  return hasExplicitProjectSystemArchitectureAsk(query) ? 'project_qa' : 'knowledge_qa';
+  const words = match[1]?.toLowerCase().split(/\s+/) ?? [];
+  if (words.length < 2) return false;
+
+  const blockedWords = new Set([
+    'why',
+    'how',
+    'what',
+    'when',
+    'where',
+    'whether',
+    'if',
+    'fix',
+    'change',
+    'patch',
+    'test',
+    'failure',
+    'bug',
+    'code',
+    'implementation',
+    'work',
+  ]);
+  return words.every((word) => !blockedWords.has(word));
 }
 
 function hasExplicitProjectSystemArchitectureAsk(query: string | undefined): boolean {
