@@ -57,8 +57,8 @@ const PERSONAL_SUBJECT_KINDS = new Set<MemoryScenarioKnownSubjectKind>([
 const TASK_SUBJECT_KINDS = new Set<MemoryScenarioKnownSubjectKind>(['task']);
 
 const PERSONAL_QUERY_PATTERNS = [
-  /\b(my|me|personal|routine|habit|preference|preferences|morning routine|daily|remember my)\b/i,
-  /(내|나의|개인|루틴|습관|일상|생활|선호|회상)/i,
+  /\b(my|personal|routine|habit|preference|preferences|morning routine|daily|remember my)\b/i,
+  /(^|[^\p{L}\p{N}_])내(?=$|[^\p{L}\p{N}_])|나의|개인|루틴|습관|일상|생활|선호|회상/iu,
 ] as const;
 
 const CODING_QUERY_PATTERNS = [
@@ -304,14 +304,14 @@ function matchesAny(
 }
 
 function suppressKnowledgeWhenCovered(signals: ScenarioSignal[]): ScenarioSignal[] {
-  const hasSpecificQa = signals.some((signal) => (
+  const hasSuppressingScenario = signals.some((signal) => (
     signal.scenario === 'project_qa'
     || signal.scenario === 'coding_continuation'
     || signal.scenario === 'personal_recall'
     || signal.scenario === 'auto_accumulation'
   ));
 
-  if (!hasSpecificQa) return signals;
+  if (!hasSuppressingScenario) return signals;
   return signals.filter((signal) => signal.scenario !== 'knowledge_qa' || signal.suppressible !== true);
 }
 

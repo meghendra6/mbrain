@@ -40,6 +40,26 @@ describe('memory scenario classifier', () => {
     expect(result.reason_codes).toContain('knowledge_question_signal');
   });
 
+  test('does not treat conversational English knowledge requests as personal recall', () => {
+    const result = classifyMemoryScenario({
+      query: 'Tell me about Pedro',
+    });
+
+    expect(result.scenario).toBe('knowledge_qa');
+    expect(result.decomposed_routes.map((route) => route.scenario)).not.toContain('personal_recall');
+    expect(result.reason_codes).not.toContain('personal_signal');
+  });
+
+  test('does not treat Korean knowledge requests containing 내용 as personal recall', () => {
+    const result = classifyMemoryScenario({
+      query: 'Pedro에 대한 내용을 알려줘',
+    });
+
+    expect(result.scenario).toBe('knowledge_qa');
+    expect(result.decomposed_routes.map((route) => route.scenario)).not.toContain('personal_recall');
+    expect(result.reason_codes).not.toContain('personal_signal');
+  });
+
   test('classifies trace review as automatic accumulation', () => {
     const result = classifyMemoryScenario({
       query: 'Review this session for durable memory candidates',
