@@ -73,7 +73,7 @@ const CODING_QUERY_PATTERNS = [
 
 const PROJECT_QUERY_PATTERNS = [
   /\b(project\s+(architecture|design|preferences?|storage|routing|structure)|codebase\s+(architecture|structure|routing)|route selector|retrieval route)\b/i,
-  /\b(mbrain\s+project\s+architecture|project\s+architecture)\b/i,
+  /\bproject\s+architecture\b/i,
   /((프로젝트|시스템).*(아키텍처|구조|설계|검색 라우팅|라우팅)|검색 라우팅|라우팅 구조)/i,
 ] as const;
 
