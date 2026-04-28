@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import { classifyMemoryScenario } from '../src/core/services/memory-scenario-classifier-service.ts';
 
+function resultScenarios(result: ReturnType<typeof classifyMemoryScenario>): string[] {
+  return [
+    result.scenario,
+    ...result.decomposed_routes.map((route) => route.scenario),
+  ];
+}
+
 describe('memory scenario classifier', () => {
   test('classifies explicit task context as coding continuation', () => {
     const result = classifyMemoryScenario({
@@ -96,10 +103,7 @@ describe('memory scenario classifier', () => {
     });
 
     expect(result.scenario).toBe('knowledge_qa');
-    expect([
-      result.scenario,
-      ...result.decomposed_routes.map((route) => route.scenario),
-    ]).not.toContain('coding_continuation');
+    expect(resultScenarios(result)).not.toContain('coding_continuation');
   });
 
   test('does not treat system design concept questions as project QA', () => {
@@ -108,10 +112,77 @@ describe('memory scenario classifier', () => {
     });
 
     expect(result.scenario).toBe('knowledge_qa');
-    expect([
-      result.scenario,
-      ...result.decomposed_routes.map((route) => route.scenario),
-    ]).not.toContain('project_qa');
+    expect(resultScenarios(result)).not.toContain('project_qa');
+  });
+
+  test('does not treat pull request concept questions as coding continuation', () => {
+    const result = classifyMemoryScenario({
+      query: 'What is a pull request?',
+    });
+
+    expect(result.scenario).toBe('knowledge_qa');
+    expect(resultScenarios(result)).not.toContain('coding_continuation');
+    expect(resultScenarios(result)).not.toContain('project_qa');
+  });
+
+  test('does not treat repository concept questions as coding continuation', () => {
+    const result = classifyMemoryScenario({
+      query: 'What is a repository?',
+    });
+
+    expect(result.scenario).toBe('knowledge_qa');
+    expect(resultScenarios(result)).not.toContain('coding_continuation');
+    expect(resultScenarios(result)).not.toContain('project_qa');
+  });
+
+  test('does not treat branch concept questions as coding continuation', () => {
+    const result = classifyMemoryScenario({
+      query: 'What is a branch?',
+    });
+
+    expect(result.scenario).toBe('knowledge_qa');
+    expect(resultScenarios(result)).not.toContain('coding_continuation');
+    expect(resultScenarios(result)).not.toContain('project_qa');
+  });
+
+  test('does not treat Korean repository concept questions as coding continuation', () => {
+    const result = classifyMemoryScenario({
+      query: '저장소가 뭐야?',
+    });
+
+    expect(result.scenario).toBe('knowledge_qa');
+    expect(resultScenarios(result)).not.toContain('coding_continuation');
+    expect(resultScenarios(result)).not.toContain('project_qa');
+  });
+
+  test('does not treat Korean branch concept questions as coding continuation', () => {
+    const result = classifyMemoryScenario({
+      query: '브랜치가 뭐야?',
+    });
+
+    expect(result.scenario).toBe('knowledge_qa');
+    expect(resultScenarios(result)).not.toContain('coding_continuation');
+    expect(resultScenarios(result)).not.toContain('project_qa');
+  });
+
+  test('does not treat Korean repo concept questions as coding continuation', () => {
+    const result = classifyMemoryScenario({
+      query: '리포가 뭐야?',
+    });
+
+    expect(result.scenario).toBe('knowledge_qa');
+    expect(resultScenarios(result)).not.toContain('coding_continuation');
+    expect(resultScenarios(result)).not.toContain('project_qa');
+  });
+
+  test('does not treat codebase concept questions as project QA', () => {
+    const result = classifyMemoryScenario({
+      query: 'What is a codebase?',
+    });
+
+    expect(result.scenario).toBe('knowledge_qa');
+    expect(resultScenarios(result)).not.toContain('coding_continuation');
+    expect(resultScenarios(result)).not.toContain('project_qa');
   });
 
   test('classifies trace review as automatic accumulation', () => {

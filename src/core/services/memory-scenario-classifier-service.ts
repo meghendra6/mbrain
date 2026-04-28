@@ -66,13 +66,13 @@ const PERSONAL_QUERY_PATTERNS = [
 const CODING_QUERY_PATTERNS = [
   /\b(continue|resume|pick up)\b.*\b(task|implementation|implementing|fix|failing test|test|code|repo|repository|branch|pr|pull request|issue|work)\b/i,
   /\b(fix|debug|repair)\b.*\b(failing test|test|bug|issue|code|implementation)\b/i,
-  /\b(repo|repository|branch|pr|pull request)\b/i,
+  /\b(commit|merge|review|land|update)\b\s+(this\s+)?\b(pr|pull request)\b/i,
   /(이어서|계속).*(구현|수정|작업|테스트|코드)/i,
-  /(실패한 테스트|테스트.*수정|구현 작업|코드.*수정|리포|저장소|브랜치)/i,
+  /(실패한 테스트|테스트.*수정|구현 작업|코드.*수정)/i,
 ] as const;
 
 const PROJECT_QUERY_PATTERNS = [
-  /\b(project\s+(architecture|design|preferences?|storage|routing|structure)|codebase|route selector|retrieval route)\b/i,
+  /\b(project\s+(architecture|design|preferences?|storage|routing|structure)|codebase\s+(architecture|structure|routing)|route selector|retrieval route)\b/i,
   /\b(mbrain\s+project\s+architecture|project\s+architecture)\b/i,
   /((프로젝트|시스템).*(아키텍처|구조|설계|검색 라우팅|라우팅)|검색 라우팅|라우팅 구조)/i,
 ] as const;
@@ -83,8 +83,15 @@ const EXPLICIT_KNOWLEDGE_QUERY_PATTERNS = [
 ] as const;
 
 const GENERIC_KNOWLEDGE_QUERY_PATTERNS = [
-  /\b(what is|what are|explain|how does)\b/i,
-  /(무엇|뭐야|설명해|알려줘)/i,
+  /\b(what is|what are|what does\b.*\bmean|explain|how does)\b/i,
+  /(무엇|무엇인가|무엇이야|뭐야|무슨 뜻|뜻이 뭐|설명해|알려줘)/i,
+] as const;
+
+const GENERIC_CONCEPT_QUERY_PATTERNS = [
+  /\bwhat\s+(is|are)\b/i,
+  /\bwhat\s+does\b.*\bmean\b/i,
+  /\bwhat's\b/i,
+  /(무엇인가|무엇이야|뭐야|무슨 뜻|뜻이 뭐)/i,
 ] as const;
 
 const ACCUMULATION_QUERY_PATTERNS = [
@@ -181,11 +188,19 @@ function detectCoding(input: MemoryScenarioClassifierInput): ScenarioSignal | nu
       reason_codes: ['task_subject'],
     };
   }
-  if (input.source_kind === 'code_event' || matchesAny(input.query, CODING_QUERY_PATTERNS)) {
+  if (input.source_kind === 'code_event') {
     return {
       scenario: 'coding_continuation',
       confidence: 'medium',
-      reason_codes: [input.source_kind === 'code_event' ? 'code_event_source_kind' : 'coding_query_signal'],
+      reason_codes: ['code_event_source_kind'],
+    };
+  }
+  if (isGenericConceptQuestion(input.query)) return null;
+  if (matchesAny(input.query, CODING_QUERY_PATTERNS)) {
+    return {
+      scenario: 'coding_continuation',
+      confidence: 'medium',
+      reason_codes: ['coding_query_signal'],
     };
   }
   return null;
@@ -199,6 +214,7 @@ function detectProject(input: MemoryScenarioClassifierInput): ScenarioSignal | n
       reason_codes: ['system_or_project_subject'],
     };
   }
+  if (isGenericConceptQuestion(input.query)) return null;
   if (matchesAny(input.query, PROJECT_QUERY_PATTERNS)) {
     return {
       scenario: 'project_qa',
@@ -307,6 +323,10 @@ function matchesAny(
 ): boolean {
   if (!value) return false;
   return patterns.some((pattern) => pattern.test(value));
+}
+
+function isGenericConceptQuestion(query: string | undefined): boolean {
+  return matchesAny(query, GENERIC_CONCEPT_QUERY_PATTERNS);
 }
 
 function suppressKnowledgeWhenCovered(signals: ScenarioSignal[]): ScenarioSignal[] {
