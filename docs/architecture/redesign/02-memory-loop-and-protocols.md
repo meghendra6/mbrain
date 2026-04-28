@@ -19,6 +19,9 @@ The loop is complete only when both sides are handled: the read path must explai
 ## Query Route by Intent
 
 Retrieval order is determined by request intent and scope, not by a universal storage hierarchy.
+Scenario classification sits above these routes: it decides whether the prompt
+is coding continuation, project Q&A, knowledge Q&A, auto accumulation, personal
+recall, or mixed, then decomposes the request into one or more intent routes.
 
 | Intent | Primary Route | Secondary Route | What Must Not Happen |
 |---|---|---|---|

@@ -38,6 +38,9 @@ const ACCUMULATION_SOURCE_KINDS = new Set<MemoryScenarioSourceKind>([
 const PROJECT_SUBJECT_KINDS = new Set<MemoryScenarioKnownSubjectKind>([
   'project',
   'system',
+]);
+
+const CODE_ARTIFACT_SUBJECT_KINDS = new Set<MemoryScenarioKnownSubjectKind>([
   'file',
   'symbol',
 ]);
@@ -67,10 +70,13 @@ const CODING_QUERY_PATTERNS = [
   /\b(continue|resume|pick up)\b.*\b(task|implementation|implementing|fix|failing test|test|code|repo|repository|branch|pr|pull request|issue|work)\b/i,
   /\b(fix|debug|repair)\b.*\b(failing test|test|bug|issue|code|implementation)\b/i,
   /\b(commit|merge|review|land|update)\b\s+(this\s+)?\b(pr|pull request)\b/i,
+  /\b(review|inspect|check|analy[sz]e)\b.*\b(code|diff|patch|pr|pull request|branch|commit|merge)\b/i,
   /(이어서|계속).*(구현|수정|작업|테스트|코드)/i,
   /(구현|수정|작업|테스트|코드).*(이어가|진행|계속)/i,
   /(실패한 테스트|테스트.*수정|구현 작업|코드.*수정)/i,
 ] as const;
+
+const CODE_ARTIFACT_REF_PATTERN = /(^|[\s"'`([])(?:\.{1,2}\/)?(?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]+(?=$|[\s"'`)\].,:;!?])/i;
 
 const PROJECT_QUERY_PATTERNS = [
   /\b(project\s+(architecture|design|preferences?|storage|routing|structure)|codebase\s+(architecture|structure|routing)|route selector|retrieval route)\b/i,
@@ -195,6 +201,13 @@ function detectCoding(input: MemoryScenarioClassifierInput): ScenarioSignal | nu
       scenario: 'coding_continuation',
       confidence: 'medium',
       reason_codes: ['code_event_source_kind'],
+    };
+  }
+  if (hasKnownSubjectKind(input, CODE_ARTIFACT_SUBJECT_KINDS) || hasCodeArtifactRef(input)) {
+    return {
+      scenario: 'coding_continuation',
+      confidence: 'medium',
+      reason_codes: ['code_artifact_subject'],
     };
   }
   if (isGenericConceptQuestion(input.query)) return null;
@@ -335,6 +348,18 @@ function hasStructuralProjectSubject(
   });
 }
 
+function hasCodeArtifactRef(input: MemoryScenarioClassifierInput): boolean {
+  return matchesCodeArtifactRef(input.query)
+    || (input.known_subjects ?? []).some((subject) => matchesCodeArtifactRef(
+      typeof subject === 'string' ? subject : subject.ref,
+    ));
+}
+
+function matchesCodeArtifactRef(value: string | undefined): boolean {
+  if (!value) return false;
+  return CODE_ARTIFACT_REF_PATTERN.test(value.trim());
+}
+
 function matchesAny(
   value: string | undefined,
   patterns: readonly RegExp[],
@@ -380,6 +405,17 @@ function hasExplicitExternalConceptAsk(query: string | undefined): boolean {
     'bug',
     'bugs',
     'code',
+    'behavior',
+    'behaviour',
+    'parameter',
+    'parameters',
+    'param',
+    'params',
+    'reject',
+    'rejects',
+    'rejection',
+    'symbol',
+    'symbols',
     'implementation',
     'work',
     'route',

@@ -58,6 +58,64 @@ describe('memory scenario classifier', () => {
     expect(result.reason_codes).toContain('knowledge_question_signal');
   });
 
+  test('classifies PR review work on a branch as coding continuation', () => {
+    const result = classifyMemoryScenario({
+      query: 'Review mbrain PR #70 on branch codex/scenario-memory-orchestration-phase-a',
+    });
+
+    expect(result.scenario).toBe('coding_continuation');
+    expect(result.reason_codes).toContain('coding_query_signal');
+  });
+
+  test('classifies generic code review work as coding continuation', () => {
+    const result = classifyMemoryScenario({
+      query: 'Review this code',
+    });
+
+    expect(result.scenario).toBe('coding_continuation');
+    expect(result.reason_codes).toContain('coding_query_signal');
+  });
+
+  test('classifies file-path questions as coding continuation', () => {
+    const result = classifyMemoryScenario({
+      query: 'Why does src/core/operations.ts reject this parameter?',
+    });
+
+    expect(result.scenario).toBe('coding_continuation');
+    expect(result.reason_codes).toContain('code_artifact_subject');
+  });
+
+  test('classifies typed file subjects as coding continuation', () => {
+    const result = classifyMemoryScenario({
+      query: 'Why does this reject the parameter?',
+      known_subjects: [{ ref: 'src/core/operations.ts', kind: 'file' }],
+    });
+
+    expect(result.scenario).toBe('coding_continuation');
+    expect(result.reason_codes).toContain('code_artifact_subject');
+  });
+
+  test('classifies string file subjects as coding continuation', () => {
+    const result = classifyMemoryScenario({
+      query: 'Explain the rejection behavior',
+      known_subjects: ['src/core/operations.ts'],
+    });
+
+    expect(result.scenario).toBe('coding_continuation');
+    expect(result.reason_codes).toContain('code_artifact_subject');
+  });
+
+  test('keeps typed symbol explanation requests as coding continuation', () => {
+    const result = classifyMemoryScenario({
+      query: 'Explain this symbol',
+      known_subjects: [{ ref: 'classifyMemoryScenario', kind: 'symbol' }],
+    });
+
+    expect(result.scenario).toBe('coding_continuation');
+    expect(result.decomposed_routes).toEqual([]);
+    expect(result.reason_codes).toContain('code_artifact_subject');
+  });
+
   test('does not treat conversational English knowledge requests as personal recall', () => {
     const result = classifyMemoryScenario({
       query: 'Tell me about Pedro',

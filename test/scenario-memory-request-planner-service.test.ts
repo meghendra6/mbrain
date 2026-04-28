@@ -71,6 +71,28 @@ describe('scenario memory request planner', () => {
     expect(plan.next_tool).toBe('resume_task');
   });
 
+  test('plans PR review branch work as coding continuation', () => {
+    const plan = planScenarioMemoryRequest({
+      query: 'Review mbrain PR #70 on branch codex/scenario-memory-orchestration-phase-a',
+      known_subjects: ['src/core/operations.ts'],
+    });
+
+    expect(plan.classification.scenario).toBe('coding_continuation');
+    expect(plan.primary_reads[0]).toBe('task_thread');
+    expect(plan.secondary_reads).toContain('code_files_after_task_state');
+    expect(plan.next_tool).toBe('resume_task');
+  });
+
+  test('plans generic code review as coding continuation', () => {
+    const plan = planScenarioMemoryRequest({
+      query: 'Review this code',
+    });
+
+    expect(plan.classification.scenario).toBe('coding_continuation');
+    expect(plan.primary_reads[0]).toBe('task_thread');
+    expect(plan.next_tool).toBe('resume_task');
+  });
+
   test('plans project QA through project and system pages before maps', () => {
     const plan = planScenarioMemoryRequest({
       query: 'Explain the mbrain retrieval architecture',
