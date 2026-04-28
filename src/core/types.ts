@@ -1547,6 +1547,96 @@ export interface MemoryScenarioClassifierResult {
   decomposed_routes: MemoryScenarioDecomposedRoute[];
 }
 
+export type MemoryActivationDecision =
+  | 'answer_ground'
+  | 'citation_only'
+  | 'orientation_only'
+  | 'verify_first'
+  | 'suppress_if_valid'
+  | 'candidate_only'
+  | 'ignore';
+
+export type MemoryArtifactKind =
+  | 'current_artifact'
+  | 'compiled_truth'
+  | 'timeline'
+  | 'source_record'
+  | 'context_map'
+  | 'codemap_pointer'
+  | 'task_attempt_failed'
+  | 'task_decision'
+  | 'memory_candidate'
+  | 'profile_memory'
+  | 'personal_episode';
+
+export type MemoryArtifactAuthority =
+  | 'user_direct_statement'
+  | 'verified_current_artifact'
+  | 'canonical_compiled_truth'
+  | 'source_or_timeline_evidence'
+  | 'operational_memory'
+  | 'derived_orientation'
+  | 'unreviewed_candidate'
+  | 'scope_denied';
+
+export type MemoryNextTool =
+  | 'get_page'
+  | 'get_task_working_set'
+  | 'resume_task'
+  | 'record_attempt'
+  | 'record_decision'
+  | 'record_retrieval_trace'
+  | 'reverify_code_claims'
+  | 'query_context_map'
+  | 'get_precision_lookup_route'
+  | 'create_memory_candidate_entry'
+  | 'rank_memory_candidate_entries'
+  | 'evaluate_scope_gate'
+  | 'answer_now';
+
+export type MemoryWritebackHint =
+  | 'none'
+  | 'record_trace'
+  | 'record_attempt'
+  | 'record_decision'
+  | 'refresh_working_set'
+  | 'create_candidate'
+  | 'update_canonical_direct'
+  | 'defer_for_review'
+  | 'sync_after_write';
+
+export interface MemoryActivationArtifact {
+  id: string;
+  artifact_kind: MemoryArtifactKind;
+  source_ref?: string;
+  stale?: boolean;
+  anchors_valid?: boolean;
+  scope_policy?: ScopeGatePolicy;
+}
+
+export interface MemoryActivationPolicyInput {
+  scenario: MemoryScenario;
+  artifacts: MemoryActivationArtifact[];
+}
+
+export interface MemoryActivationPolicyDecision {
+  artifact_id: string;
+  decision: MemoryActivationDecision;
+  authority: MemoryArtifactAuthority;
+  reason_codes: string[];
+  source_ref: string | null;
+}
+
+export interface MemoryActivationPolicyResult {
+  decisions: MemoryActivationPolicyDecision[];
+  next_tool: MemoryNextTool;
+  writeback_hint: MemoryWritebackHint;
+  stale_warnings: string[];
+  verification_required: boolean;
+  source_refs: string[];
+  trace_required: boolean;
+}
+
 export interface RetrievalRouteSelectorResult {
   selected_intent: RetrievalRouteIntent;
   selection_reason: string;
