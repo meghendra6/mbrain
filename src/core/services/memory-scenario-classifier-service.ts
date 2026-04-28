@@ -16,6 +16,7 @@ interface ScenarioSignal {
   scenario: MaterialScenario;
   confidence: MemoryScenarioConfidence;
   reason_codes: string[];
+  suppressible?: boolean;
 }
 
 const MIXED_ROUTE_ORDER: MaterialScenario[] = [
@@ -70,9 +71,14 @@ const PROJECT_QUERY_PATTERNS = [
   /(프로젝트|시스템|아키텍처|구조|설계|검색 라우팅|라우팅)/i,
 ] as const;
 
-const KNOWLEDGE_QUERY_PATTERNS = [
-  /\b(what do we know about|who is|who are|tell me about|what is|what are|explain|how does)\b/i,
-  /(무엇을 알고|알고 있나요|누구|무엇|뭐야|설명해|알려줘)/i,
+const EXPLICIT_KNOWLEDGE_QUERY_PATTERNS = [
+  /\b(what do we know about|who is|who are|tell me about)\b/i,
+  /(무엇을 알고|알고 있나요|누구)/i,
+] as const;
+
+const GENERIC_KNOWLEDGE_QUERY_PATTERNS = [
+  /\b(what is|what are|explain|how does)\b/i,
+  /(무엇|뭐야|설명해|알려줘)/i,
 ] as const;
 
 const ACCUMULATION_QUERY_PATTERNS = [
@@ -198,11 +204,19 @@ function detectProject(input: MemoryScenarioClassifierInput): ScenarioSignal | n
 }
 
 function detectKnowledge(input: MemoryScenarioClassifierInput): ScenarioSignal | null {
-  if (hasKnownSubjectKind(input, KNOWLEDGE_SUBJECT_KINDS) || matchesAny(input.query, KNOWLEDGE_QUERY_PATTERNS)) {
+  if (hasKnownSubjectKind(input, KNOWLEDGE_SUBJECT_KINDS) || matchesAny(input.query, EXPLICIT_KNOWLEDGE_QUERY_PATTERNS)) {
     return {
       scenario: 'knowledge_qa',
       confidence: 'medium',
       reason_codes: ['knowledge_question_signal'],
+    };
+  }
+  if (matchesAny(input.query, GENERIC_KNOWLEDGE_QUERY_PATTERNS)) {
+    return {
+      scenario: 'knowledge_qa',
+      confidence: 'medium',
+      reason_codes: ['knowledge_question_signal'],
+      suppressible: true,
     };
   }
   return null;
@@ -298,7 +312,7 @@ function suppressKnowledgeWhenCovered(signals: ScenarioSignal[]): ScenarioSignal
   ));
 
   if (!hasSpecificQa) return signals;
-  return signals.filter((signal) => signal.scenario !== 'knowledge_qa');
+  return signals.filter((signal) => signal.scenario !== 'knowledge_qa' || signal.suppressible !== true);
 }
 
 function mergeSignals(signals: ScenarioSignal[]): ScenarioSignal[] {
@@ -315,6 +329,7 @@ function mergeSignals(signals: ScenarioSignal[]): ScenarioSignal[] {
       scenario: signal.scenario,
       confidence: higherConfidence(existing.confidence, signal.confidence),
       reason_codes: uniqueReasonCodes([...existing.reason_codes, ...signal.reason_codes]),
+      suppressible: existing.suppressible === true && signal.suppressible === true,
     });
   }
 

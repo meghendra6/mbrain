@@ -81,6 +81,33 @@ describe('memory scenario classifier', () => {
     expect(result.reason_codes).toContain('multiple_material_scenarios');
   });
 
+  test('decomposes mixed coding plus explicit knowledge query', () => {
+    const result = classifyMemoryScenario({
+      query: 'What do we know about Pedro, and continue task-123?',
+      task_id: 'task-123',
+    });
+
+    expect(result.scenario).toBe('mixed');
+    expect(result.decomposed_routes.map((route) => route.scenario)).toEqual([
+      'coding_continuation',
+      'knowledge_qa',
+    ]);
+    expect(result.reason_codes).toContain('multiple_material_scenarios');
+  });
+
+  test('decomposes knowledge plus accumulation requests', () => {
+    const result = classifyMemoryScenario({
+      query: 'What do we know about Pedro? Capture durable memory candidates from this session.',
+    });
+
+    expect(result.scenario).toBe('mixed');
+    expect(result.decomposed_routes.map((route) => route.scenario)).toEqual([
+      'knowledge_qa',
+      'auto_accumulation',
+    ]);
+    expect(result.reason_codes).toContain('multiple_material_scenarios');
+  });
+
   test('returns low-confidence knowledge QA for generic ambiguous text', () => {
     const result = classifyMemoryScenario({
       query: 'What about this?',
