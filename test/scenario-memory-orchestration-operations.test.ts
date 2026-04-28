@@ -166,6 +166,19 @@ describe('scenario memory orchestration operations', () => {
     expect(plan.classification.reason_codes).toContain('system_or_project_subject');
   });
 
+  test('accepts plain string known_subjects through planner', async () => {
+    const result = await operationsByName.plan_scenario_memory_request.handler(ctx, {
+      query: 'How does the mbrain retrieval route selector work?',
+      known_subjects: 'systems/mbrain',
+    });
+
+    const plan = result as {
+      classification: { scenario: string; reason_codes: string[] };
+    };
+    expect(plan.classification.scenario).toBe('project_qa');
+    expect(plan.classification.reason_codes).toContain('system_or_project_subject');
+  });
+
   test('plan_scenario_memory_request rejects non-string task_id params', async () => {
     await expect(operationsByName.plan_scenario_memory_request.handler(ctx, {
       query: 'Continue this implementation task',

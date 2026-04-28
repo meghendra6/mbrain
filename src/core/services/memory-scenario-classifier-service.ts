@@ -68,6 +68,7 @@ const CODING_QUERY_PATTERNS = [
   /\b(fix|debug|repair)\b.*\b(failing test|test|bug|issue|code|implementation)\b/i,
   /\b(commit|merge|review|land|update)\b\s+(this\s+)?\b(pr|pull request)\b/i,
   /(이어서|계속).*(구현|수정|작업|테스트|코드)/i,
+  /(구현|수정|작업|테스트|코드).*(이어가|진행|계속)/i,
   /(실패한 테스트|테스트.*수정|구현 작업|코드.*수정)/i,
 ] as const;
 
@@ -182,13 +183,6 @@ function detectCoding(input: MemoryScenarioClassifierInput): ScenarioSignal | nu
       reason_codes: ['task_id_present'],
     };
   }
-  if (input.repo_path) {
-    return {
-      scenario: 'coding_continuation',
-      confidence: 'high',
-      reason_codes: ['repo_path_present'],
-    };
-  }
   if (hasKnownSubjectKind(input, TASK_SUBJECT_KINDS)) {
     return {
       scenario: 'coding_continuation',
@@ -207,8 +201,10 @@ function detectCoding(input: MemoryScenarioClassifierInput): ScenarioSignal | nu
   if (matchesAny(input.query, CODING_QUERY_PATTERNS)) {
     return {
       scenario: 'coding_continuation',
-      confidence: 'medium',
-      reason_codes: ['coding_query_signal'],
+      confidence: input.repo_path ? 'high' : 'medium',
+      reason_codes: input.repo_path
+        ? ['coding_query_signal', 'repo_path_present']
+        : ['coding_query_signal'],
     };
   }
   return null;

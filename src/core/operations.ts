@@ -1186,10 +1186,19 @@ function parseKnownSubjectsParam(
 
   let parsed: unknown = value;
   if (typeof value === 'string') {
-    try {
-      parsed = JSON.parse(value);
-    } catch {
-      throw new OperationError('invalid_params', `${key} must be valid JSON when passed as a string.`);
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return [];
+    if (trimmed.startsWith('[')) {
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        throw new OperationError('invalid_params', `${key} must be valid JSON when passed as an array string.`);
+      }
+    } else {
+      parsed = trimmed
+        .split(/\r?\n|,/)
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
     }
   }
 

@@ -20,6 +20,27 @@ describe('memory activation policy', () => {
     expect(result.next_tool).toBe('answer_now');
   });
 
+  test('requires verification before grounding stale compiled truth', () => {
+    const result = selectActivationPolicy({
+      scenario: 'project_qa',
+      artifacts: [{
+        id: 'page:systems/mbrain',
+        artifact_kind: 'compiled_truth',
+        source_ref: 'page:systems/mbrain',
+        stale: true,
+      }],
+    });
+
+    expect(result.decisions[0]).toMatchObject({
+      artifact_id: 'page:systems/mbrain',
+      decision: 'verify_first',
+      authority: 'canonical_compiled_truth',
+    });
+    expect(result.decisions[0]?.reason_codes).toContain('stale_compiled_truth');
+    expect(result.verification_required).toBe(true);
+    expect(result.next_tool).toBe('reverify_code_claims');
+  });
+
   test('keeps timeline hits citation-only for current synthesis', () => {
     const result = selectActivationPolicy({
       scenario: 'knowledge_qa',
@@ -120,5 +141,39 @@ describe('memory activation policy', () => {
 
     expect(result.decisions[0]?.decision).toBe('ignore');
     expect(result.next_tool).toBe('evaluate_scope_gate');
+  });
+
+  test('requires explicit scope allow before grounding personal artifacts', () => {
+    const withoutScopePolicy = selectActivationPolicy({
+      scenario: 'project_qa',
+      artifacts: [{
+        id: 'profile:preferences',
+        artifact_kind: 'profile_memory',
+        source_ref: 'profile-memory:preferences',
+      }],
+    });
+
+    expect(withoutScopePolicy.decisions[0]).toMatchObject({
+      artifact_id: 'profile:preferences',
+      decision: 'ignore',
+      authority: 'scope_denied',
+    });
+    expect(withoutScopePolicy.decisions[0]?.reason_codes).toContain('missing_scope_policy');
+
+    const withAllow = selectActivationPolicy({
+      scenario: 'project_qa',
+      artifacts: [{
+        id: 'profile:preferences',
+        artifact_kind: 'profile_memory',
+        source_ref: 'profile-memory:preferences',
+        scope_policy: 'allow',
+      }],
+    });
+
+    expect(withAllow.decisions[0]).toMatchObject({
+      artifact_id: 'profile:preferences',
+      decision: 'answer_ground',
+      authority: 'canonical_compiled_truth',
+    });
   });
 });

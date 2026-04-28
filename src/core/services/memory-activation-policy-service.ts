@@ -32,6 +32,14 @@ export function selectActivationPolicy(
 function decideArtifactActivation(
   artifact: MemoryActivationArtifact,
 ): MemoryActivationPolicyDecision {
+  if (artifact.artifact_kind === 'profile_memory' || artifact.artifact_kind === 'personal_episode') {
+    if (artifact.scope_policy !== 'allow') {
+      return buildDecision(artifact, 'ignore', 'scope_denied', [
+        artifact.scope_policy ? `scope_policy_${artifact.scope_policy}` : 'missing_scope_policy',
+      ]);
+    }
+  }
+
   if (artifact.scope_policy === 'deny' || artifact.scope_policy === 'defer') {
     return buildDecision(artifact, 'ignore', 'scope_denied', [
       `scope_policy_${artifact.scope_policy}`,
@@ -44,7 +52,9 @@ function decideArtifactActivation(
       ? buildDecision(artifact, 'verify_first', 'verified_current_artifact', ['stale_artifact'])
       : buildDecision(artifact, 'answer_ground', 'verified_current_artifact', ['current_artifact']);
   case 'compiled_truth':
-    return buildDecision(artifact, 'answer_ground', 'canonical_compiled_truth', ['compiled_truth']);
+    return artifact.stale
+      ? buildDecision(artifact, 'verify_first', 'canonical_compiled_truth', ['stale_compiled_truth'])
+      : buildDecision(artifact, 'answer_ground', 'canonical_compiled_truth', ['compiled_truth']);
   case 'timeline':
   case 'source_record':
     return buildDecision(artifact, 'citation_only', 'source_or_timeline_evidence', [

@@ -47,6 +47,17 @@ describe('memory scenario classifier', () => {
     expect(result.reason_codes).toContain('knowledge_question_signal');
   });
 
+  test('does not treat ambient repo path as coding continuation for knowledge QA', () => {
+    const result = classifyMemoryScenario({
+      query: 'What do we know about Pedro?',
+      repo_path: '/repo/mbrain',
+    });
+
+    expect(result.scenario).toBe('knowledge_qa');
+    expect(resultScenarios(result)).not.toContain('coding_continuation');
+    expect(result.reason_codes).toContain('knowledge_question_signal');
+  });
+
   test('does not treat conversational English knowledge requests as personal recall', () => {
     const result = classifyMemoryScenario({
       query: 'Tell me about Pedro',
