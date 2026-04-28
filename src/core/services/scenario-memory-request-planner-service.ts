@@ -330,6 +330,10 @@ function preserveExplicitKnowledgeMixedClassification(
   if (!hasExplicitContinuationAsk(input.query) || !hasExplicitKnowledgeAsk(input.query)) {
     return classification;
   }
+  const preservedScenario = selectPreservedQuestionScenario(input.query);
+  const preservedReasonCode = preservedScenario === 'project_qa'
+    ? 'project_query_signal'
+    : 'knowledge_question_signal';
 
   return {
     ...classification,
@@ -337,7 +341,7 @@ function preserveExplicitKnowledgeMixedClassification(
     confidence: 'high',
     reason_codes: dedupe([
       ...classification.reason_codes,
-      'knowledge_question_signal',
+      preservedReasonCode,
       'multiple_material_scenarios',
     ]),
     decomposed_routes: [
@@ -347,9 +351,9 @@ function preserveExplicitKnowledgeMixedClassification(
         reason_codes: classification.reason_codes,
       },
       {
-        scenario: 'knowledge_qa',
+        scenario: preservedScenario,
         confidence: 'medium',
-        reason_codes: ['knowledge_question_signal'],
+        reason_codes: [preservedReasonCode],
       },
     ],
   };
@@ -405,6 +409,20 @@ function hasExplicitKnowledgeAsk(query: string | undefined): boolean {
     /\bwhat\s+(?:is|are|does)\b/i,
     /\bhow\s+(?:does|do|is|are)\b/i,
     /(설명|알려줘|무엇|뭐야|무슨\s*뜻)/i,
+  ].some((pattern) => pattern.test(query));
+}
+
+function selectPreservedQuestionScenario(query: string | undefined): Exclude<MaterialScenario, 'coding_continuation'> {
+  return hasExplicitProjectSystemArchitectureAsk(query) ? 'project_qa' : 'knowledge_qa';
+}
+
+function hasExplicitProjectSystemArchitectureAsk(query: string | undefined): boolean {
+  if (!query) return false;
+
+  return [
+    /\b(?:project|system|repo|repository|codebase)\s+(?:architecture|structure|design)\b/i,
+    /\b(?:architecture|structure|design)\s+(?:of|for)\s+(?:the\s+)?(?:project|system|repo|repository|codebase)\b/i,
+    /(?:프로젝트|시스템|저장소|레포|코드베이스).*(?:아키텍처|구조|설계)/i,
   ].some((pattern) => pattern.test(query));
 }
 

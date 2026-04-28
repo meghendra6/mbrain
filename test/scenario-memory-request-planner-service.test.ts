@@ -94,6 +94,20 @@ describe('scenario memory request planner', () => {
     expect(plan.next_tool).toBe('resume_task');
   });
 
+  test('preserves system architecture explanations as project QA subplans', () => {
+    const plan = planScenarioMemoryRequest({
+      query: 'Continue the task and explain the mbrain system architecture',
+      task_id: 'task-123',
+    });
+
+    expect(plan.classification.scenario).toBe('mixed');
+    expect(plan.classification.decomposed_routes.map((route) => route.scenario)).toEqual([
+      'coding_continuation',
+      'project_qa',
+    ]);
+    expect(plan.next_tool).toBe('resume_task');
+  });
+
   test('preserves explicit mixed generic concept asks without known subjects', () => {
     const plan = planScenarioMemoryRequest({
       query: 'Continue the task and explain vector clocks',
