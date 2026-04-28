@@ -30,6 +30,20 @@ describe('scenario memory orchestration operations', () => {
     expect((result as { reason_codes: string[] }).reason_codes).toContain('task_id_present');
   });
 
+  test('classify_memory_scenario rejects non-string task_id params', async () => {
+    await expect(operationsByName.classify_memory_scenario.handler(ctx, {
+      query: 'Continue fixing the failing test',
+      task_id: 123,
+    })).rejects.toThrow('task_id must be a string');
+  });
+
+  test('scenario operations expose array item schemas', () => {
+    expect(operationsByName.classify_memory_scenario.params.known_subjects.items?.type).toEqual(['string', 'object']);
+    expect(operationsByName.select_activation_policy.params.artifacts.items?.type).toBe('object');
+    expect(operationsByName.plan_scenario_memory_request.params.known_subjects.items?.type).toEqual(['string', 'object']);
+    expect(operationsByName.plan_scenario_memory_request.params.artifacts.items?.type).toBe('object');
+  });
+
   test('registers select_activation_policy as non-mutating with CLI hint', () => {
     const op = operationsByName.select_activation_policy;
     expect(op).toBeDefined();
@@ -46,6 +60,21 @@ describe('scenario memory orchestration operations', () => {
         source_ref: 'page:systems/mbrain',
         stale: true,
       }],
+    });
+
+    expect((result as { verification_required: boolean }).verification_required).toBe(true);
+    expect((result as { next_tool: string }).next_tool).toBe('reverify_code_claims');
+  });
+
+  test('select_activation_policy accepts artifacts JSON string', async () => {
+    const result = await operationsByName.select_activation_policy.handler(ctx, {
+      scenario: 'project_qa',
+      artifacts: JSON.stringify([{
+        id: 'codemap:systems/mbrain#selectRetrievalRoute',
+        artifact_kind: 'codemap_pointer',
+        source_ref: 'page:systems/mbrain',
+        stale: true,
+      }]),
     });
 
     expect((result as { verification_required: boolean }).verification_required).toBe(true);
@@ -104,6 +133,26 @@ describe('scenario memory orchestration operations', () => {
     })).rejects.toThrow('artifacts[0].scope_policy must be one of');
   });
 
+  test('rejects invalid artifact optional field shapes', async () => {
+    await expect(operationsByName.select_activation_policy.handler(ctx, {
+      scenario: 'project_qa',
+      artifacts: [{
+        id: 'bad-source-ref',
+        artifact_kind: 'codemap_pointer',
+        source_ref: 123,
+      }],
+    })).rejects.toThrow('artifacts[0].source_ref must be a string');
+
+    await expect(operationsByName.select_activation_policy.handler(ctx, {
+      scenario: 'project_qa',
+      artifacts: [{
+        id: 'bad-stale',
+        artifact_kind: 'codemap_pointer',
+        stale: 'true',
+      }],
+    })).rejects.toThrow('artifacts[0].stale must be a boolean');
+  });
+
   test('accepts typed known_subjects JSON through planner for system subjects', async () => {
     const result = await operationsByName.plan_scenario_memory_request.handler(ctx, {
       query: 'mbrain의 검색 라우팅 구조를 설명해 주세요',
@@ -115,5 +164,24 @@ describe('scenario memory orchestration operations', () => {
     };
     expect(plan.classification.scenario).toBe('project_qa');
     expect(plan.classification.reason_codes).toContain('system_or_project_subject');
+  });
+
+  test('plan_scenario_memory_request rejects non-string task_id params', async () => {
+    await expect(operationsByName.plan_scenario_memory_request.handler(ctx, {
+      query: 'Continue this implementation task',
+      task_id: 123,
+    })).rejects.toThrow('task_id must be a string');
+  });
+
+  test('plan_scenario_memory_request rejects invalid known_subjects params', async () => {
+    await expect(operationsByName.plan_scenario_memory_request.handler(ctx, {
+      query: 'Explain mbrain',
+      known_subjects: [{ kind: 'system' }],
+    })).rejects.toThrow('known_subjects[0].ref must be a non-empty string');
+
+    await expect(operationsByName.plan_scenario_memory_request.handler(ctx, {
+      query: 'Explain mbrain',
+      known_subjects: [{ ref: 'systems/mbrain', kind: 'not-real' }],
+    })).rejects.toThrow('known_subjects[0].kind must be one of');
   });
 });

@@ -1170,6 +1170,14 @@ function parseStringListParam(value: unknown, key: string): string[] | undefined
     .filter((item) => item.length > 0);
 }
 
+function parseOptionalStringParam(value: unknown, key: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string') {
+    throw new OperationError('invalid_params', `${key} must be a string.`);
+  }
+  return value;
+}
+
 function parseKnownSubjectsParam(
   value: unknown,
   key: string,
@@ -3675,14 +3683,15 @@ const classify_memory_scenario: Operation = {
     source_kind: { type: 'string', description: 'Optional source kind for classification', enum: [...MEMORY_SCENARIO_SOURCE_KINDS] },
     known_subjects: {
       type: ['array', 'string'],
+      items: { type: ['string', 'object'] },
       description: 'Optional detected subject refs as strings or objects with ref and kind, or a JSON array string',
     },
   },
   mutating: false,
   handler: async (_ctx, p) => classifyMemoryScenario({
-    query: typeof p.query === 'string' ? p.query : undefined,
-    task_id: typeof p.task_id === 'string' ? p.task_id : undefined,
-    repo_path: typeof p.repo_path === 'string' ? p.repo_path : undefined,
+    query: parseOptionalStringParam(p.query, 'query'),
+    task_id: parseOptionalStringParam(p.task_id, 'task_id'),
+    repo_path: parseOptionalStringParam(p.repo_path, 'repo_path'),
     requested_scope: parseEnumParam(p.requested_scope, 'requested_scope', REQUESTED_SCOPES),
     source_kind: parseEnumParam(p.source_kind, 'source_kind', MEMORY_SCENARIO_SOURCE_KINDS),
     known_subjects: parseKnownSubjectsParam(p.known_subjects, 'known_subjects'),
@@ -3697,6 +3706,7 @@ const select_activation_policy: Operation = {
     scenario: { type: 'string', required: true, description: 'Memory scenario', enum: [...MEMORY_SCENARIOS] },
     artifacts: {
       type: ['array', 'string'],
+      items: { type: 'object' },
       description: 'Activation artifacts as objects or a JSON array string',
     },
   },
@@ -3726,18 +3736,20 @@ const plan_scenario_memory_request: Operation = {
     source_kind: { type: 'string', description: 'Optional source kind for classification', enum: [...MEMORY_SCENARIO_SOURCE_KINDS] },
     known_subjects: {
       type: ['array', 'string'],
+      items: { type: ['string', 'object'] },
       description: 'Optional detected subject refs as strings or objects with ref and kind, or a JSON array string',
     },
     artifacts: {
       type: ['array', 'string'],
+      items: { type: 'object' },
       description: 'Optional activation artifacts as objects or a JSON array string',
     },
   },
   mutating: false,
   handler: async (_ctx, p) => planScenarioMemoryRequest({
-    query: typeof p.query === 'string' ? p.query : undefined,
-    task_id: typeof p.task_id === 'string' ? p.task_id : undefined,
-    repo_path: typeof p.repo_path === 'string' ? p.repo_path : undefined,
+    query: parseOptionalStringParam(p.query, 'query'),
+    task_id: parseOptionalStringParam(p.task_id, 'task_id'),
+    repo_path: parseOptionalStringParam(p.repo_path, 'repo_path'),
     requested_scope: parseEnumParam(p.requested_scope, 'requested_scope', REQUESTED_SCOPES),
     source_kind: parseEnumParam(p.source_kind, 'source_kind', MEMORY_SCENARIO_SOURCE_KINDS),
     known_subjects: parseKnownSubjectsParam(p.known_subjects, 'known_subjects'),
