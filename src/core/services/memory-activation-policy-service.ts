@@ -94,7 +94,7 @@ function selectNextTool(decisions: MemoryActivationPolicyDecision[]): MemoryNext
   if (decisions.some((decision) => decision.decision === 'verify_first')) {
     return 'reverify_code_claims';
   }
-  if (decisions.some((decision) => decision.reason_codes.includes('context_map'))) {
+  if (decisions.some((decision) => decision.decision === 'orientation_only')) {
     return 'get_page';
   }
   if (decisions.some((decision) => decision.decision === 'candidate_only')) {

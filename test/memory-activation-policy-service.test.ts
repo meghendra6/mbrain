@@ -64,6 +64,20 @@ describe('memory activation policy', () => {
     expect(result.next_tool).toBe('reverify_code_claims');
   });
 
+  test('routes non-stale codemap pointers to page reads', () => {
+    const result = selectActivationPolicy({
+      scenario: 'project_qa',
+      artifacts: [{
+        id: 'codemap:systems/mbrain#selectRetrievalRoute',
+        artifact_kind: 'codemap_pointer',
+        source_ref: 'page:systems/mbrain',
+      }],
+    });
+
+    expect(result.decisions[0]?.decision).toBe('orientation_only');
+    expect(result.next_tool).toBe('get_page');
+  });
+
   test('suppresses failed attempts only when anchors are valid', () => {
     const result = selectActivationPolicy({
       scenario: 'coding_continuation',
@@ -77,6 +91,20 @@ describe('memory activation policy', () => {
 
     expect(result.decisions[0]?.decision).toBe('suppress_if_valid');
     expect(result.writeback_hint).toBe('record_trace');
+  });
+
+  test('requires verification for failed attempts without valid anchors', () => {
+    const result = selectActivationPolicy({
+      scenario: 'coding_continuation',
+      artifacts: [{
+        id: 'attempt:failed-1',
+        artifact_kind: 'task_attempt_failed',
+        source_ref: 'task-attempt:failed-1',
+      }],
+    });
+
+    expect(result.decisions[0]?.decision).toBe('verify_first');
+    expect(result.verification_required).toBe(true);
   });
 
   test('ignores scope-denied artifacts', () => {
