@@ -80,6 +80,20 @@ describe('scenario memory request planner', () => {
     expect(plan.next_tool).toBe('resume_task');
   });
 
+  test('preserves explicit mixed project asks without known subjects', () => {
+    const plan = planScenarioMemoryRequest({
+      query: 'Continue the task and explain the mbrain project architecture',
+      task_id: 'task-123',
+    });
+
+    expect(plan.classification.scenario).toBe('mixed');
+    expect(plan.decomposed_plans.map((subplan) => subplan.scenario)).toEqual([
+      'coding_continuation',
+      'project_qa',
+    ]);
+    expect(plan.next_tool).toBe('resume_task');
+  });
+
   test('returns planned activation rules for project map orientation before artifacts exist', () => {
     const plan = planScenarioMemoryRequest({
       query: 'mbrain 검색 라우팅 구조를 설명해 주세요',

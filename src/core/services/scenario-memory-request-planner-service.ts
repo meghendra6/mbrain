@@ -330,7 +330,13 @@ function normalizeTaskContinuationClassification(
     && nonCodingRoutes[0]?.scenario === 'project_qa'
     && nonCodingRoutes[0].reason_codes.every((reason) => reason === 'project_query_signal');
 
-  if (!codingRoute || !onlyIncidentalProjectRoute) return classification;
+  if (
+    !codingRoute
+    || !onlyIncidentalProjectRoute
+    || hasExplicitProjectAsk(input.query)
+  ) {
+    return classification;
+  }
 
   return {
     ...classification,
@@ -339,6 +345,18 @@ function normalizeTaskContinuationClassification(
     reason_codes: codingRoute.reason_codes,
     decomposed_routes: [],
   };
+}
+
+function hasExplicitProjectAsk(query: string | undefined): boolean {
+  if (!query) return false;
+
+  return [
+    /\b(explain|describe|summari[sz]e|walk\s+me\s+through)\b/i,
+    /\b(project\s+architecture|project\s+structure|project\s+design)\b/i,
+    /\b(route\s+architecture|routing\s+architecture|routing\s+structure)\b/i,
+    /\b(retrieval\s+architecture|retrieval\s+routing\s+structure)\b/i,
+    /(설명|구조|아키텍처|설계|검색\s*라우팅|라우팅\s*구조|프로젝트)/i,
+  ].some((pattern) => pattern.test(query));
 }
 
 function selectRouteScenario(
