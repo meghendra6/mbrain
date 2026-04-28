@@ -1637,6 +1637,44 @@ export interface MemoryActivationPolicyResult {
   trace_required: boolean;
 }
 
+export type MemoryScenarioClassification = MemoryScenarioClassifierResult;
+
+export interface MemoryPlannedActivationRule {
+  planned_read: string;
+  artifact_kind: MemoryArtifactKind;
+  decision: MemoryActivationDecision;
+  authority: MemoryArtifactAuthority;
+  reason_codes: string[];
+}
+
+export interface ScenarioMemoryRequestInput extends MemoryScenarioClassifierInput {
+  artifacts?: MemoryActivationArtifact[];
+}
+
+export interface ScenarioMemorySubplan {
+  scenario: Exclude<MemoryScenario, 'mixed'>;
+  primary_reads: string[];
+  secondary_reads: string[];
+  next_tool: MemoryNextTool;
+  writeback_hint: MemoryWritebackHint;
+  planned_activation_rules: MemoryPlannedActivationRule[];
+}
+
+export interface ScenarioMemoryRequestPlan {
+  classification: MemoryScenarioClassification;
+  primary_reads: string[];
+  secondary_reads: string[];
+  activation_decisions: MemoryActivationPolicyDecision[];
+  next_tool: MemoryNextTool;
+  writeback_hint: MemoryWritebackHint;
+  stale_warnings: string[];
+  verification_required: boolean;
+  source_refs: string[];
+  trace_required: boolean;
+  decomposed_plans: ScenarioMemorySubplan[];
+  planned_activation_rules: MemoryPlannedActivationRule[];
+}
+
 export interface RetrievalRouteSelectorResult {
   selected_intent: RetrievalRouteIntent;
   selection_reason: string;
