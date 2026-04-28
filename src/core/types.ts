@@ -1485,6 +1485,68 @@ export interface RetrievalRequestPlan {
   steps: RetrievalRequestPlanStep[];
 }
 
+export type MemoryScenario =
+  | 'coding_continuation'
+  | 'project_qa'
+  | 'knowledge_qa'
+  | 'auto_accumulation'
+  | 'personal_recall'
+  | 'mixed';
+
+export type MemoryScenarioConfidence = 'high' | 'medium' | 'low';
+export type MemoryScenarioScopeDecision = 'work' | 'personal' | 'mixed' | 'defer';
+export type MemoryScenarioSourceKind =
+  | 'chat'
+  | 'code_event'
+  | 'import'
+  | 'meeting'
+  | 'cron'
+  | 'manual'
+  | 'session_end'
+  | 'trace_review';
+
+export type MemoryScenarioKnownSubjectKind =
+  | 'project'
+  | 'system'
+  | 'concept'
+  | 'person'
+  | 'company'
+  | 'source'
+  | 'file'
+  | 'symbol'
+  | 'task'
+  | 'profile'
+  | 'personal_episode';
+
+export interface MemoryScenarioKnownSubject {
+  ref: string;
+  kind?: MemoryScenarioKnownSubjectKind;
+}
+
+export interface MemoryScenarioClassifierInput {
+  query?: string;
+  task_id?: string | null;
+  repo_path?: string | null;
+  requested_scope?: Exclude<MemoryScenarioScopeDecision, 'defer'>;
+  source_kind?: MemoryScenarioSourceKind;
+  known_subjects?: Array<string | MemoryScenarioKnownSubject>;
+}
+
+export interface MemoryScenarioDecomposedRoute {
+  scenario: Exclude<MemoryScenario, 'mixed'>;
+  confidence: MemoryScenarioConfidence;
+  reason_codes: string[];
+}
+
+export interface MemoryScenarioClassifierResult {
+  scenario: MemoryScenario;
+  confidence: MemoryScenarioConfidence;
+  scope_decision: MemoryScenarioScopeDecision;
+  reason_codes: string[];
+  requires_user_clarification: boolean;
+  decomposed_routes: MemoryScenarioDecomposedRoute[];
+}
+
 export interface RetrievalRouteSelectorResult {
   selected_intent: RetrievalRouteIntent;
   selection_reason: string;
