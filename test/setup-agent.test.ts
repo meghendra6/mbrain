@@ -96,6 +96,25 @@ afterEach(() => {
 });
 
 describe('setup-agent', () => {
+  test('setup-agent --print emits compact rules with the required memory loop essentials', async () => {
+    const result = await runSetupAgent(['--print']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toContain('MBRAIN:RULES:START');
+    expect(result.stdout).toContain('Read First When MBrain Is Relevant');
+    expect(result.stdout).toContain('Write Back Durable Knowledge');
+    expect(result.stdout).toContain('Backlinks And Sync');
+    expect(result.stdout).toContain('sync_brain');
+    expect(result.stdout).toContain('no_pull: true');
+    expect(result.stdout).toContain('no_embed: true');
+    expect(result.stdout).not.toContain('Every conversation must follow this cycle');
+    expect(result.stdout).not.toContain('On EVERY inbound message');
+
+    const wordCount = result.stdout.trim().split(/\s+/).length;
+    expect(wordCount).toBeLessThan(650);
+  });
+
   test('setup-agent --claude installs the Claude stop hook assets and registration', async () => {
     const result = await runSetupAgent(['--claude', '--skip-mcp']);
 
