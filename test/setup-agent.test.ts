@@ -169,8 +169,11 @@ describe('setup-agent', () => {
     expect(hook.exitCode).toBe(0);
     expect(hook.stderr).toBe('');
     expect(hook.stdout).toContain('"decision":"block"');
+    expect(hook.stdout).toContain('MBrain memory check, not a crash');
+    expect(hook.stdout).toContain('Claude Code may label this as');
+    expect(hook.stdout).toContain('durable knowledge');
     expect(hook.stdout).toContain('MBRAIN-PASS');
-    expect(hook.stdout).toContain('MBRAIN_AGENT_RULES');
+    expect(hook.stdout).not.toContain('mbrain write check');
   });
 
   test('installed Claude hook passes through when the mbrain stop hook kill switch is disabled', async () => {
