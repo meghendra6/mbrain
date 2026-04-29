@@ -103,7 +103,16 @@ if ! mbrain_is_relevant; then
   exit 0
 fi
 
-REASON='mbrain write check: before ending this session, review the conversation for entities (people, companies, concepts, technical systems) worth recording — per MBRAIN_AGENT_RULES.md §3. For each notable entity: mbrain search <slug> to find or create the page, append compiled truth + timeline entry with source attribution, add back-links (iron law), then mbrain sync_brain with no_pull=true and no_embed=true. If nothing in this session warrants a brain write (read-only question, trivial chore, already-written knowledge), respond with exactly: MBRAIN-PASS: <short reason>. Do not ask the user for permission — decide and act.'
+REASON='MBrain memory check, not a crash.
+
+Claude Code may label this as "Stop hook error", but this is an intentional reminder gate.
+
+Before ending, review the conversation for durable knowledge: people, companies, concepts, technical systems, or original user thinking.
+
+If there is durable knowledge: use MBrain search/query/get first, write the update with source attribution and backlinks, then sync with no_pull=true and no_embed=true.
+
+If nothing should be saved: respond exactly:
+MBRAIN-PASS: <short reason>'
 
 log_line "block" "$SESSION_ID" "gate-passed"
 

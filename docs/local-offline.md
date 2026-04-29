@@ -412,9 +412,19 @@ For Claude Code, `setup-agent` also installs:
 - `~/.claude/scripts/hooks/stop-mbrain-check.sh`
 - `~/.claude/scripts/hooks/lib/mbrain-relevance.sh`
 - `~/.claude/mbrain-skip-dirs`
-- `~/.claude/hooks/hooks.json` entry `stop:mbrain-check`
+- `~/.claude/settings.json` Stop hook entry `stop:mbrain-check`
 
 The Stop hook runs once at session end, blocks once for relevant sessions, and asks Claude Code to either write new session knowledge back to mbrain or respond with `MBRAIN-PASS: <reason>`.
+
+When the Stop hook blocks a response, Claude Code may display the message under a `Stop hook error` prefix. In this case, the MBrain hook is not crashing; it is asking the agent to do one final memory check. The agent should either write durable session knowledge to MBrain and sync, or respond exactly `MBRAIN-PASS: <short reason>`.
+
+To disable the reminder for one Claude session:
+
+```bash
+MBRAIN_STOP_HOOK=0 claude
+```
+
+To disable it for specific working directories, add absolute paths to `~/.claude/mbrain-skip-dirs`.
 
 ### After setup
 

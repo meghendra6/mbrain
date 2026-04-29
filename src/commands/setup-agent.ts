@@ -103,6 +103,14 @@ export async function runSetupAgent(args: string[]) {
       console.log(`    [${mcpIcon}] MCP: ${r.mcp}`);
       console.log(`    [${rulesIcon}] Rules: ${r.rules}`);
     }
+    const configuredClaude = results.some(r => r.client === 'claude');
+    if (configuredClaude) {
+      console.log('\nClaude Code MBrain memory check:');
+      console.log('  This installs a Stop hook that may appear under Claude Code as "Stop hook error".');
+      console.log('  That label is Claude Code UI wording; the MBrain hook is a memory reminder, not a crash.');
+      console.log('  Disable for a session: MBRAIN_STOP_HOOK=0 claude');
+      console.log('  Skip directories: add absolute paths to ~/.claude/mbrain-skip-dirs');
+    }
     console.log('\nDone. Start a new session in your AI client to activate the rules.');
     console.log('Full reference: use the get_skillpack MCP tool inside your AI client.');
   }

@@ -107,6 +107,16 @@ describe('setup-agent', () => {
     expect(mbrainHook.hooks[0].command).toBe('bash "$HOME/.claude/scripts/hooks/stop-mbrain-check.sh"');
   });
 
+  test('setup-agent explains Claude stop hook UX after installing it', async () => {
+    const result = await runSetupAgent(['--claude', '--skip-mcp']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Claude Code MBrain memory check');
+    expect(result.stdout).toContain('not a crash');
+    expect(result.stdout).toContain('MBRAIN_STOP_HOOK=0');
+    expect(result.stdout).toContain('~/.claude/mbrain-skip-dirs');
+  });
+
   test('setup-agent preserves existing settings.json fields when adding the stop hook', async () => {
     const settingsPath = join(tempHome, '.claude', 'settings.json');
     writeFileSync(
@@ -169,8 +179,11 @@ describe('setup-agent', () => {
     expect(hook.exitCode).toBe(0);
     expect(hook.stderr).toBe('');
     expect(hook.stdout).toContain('"decision":"block"');
+    expect(hook.stdout).toContain('MBrain memory check, not a crash');
+    expect(hook.stdout).toContain('Claude Code may label this as');
+    expect(hook.stdout).toContain('durable knowledge');
     expect(hook.stdout).toContain('MBRAIN-PASS');
-    expect(hook.stdout).toContain('MBRAIN_AGENT_RULES');
+    expect(hook.stdout).not.toContain('mbrain write check');
   });
 
   test('installed Claude hook passes through when the mbrain stop hook kill switch is disabled', async () => {
