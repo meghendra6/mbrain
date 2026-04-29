@@ -81,7 +81,6 @@ The user's direct statements outrank other sources.
 
 Every entity mention must be bidirectionally linked. When page A mentions page B,
 page B's timeline should link back to page A with context:
-
 `- **YYYY-MM-DD** | Referenced in [page title](path/to/page.md) -- context`
 
 After creating or updating any brain page, sync immediately:
