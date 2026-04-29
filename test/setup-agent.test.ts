@@ -107,6 +107,16 @@ describe('setup-agent', () => {
     expect(mbrainHook.hooks[0].command).toBe('bash "$HOME/.claude/scripts/hooks/stop-mbrain-check.sh"');
   });
 
+  test('setup-agent explains Claude stop hook UX after installing it', async () => {
+    const result = await runSetupAgent(['--claude', '--skip-mcp']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Claude Code MBrain memory check');
+    expect(result.stdout).toContain('not a crash');
+    expect(result.stdout).toContain('MBRAIN_STOP_HOOK=0');
+    expect(result.stdout).toContain('~/.claude/mbrain-skip-dirs');
+  });
+
   test('setup-agent preserves existing settings.json fields when adding the stop hook', async () => {
     const settingsPath = join(tempHome, '.claude', 'settings.json');
     writeFileSync(
