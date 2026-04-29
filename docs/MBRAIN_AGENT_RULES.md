@@ -81,6 +81,6 @@ page B's timeline should link back to page A with context:
 
 After creating or updating any brain page, sync immediately:
 
-`mbrain sync_brain` with `no_pull: true` and `no_embed: true`.
+Call `sync_brain` with `no_pull: true` and `no_embed: true`.
 
 Embeddings can refresh later in batch.
