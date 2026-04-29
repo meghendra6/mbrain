@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { BrainEngine } from '../src/core/engine.ts';
@@ -647,6 +647,51 @@ describe('put_page content hash preconditions and mutation ledger', () => {
         const after = await ctx.engine.getPage(slug);
         expect(after?.content_hash).toBe(before?.content_hash);
         expect(after?.compiled_truth).toBe(before?.compiled_truth);
+      } finally {
+        rmSync(repoPath, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test('markdown-first put_page does not rewrite the file when content is unchanged', async () => {
+    await withSqliteEngine(async (ctx) => {
+      const put = getOperation('put_page');
+      const repoPath = mkdtempSync(join(tmpdir(), 'mbrain-put-page-unchanged-repo-'));
+      const slug = 'concepts/unchanged-markdown-first';
+      const content = pageContent(
+        'Unchanged Markdown First',
+        'The file content is already current.',
+        '- 2026-04-25 | Initial unchanged markdown-first evidence.',
+      );
+
+      try {
+        await put.handler(ctx, {
+          slug,
+          content,
+          repo: repoPath,
+          session_id: 'put-page-unchanged-markdown-first-seed',
+        });
+
+        const filePath = join(repoPath, 'concepts', 'unchanged-markdown-first.md');
+        const oldDate = new Date('2026-01-01T00:00:00.000Z');
+        utimesSync(filePath, oldDate, oldDate);
+        const beforeMtime = statSync(filePath).mtimeMs;
+
+        const result = await put.handler(ctx, {
+          slug,
+          content,
+          repo: repoPath,
+          session_id: 'put-page-unchanged-markdown-first-session',
+          source_refs: ['Source: unchanged markdown-first optimization test'],
+        }) as any;
+
+        expect(result).toMatchObject({
+          slug,
+          status: 'skipped',
+          chunks: 0,
+        });
+        expect(readFileSync(filePath, 'utf-8')).toBe(content);
+        expect(statSync(filePath).mtimeMs).toBe(beforeMtime);
       } finally {
         rmSync(repoPath, { recursive: true, force: true });
       }

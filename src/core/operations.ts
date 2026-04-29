@@ -1523,6 +1523,7 @@ interface PutPageMarkdownTarget {
 interface PutPageMarkdownSnapshot {
   existed: boolean;
   content: string | null;
+  isSymlink: boolean;
 }
 
 function putPageMarkdownTarget(repoPath: string, slug: string): PutPageMarkdownTarget {
@@ -1569,15 +1570,6 @@ function assertPutPageMarkdownContentMatchesTarget(content: string, target: PutP
   }
 }
 
-function readMarkdownTargetHash(target: PutPageMarkdownTarget): string | null {
-  if (!existsSync(target.filePath)) return null;
-  return hashMarkdownPageContent(
-    target.relativePath.replace(/\.md$/i, ''),
-    readFileSync(target.filePath, 'utf-8'),
-    target.relativePath,
-  );
-}
-
 function assertPutPageMarkdownParentIsSafe(target: PutPageMarkdownTarget): void {
   const directory = dirname(target.relativePath);
   if (directory === '.' || directory === '') return;
@@ -1612,9 +1604,13 @@ function assertPutPageMarkdownParentIsSafe(target: PutPageMarkdownTarget): void 
 
 function readMarkdownTargetSnapshot(target: PutPageMarkdownTarget): PutPageMarkdownSnapshot {
   if (!existsSync(target.filePath)) {
-    return { existed: false, content: null };
+    return { existed: false, content: null, isSymlink: false };
   }
-  return { existed: true, content: readFileSync(target.filePath, 'utf-8') };
+  return {
+    existed: true,
+    content: readFileSync(target.filePath, 'utf-8'),
+    isSymlink: lstatSync(target.filePath).isSymbolicLink(),
+  };
 }
 
 function atomicWriteMarkdownTarget(target: PutPageMarkdownTarget, content: string): void {
@@ -1642,6 +1638,19 @@ function restoreMarkdownTargetSnapshot(target: PutPageMarkdownTarget, snapshot: 
     return;
   }
   rmSync(target.filePath, { force: true });
+}
+
+function hashMarkdownTargetSnapshot(target: PutPageMarkdownTarget, snapshot: PutPageMarkdownSnapshot): string | null {
+  if (!snapshot.existed || snapshot.content === null) return null;
+  return hashMarkdownPageContent(
+    target.relativePath.replace(/\.md$/i, ''),
+    snapshot.content,
+    target.relativePath,
+  );
+}
+
+function shouldWriteMarkdownTarget(snapshot: PutPageMarkdownSnapshot, content: string): boolean {
+  return !snapshot.existed || snapshot.isSymlink || snapshot.content !== content;
 }
 
 function putPageMarkdownPreflightError(content: string): string | null {
@@ -1939,7 +1948,10 @@ const put_page: Operation = {
           ? await tx.getPageForUpdate(slug)
           : await tx.getPage(slug);
         const previousHash = existing?.content_hash ?? null;
-        const markdownContentHash = markdownTarget ? readMarkdownTargetHash(markdownTarget) : null;
+        const markdownSnapshot = markdownTarget ? readMarkdownTargetSnapshot(markdownTarget) : null;
+        const markdownContentHash = markdownTarget && markdownSnapshot
+          ? hashMarkdownTargetSnapshot(markdownTarget, markdownSnapshot)
+          : null;
 
         if (expectedContentHash !== undefined && !existing) {
           return {
@@ -2013,9 +2025,11 @@ const put_page: Operation = {
                 error: preflightError,
               };
             }
-            markdownWriteSnapshot = readMarkdownTargetSnapshot(markdownTarget);
-            atomicWriteMarkdownTarget(markdownTarget, content);
-            markdownFileWritten = true;
+            markdownWriteSnapshot = markdownSnapshot ?? readMarkdownTargetSnapshot(markdownTarget);
+            if (shouldWriteMarkdownTarget(markdownWriteSnapshot, content)) {
+              atomicWriteMarkdownTarget(markdownTarget, content);
+              markdownFileWritten = true;
+            }
             return importFromFile(tx, markdownTarget.filePath, markdownTarget.relativePath);
           })()
           : importFromContent(tx, slug, content));
