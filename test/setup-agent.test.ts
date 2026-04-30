@@ -5,6 +5,7 @@ import { dirname, join } from 'path';
 import { tmpdir } from 'os';
 
 const repoRoot = new URL('..', import.meta.url).pathname;
+const conciseStopHookReason = 'MBrain memory check (not a crash): if durable knowledge emerged, write it with sources/backlinks and sync; otherwise reply exactly MBRAIN-PASS: <short reason>.';
 const originalEnv = { ...process.env };
 let tempHome: string;
 let tempBin: string;
@@ -281,12 +282,9 @@ describe('setup-agent', () => {
     expect(hook.exitCode).toBe(0);
     expect(hook.stderr).toBe('');
     expect(hook.stdout).toContain('"decision":"block"');
-    expect(hook.stdout).toContain('MBrain memory check, not a crash');
-    expect(hook.stdout).toContain('Claude Code may label this as');
-    expect(hook.stdout).toContain('durable knowledge');
-    expect(hook.stdout).toContain('Do not write to MBrain just because this hook fired');
-    expect(hook.stdout).toContain('purely code editing, git operations, file management, library docs, or general programming');
-    expect(hook.stdout).toContain('MBRAIN-PASS');
+    expect(JSON.parse(hook.stdout).reason).toBe(conciseStopHookReason);
+    expect(hook.stdout).not.toContain('Claude Code may label this as');
+    expect(hook.stdout).not.toContain('Do not write to MBrain just because this hook fired');
     expect(hook.stdout).not.toContain('mbrain write check');
   });
 
