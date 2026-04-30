@@ -103,18 +103,7 @@ if ! mbrain_is_relevant; then
   exit 0
 fi
 
-REASON='MBrain memory check, not a crash.
-
-Claude Code may label this as "Stop hook error", but this is an intentional reminder gate.
-
-Before ending, review the conversation for durable knowledge: people, companies, concepts, technical systems, or original user thinking.
-
-Do not write to MBrain just because this hook fired. If this was purely code editing, git operations, file management, library docs, or general programming with no durable knowledge, skip the write.
-
-If there is durable knowledge: use MBrain search/query/get first, write the update with source attribution and backlinks, then sync with no_pull=true and no_embed=true.
-
-If nothing should be saved: respond exactly:
-MBRAIN-PASS: <short reason>'
+REASON='MBrain memory check (not a crash): if durable knowledge emerged, write it with sources/backlinks and sync; otherwise reply exactly MBRAIN-PASS: <short reason>.'
 
 log_line "block" "$SESSION_ID" "gate-passed"
 

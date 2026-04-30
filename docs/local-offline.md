@@ -453,7 +453,7 @@ For Claude Code, `setup-agent` also installs:
 
 The Stop hook runs once at session end, blocks once for eligible sessions, and asks Claude Code to either write durable session knowledge back to mbrain or respond with `MBRAIN-PASS: <reason>`.
 
-When the Stop hook blocks a response, Claude Code may display the message under a `Stop hook error` prefix. In this case, the MBrain hook is not crashing; it is asking the agent to do one final memory check. The agent should not write just because the hook fired: it should write durable session knowledge to MBrain and sync only when there is something worth saving, otherwise respond exactly `MBRAIN-PASS: <short reason>`.
+When the Stop hook blocks a response, Claude Code may display the message under a `Stop hook error` prefix. In this case, the MBrain hook is not crashing; its one-line reason is a reminder to apply the installed MBrain agent rules, write only durable session knowledge when appropriate, or respond exactly `MBRAIN-PASS: <short reason>`.
 
 To disable the reminder for one Claude session:
 
